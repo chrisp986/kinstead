@@ -64,13 +64,13 @@ export const actions = {
 		const duration = Number(formData.get('duration_ticks'));
 		const intent: CreateAssignmentIntent = {
 			character_id: String(formData.get('character_id') ?? ''),
-			activity: String(formData.get('activity') ?? ''),
+			activity: String(formData.get('activity') ?? '') as CreateAssignmentIntent['activity'],
 			intensity: String(formData.get('intensity') ?? '') as CreateAssignmentIntent['intensity'],
 			duration_ticks: duration as CreateAssignmentIntent['duration_ticks']
 		};
 		if (
 			!intent.character_id ||
-			!intent.activity ||
+			!['agriculture', 'fishing', 'woodcutting', 'rest'].includes(intent.activity) ||
 			!['light', 'normal', 'high'].includes(intent.intensity) ||
 			![1, 3, 6, 12].includes(duration)
 		) {

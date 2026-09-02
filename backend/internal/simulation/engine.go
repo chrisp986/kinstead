@@ -57,7 +57,7 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, cfg
 	if state.SupplyDays(cfg) < float64(cfg.CriticalSupplyDays) {
 		state.CriticalDays++
 	}
-	if state.SupplyDays(cfg) < float64(cfg.StrainedSupplyDays) {
+	if state.SupplyDays(cfg) <= float64(cfg.StrainedSupplyDays) {
 		state.StrainedDays++
 	}
 	state.Tick = tick

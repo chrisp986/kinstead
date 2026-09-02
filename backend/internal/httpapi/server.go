@@ -163,7 +163,7 @@ func (s *Server) createAssignment(w http.ResponseWriter, r *http.Request) {
 
 func validActivity(v string) bool {
 	switch v {
-	case "agriculture", "fishing", "woodcutting", "building", "crafting", "training", "market", "travel", "ruler_service", "rest":
+	case "agriculture", "fishing", "woodcutting", "rest":
 		return true
 	}
 	return false

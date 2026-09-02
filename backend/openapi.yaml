@@ -279,7 +279,7 @@ components:
       required: [character_id, activity, intensity, duration_ticks]
       properties:
         character_id: { type: string, format: uuid }
-        activity: { type: string }
+        activity: { type: string, enum: [agriculture, fishing, woodcutting, rest] }
         intensity: { type: string, enum: [light, normal, high] }
         duration_ticks: { type: integer, enum: [1, 3, 6, 12] }
         starts_tick: { type: integer, format: int64 }

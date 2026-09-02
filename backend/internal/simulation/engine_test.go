@@ -63,6 +63,21 @@ func TestRestRecoversFatigue(t *testing.T) {
 	}
 }
 
+func TestSupplyThresholdsMatchV03Baseline(t *testing.T) {
+	cfg := DefaultBalanceConfig()
+	state := NewBjornvikState()
+	// ProcessTick consumes at the end of a tick, so leave exactly 30 days then.
+	state.ProvisionsMilli = 31 * cfg.DailyConsumptionMilli
+
+	result, err := ProcessTick(state, 1, nil, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State.StrainedDays != 1 {
+		t.Fatalf("30 supply days should be strained, got %d strained days", result.State.StrainedDays)
+	}
+}
+
 func TestRejectsDuplicateAssignment(t *testing.T) {
 	_, err := ProcessTick(NewBjornvikState(), 1, []Assignment{
 		{Character: "Bjorn", Activity: Agriculture, Intensity: Normal},

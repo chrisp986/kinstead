@@ -1,17 +1,18 @@
-# Game scaffold — browser vertical slice
+# Project Documentation
 
-Go + PostgreSQL technical Vertical Slice baseline. The visible game name is intentionally configuration-only and absent from domain packages, SQL table names and API routes.
+Canonical project context for coding agents and contributors.
 
-See `backend/README.md` for database and Go setup. The initial SvelteKit household dashboard is documented in `frontend/README.md`.
+Read in this order:
 
-With the API running on port 8080, start the browser client:
+1.  `AGENTS.md` --- implementation constraints
+2.  `docs/project-spec.md` --- product/game specification
+3.  `docs/architecture.md` --- technical architecture
+4.  `docs/balance-v0.3.md` --- frozen deterministic balance baseline
+5.  `docs/roadmap.md` --- implementation sequence
 
-```bash
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
-```
+For Codex tasks, use:
 
-Open `http://localhost:5173` to view the seeded Bjornvik household, schedule work, purchase a market offer, inspect shipments, and read its structured activity log.
-# kinstead
+> Read `AGENTS.md` and the relevant files under `docs/` before making
+> changes. Treat them as authoritative unless the task explicitly
+> overrides them. Implement only the requested milestone and keep tests
+> passing.

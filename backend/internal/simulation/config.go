@@ -23,7 +23,7 @@ func DefaultBalanceConfig() BalanceConfig {
 		DailyWoodUpkeepMilli:  1000,
 		CriticalSupplyDays:    15,
 		EmergencySupplyDays:   7,
-		StrainedSupplyDays:    20,
+		StrainedSupplyDays:    30,
 		Intensity: map[Intensity]IntensityRule{
 			Light:  {ProductionPermille: 800, FatigueDelta: 2},
 			Normal: {ProductionPermille: 1000, FatigueDelta: 4},

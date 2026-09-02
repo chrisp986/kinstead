@@ -80,7 +80,7 @@
 			>
 			<label
 				><span>Activity</span><select name="activity" required
-					>{#each ['agriculture', 'fishing', 'woodcutting', 'building', 'crafting', 'training', 'market', 'travel', 'ruler_service', 'rest'] as activity (activity)}<option
+					>{#each ['agriculture', 'fishing', 'woodcutting', 'rest'] as activity (activity)}<option
 							value={activity}>{labelActivity(activity)}</option
 						>{/each}</select
 				></label

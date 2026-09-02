@@ -96,7 +96,7 @@ export type MarketOffer = {
 
 export type CreateAssignmentIntent = {
 	character_id: string;
-	activity: string;
+	activity: 'agriculture' | 'fishing' | 'woodcutting' | 'rest';
 	intensity: 'light' | 'normal' | 'high';
 	duration_ticks: 1 | 3 | 6 | 12;
 	starts_tick?: number;
