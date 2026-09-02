@@ -1,0 +1,75 @@
+//go:build postgres
+
+package application
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"game/backend/internal/postgres"
+	"game/backend/internal/simulation"
+)
+
+type Alert struct {
+	Level   string `json:"level"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type FarmReport struct {
+	HouseholdID    string                      `json:"household_id"`
+	HouseholdName  string                      `json:"household_name"`
+	WorldID        string                      `json:"world_id"`
+	Tick           int64                       `json:"tick"`
+	HistoricalDate string                      `json:"historical_date"`
+	Season         simulation.Season           `json:"season"`
+	SupplyDays     float64                     `json:"supply_days"`
+	Resources      map[string]float64          `json:"resources"`
+	Characters     []postgres.CharacterRecord  `json:"characters"`
+	Assignments    []postgres.AssignmentRecord `json:"assignments"`
+	Alerts         []Alert                     `json:"alerts"`
+}
+
+type ReportService struct {
+	Store   *postgres.Store
+	Balance simulation.BalanceConfig
+}
+
+func NewReportService(store *postgres.Store) *ReportService {
+	return &ReportService{Store: store, Balance: simulation.DefaultBalanceConfig()}
+}
+
+func (s *ReportService) FarmReport(ctx context.Context, householdID string) (FarmReport, error) {
+	snap, err := s.Store.GetHouseholdReport(ctx, householdID, s.Balance)
+	if err != nil {
+		return FarmReport{}, err
+	}
+	supply := snap.State.SupplyDays(s.Balance)
+	alerts := make([]Alert, 0, 3)
+	switch {
+	case supply < float64(s.Balance.EmergencySupplyDays):
+		alerts = append(alerts, Alert{"critical", "supply_emergency", fmt.Sprintf("Vorräte reichen nur %.1f Tage.", supply)})
+	case supply < float64(s.Balance.CriticalSupplyDays):
+		alerts = append(alerts, Alert{"critical", "supply_critical", fmt.Sprintf("Vorräte reichen nur %.1f Tage.", supply)})
+	case supply <= 30:
+		alerts = append(alerts, Alert{"warning", "supply_strained", fmt.Sprintf("Vorräte reichen %.1f Tage.", supply)})
+	}
+	for _, c := range snap.Characters {
+		if len(alerts) >= 3 {
+			break
+		}
+		if c.Fatigue >= 70 {
+			alerts = append(alerts, Alert{"warning", "fatigue", fmt.Sprintf("%s ist stark erschöpft (%d).", c.Name, c.Fatigue)})
+		}
+	}
+	historicalDays := snap.CurrentTick * int64(snap.HistoricalDaysPerTickNum) / int64(snap.HistoricalDaysPerTickDen)
+	historical := snap.HistoricalStart.AddDate(0, 0, int(historicalDays))
+	return FarmReport{
+		HouseholdID: snap.HouseholdID, HouseholdName: snap.HouseholdName, WorldID: snap.WorldID,
+		Tick: snap.CurrentTick, HistoricalDate: historical.Format(time.DateOnly), Season: simulation.SeasonForTick(snap.CurrentTick),
+		SupplyDays: supply,
+		Resources:  map[string]float64{"provisions": float64(snap.State.ProvisionsMilli) / 1000, "wood": float64(snap.State.WoodMilli) / 1000, "trade_goods": float64(snap.State.TradeGoodsMilli) / 1000, "silver": float64(snap.State.SilverMilli) / 1000},
+		Characters: snap.Characters, Assignments: snap.Assignments, Alerts: alerts,
+	}, nil
+}

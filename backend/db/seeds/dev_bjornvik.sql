@@ -1,0 +1,30 @@
+-- Development-only Bjornvik seed. Run after 000001_init.sql.
+BEGIN;
+
+INSERT INTO worlds (id, name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0, 14400, now());
+
+INSERT INTO locations (id, world_id, name, location_type) VALUES
+('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000001','Bjornvik','farm');
+
+INSERT INTO households (id, world_id, location_id, name, specialization, created_tick)
+VALUES ('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000010','Bjornvik','fishing',0);
+
+INSERT INTO characters (id, household_id, name, birth_tick, labor_capacity_milli) VALUES
+('00000000-0000-0000-0000-000000000101','00000000-0000-0000-0000-000000000020','Bjorn',-11680,1000),
+('00000000-0000-0000-0000-000000000102','00000000-0000-0000-0000-000000000020','Astrid',-10585,1000),
+('00000000-0000-0000-0000-000000000103','00000000-0000-0000-0000-000000000020','Einar',-6205,1000),
+('00000000-0000-0000-0000-000000000104','00000000-0000-0000-0000-000000000020','Ragnhild',-4745,500),
+('00000000-0000-0000-0000-000000000105','00000000-0000-0000-0000-000000000020','Sven',-2190,0);
+
+INSERT INTO character_skills (character_id, skill_code, level) VALUES
+('00000000-0000-0000-0000-000000000101','agriculture',1),
+('00000000-0000-0000-0000-000000000102','fishing',1);
+
+INSERT INTO resource_stocks (household_id, resource_code, quantity_milli) VALUES
+('00000000-0000-0000-0000-000000000020','provisions',150000),
+('00000000-0000-0000-0000-000000000020','wood',20000),
+('00000000-0000-0000-0000-000000000020','trade_goods',4000),
+('00000000-0000-0000-0000-000000000020','silver',30000);
+
+COMMIT;

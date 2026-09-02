@@ -1,0 +1,6 @@
+strategy,supply_days,silver,wood,strained_days,critical_days,trade_volume,jarl_standing,political_cost,buildings
+autark,37.9,30.0,43.0,0,0,0.0,0,4 service days,storage|workshop
+supply_safe,44.0,30.0,28.0,0,0,0.0,0,4 service days,storage|workshop
+trader,27.4,52.0,62.0,0,0,252.0,0,6 silver,workshop|storage
+builder,21.4,24.9,81.5,0,0,45.1,-15,refuses,storage|workshop|housing
+loyal,28.0,30.0,64.0,0,0,0.0,30,8 service days + 18 wood,storage|workshop
