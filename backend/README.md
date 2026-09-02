@@ -1,4 +1,4 @@
-# Backend milestone 4 — transactional shipments
+# Backend milestone 5 — atomic market purchases
 
 This milestone wires the deterministic Go simulation core into PostgreSQL and exposes the first endpoints needed by a future SvelteKit UI.
 
@@ -13,6 +13,9 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
 - Assignment lifecycle: `planned -> active -> completed`.
 - First-class shipments that reserve sender goods and arrive before household simulation.
 - Idempotent, atomic arrival credits with structured `shipment_arrived` chronicle facts.
+- Atomic market purchases with authoritative prices, stock checks, silver transfer,
+  partial/full offer fills, and shipment creation.
+- Household chronicle projection for purchases, sales, arrivals, and assignment lifecycle facts.
 - Farm-report read model with supply days, resources, characters, plans and up to three alerts.
 - REST endpoints:
   - `GET /healthz`
@@ -20,9 +23,13 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
   - `GET /api/households/{id}/assignments`
   - `POST /api/households/{id}/assignments`
   - `GET /api/households/{id}/shipments`
+  - `GET /api/households/{id}/chronicle`
+  - `GET /api/market/offers?world_id={id}`
+  - `POST /api/market/offers/{id}/purchase`
 - PostgreSQL 18.6 Docker Compose setup.
 - Bjornvik development seed.
 - A 30-provision Hrafnstead-to-Bjornvik shipment due at tick 2.
+- A Hrafnstead provision offer priced at 1.5 silver per unit.
 - Offline Go simulation tests remain runnable without PostgreSQL dependencies.
 
 ## Important clock correction
@@ -98,7 +105,8 @@ Terminal C:
 make smoke
 ```
 
-The smoke test reads the farm report, creates a three-tick fishing assignment for Astrid, forces one development tick due, waits for the worker and reads the report again.
+The smoke test reads the farm report, purchases part of the seeded offer, verifies that
+the resulting shipment remains in transit, schedules Astrid, and forces one worker tick.
 
 ## Useful development IDs
 
@@ -146,8 +154,27 @@ The shipment remains `in_transit` after tick 1. At tick 2 it becomes `arrived`, 
 `actual_arrival_tick: 2`, and credits 30,000 milli-provisions before that tick's
 production and consumption.
 
+## Purchase the seeded market offer
+
+List active offers, then buy five provisions for Bjornvik. The server calculates the
+7,500 milli-silver cost and two-tick arrival; the request supplies neither value.
+
+```bash
+curl "http://localhost:8080/api/market/offers?world_id=00000000-0000-0000-0000-000000000001"
+
+curl -X POST -H 'Content-Type: application/json' \
+  http://localhost:8080/api/market/offers/00000000-0000-0000-0000-000000000302/purchase \
+  -d '{
+    "buyer_household_id":"00000000-0000-0000-0000-000000000020",
+    "quantity_milli":5000
+  }'
+```
+
+The purchase immediately transfers silver and reserves the seller's provisions, but
+Bjornvik receives no provisions until the resulting shipment reaches its arrival tick.
+
 ## Deliberately not yet persisted
 
-The online worker currently persists shipment arrivals plus the core loop already implemented by `simulation.ProcessTick`: assignments, seasonal production, household consumption, wood upkeep and fatigue. The offline v0.3 scenario still contains richer strategy behavior such as automated trade, construction progression and Jarl decisions.
+The online worker currently persists market-created shipment arrivals plus the core loop already implemented by `simulation.ProcessTick`: assignments, seasonal production, household consumption, wood upkeep and fatigue. The offline v0.3 scenario still contains richer strategy behavior such as automated trade, construction progression and Jarl decisions.
 
-The next integration increment should add **market purchase transactions that create shipments**, then contracts, without duplicating rules in HTTP handlers.
+The next integration increment should add **contracts and obligations fulfilled by shipment arrival**, without duplicating rules in HTTP handlers.

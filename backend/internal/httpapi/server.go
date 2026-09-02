@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"game/backend/internal/application"
+	marketdomain "game/backend/internal/domain/market"
 	"game/backend/internal/postgres"
 	"game/backend/internal/simulation"
 )
@@ -20,13 +21,17 @@ type Server struct {
 	store     *postgres.Store
 	reports   *application.ReportService
 	shipments *application.ShipmentService
+	market    *application.MarketService
+	chronicle *application.ChronicleService
 	log       *slog.Logger
 }
 
 func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	s := &Server{
 		store: store, reports: application.NewReportService(store),
-		shipments: application.NewShipmentService(store), log: log,
+		shipments: application.NewShipmentService(store),
+		market:    application.NewMarketService(store), log: log,
+		chronicle: application.NewChronicleService(store),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -34,7 +39,54 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
 	mux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
 	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
+	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
+	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
+	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
 	return cors(mux)
+}
+
+func (s *Server) householdChronicle(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.chronicle.ListForHousehold(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+func (s *Server) marketOffers(w http.ResponseWriter, r *http.Request) {
+	worldID := r.URL.Query().Get("world_id")
+	if worldID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "world_id_required"})
+		return
+	}
+	offers, err := s.market.ListActiveOffers(r.Context(), worldID)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"offers": offers})
+}
+
+type purchaseMarketOfferRequest struct {
+	BuyerHouseholdID string `json:"buyer_household_id"`
+	QuantityMilli    int64  `json:"quantity_milli"`
+}
+
+func (s *Server) purchaseMarketOffer(w http.ResponseWriter, r *http.Request) {
+	var req purchaseMarketOfferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	result, err := s.market.PurchaseOffer(r.Context(), application.PurchaseOfferCommand{
+		OfferID: r.PathValue("id"), BuyerHouseholdID: req.BuyerHouseholdID, QuantityMilli: req.QuantityMilli,
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
 }
 
 func (s *Server) householdShipments(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +174,24 @@ func validDuration(v int64) bool   { return v == 1 || v == 3 || v == 6 || v == 1
 func (s *Server) writeError(w http.ResponseWriter, err error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if errors.Is(err, postgres.ErrInvalidMarketParticipants) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "market_participant_not_found"})
+		return
+	}
+	if errors.Is(err, marketdomain.ErrInvalidQuantity) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_purchase", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, marketdomain.ErrOfferUnavailable) ||
+		errors.Is(err, marketdomain.ErrOfferExpired) ||
+		errors.Is(err, marketdomain.ErrInsufficientOffer) ||
+		errors.Is(err, marketdomain.ErrInsufficientFunds) ||
+		errors.Is(err, marketdomain.ErrInsufficientStock) ||
+		errors.Is(err, marketdomain.ErrOwnOffer) ||
+		errors.Is(err, postgres.ErrMarketStateChanged) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "purchase_conflict", "message": err.Error()})
 		return
 	}
 	s.log.Error("api request failed", "error", err)

@@ -227,7 +227,18 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
 		return shipmentdomain.Shipment{}, ErrInsufficientResources
 	}
 
-	created, err := scanShipment(tx.QueryRow(ctx, `
+	created, err := s.insertShipment(ctx, tx, value)
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	return created, nil
+}
+
+func (s *Store) insertShipment(ctx context.Context, tx pgx.Tx, value shipmentdomain.Shipment) (shipmentdomain.Shipment, error) {
+	return scanShipment(tx.QueryRow(ctx, `
         INSERT INTO shipments(
             id, world_id, sender_household_id, receiver_household_id,
             origin_location_id, destination_location_id, resource_code,
@@ -244,13 +255,6 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
     `, value.ID, value.WorldID, value.SenderHouseholdID, value.ReceiverHouseholdID,
 		value.OriginLocationID, value.DestinationLocationID, value.ResourceType,
 		value.QuantityMilli, value.DepartureTick, value.ExpectedArrivalTick, value.TransportCostMilli))
-	if err != nil {
-		return shipmentdomain.Shipment{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return shipmentdomain.Shipment{}, err
-	}
-	return created, nil
 }
 
 func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) ([]ShipmentRecord, error) {
@@ -554,6 +558,27 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
 		}
 	}
 
+	if _, err := tx.Exec(ctx, `
+        INSERT INTO chronicle_entries(
+            household_id, occurred_tick, entry_type, subject_character_id,
+            related_assignment_id, data
+        )
+        SELECT a.household_id, $2, 'assignment_completed', a.character_id, a.id,
+               jsonb_build_object(
+                   'activity', a.activity_type,
+                   'intensity', a.intensity,
+                   'starts_tick', a.starts_tick,
+                   'ends_tick', a.ends_tick
+               )
+        FROM assignments a
+        WHERE a.household_id = $1::uuid
+          AND a.status IN ('planned','active')
+          AND a.ends_tick <= $2
+        ON CONFLICT DO NOTHING
+    `, householdID, result.State.Tick); err != nil {
+		return err
+	}
+
 	_, err := tx.Exec(ctx, `
         UPDATE assignments
         SET status = CASE
@@ -752,6 +777,22 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 		&out.ID, &out.CharacterID, &out.Character, &out.Activity, &out.Intensity, &out.StartsTick, &out.EndsTick, &out.Status,
 	)
 	if err != nil {
+		return AssignmentRecord{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+        INSERT INTO chronicle_entries(
+            household_id, occurred_tick, entry_type, subject_character_id,
+            related_assignment_id, data
+        ) VALUES (
+            $1::uuid, $2, 'assignment_scheduled', $3::uuid, $4::uuid,
+            jsonb_build_object(
+                'activity', $5::text,
+                'intensity', $6::text,
+                'starts_tick', $7::bigint,
+                'ends_tick', $8::bigint
+            )
+        )
+    `, householdID, currentTick, characterID, out.ID, activity, intensity, startsTick, endsTick); err != nil {
 		return AssignmentRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

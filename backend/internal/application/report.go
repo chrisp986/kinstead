@@ -65,11 +65,15 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 	}
 	historicalDays := snap.CurrentTick * int64(snap.HistoricalDaysPerTickNum) / int64(snap.HistoricalDaysPerTickDen)
 	historical := snap.HistoricalStart.AddDate(0, 0, int(historicalDays))
+	assignments := snap.Assignments
+	if assignments == nil {
+		assignments = make([]postgres.AssignmentRecord, 0)
+	}
 	return FarmReport{
 		HouseholdID: snap.HouseholdID, HouseholdName: snap.HouseholdName, WorldID: snap.WorldID,
 		Tick: snap.CurrentTick, HistoricalDate: historical.Format(time.DateOnly), Season: simulation.SeasonForTick(snap.CurrentTick),
 		SupplyDays: supply,
 		Resources:  map[string]float64{"provisions": float64(snap.State.ProvisionsMilli) / 1000, "wood": float64(snap.State.WoodMilli) / 1000, "trade_goods": float64(snap.State.TradeGoodsMilli) / 1000, "silver": float64(snap.State.SilverMilli) / 1000},
-		Characters: snap.Characters, Assignments: snap.Assignments, Alerts: alerts,
+		Characters: snap.Characters, Assignments: assignments, Alerts: alerts,
 	}, nil
 }

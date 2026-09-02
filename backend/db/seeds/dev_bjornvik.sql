@@ -47,4 +47,15 @@ INSERT INTO shipments (
     'provisions', 30000, 0, 2, 0, 'in_transit'
 );
 
+INSERT INTO market_offers (
+    id, world_id, seller_household_id, origin_location_id, resource_code,
+    quantity_remaining_milli, price_per_unit_milli, created_tick, expires_tick, status
+) VALUES (
+    '00000000-0000-0000-0000-000000000302',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000021',
+    '00000000-0000-0000-0000-000000000011',
+    'provisions', 10000, 1500, 0, 12, 'active'
+);
+
 COMMIT;
