@@ -17,19 +17,33 @@ import (
 )
 
 type Server struct {
-	store   *postgres.Store
-	reports *application.ReportService
-	log     *slog.Logger
+	store     *postgres.Store
+	reports   *application.ReportService
+	shipments *application.ShipmentService
+	log       *slog.Logger
 }
 
 func New(store *postgres.Store, log *slog.Logger) http.Handler {
-	s := &Server{store: store, reports: application.NewReportService(store), log: log}
+	s := &Server{
+		store: store, reports: application.NewReportService(store),
+		shipments: application.NewShipmentService(store), log: log,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/households/{id}/report", s.farmReport)
 	mux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
 	mux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
+	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
 	return cors(mux)
+}
+
+func (s *Server) householdShipments(w http.ResponseWriter, r *http.Request) {
+	shipments, err := s.shipments.ListForHousehold(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"shipments": shipments})
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {

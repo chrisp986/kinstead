@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/simulation"
 )
 
@@ -91,6 +92,201 @@ func (s *Store) ListHouseholdIDs(ctx context.Context, tx pgx.Tx, worldID string)
 	return out, rows.Err()
 }
 
+func (s *Store) LoadDueShipments(ctx context.Context, tx pgx.Tx, worldID string, tick int64) ([]shipmentdomain.Shipment, error) {
+	rows, err := tx.Query(ctx, `
+        SELECT id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
+               origin_location_id::text, destination_location_id::text, resource_code,
+               quantity_milli, departure_tick, expected_arrival_tick,
+               actual_arrival_tick, transport_cost_milli, status
+        FROM shipments
+        WHERE world_id = $1::uuid
+          AND status = 'in_transit'
+          AND actual_arrival_tick IS NULL
+          AND expected_arrival_tick <= $2
+        ORDER BY expected_arrival_tick, id
+        FOR UPDATE
+    `, worldID, tick)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	shipments := make([]shipmentdomain.Shipment, 0)
+	for rows.Next() {
+		value, err := scanShipment(rows)
+		if err != nil {
+			return nil, err
+		}
+		if err := value.Validate(); err != nil {
+			return nil, fmt.Errorf("shipment %s: %w", value.ID, err)
+		}
+		shipments = append(shipments, value)
+	}
+	return shipments, rows.Err()
+}
+
+// PersistShipmentArrival credits inventory, marks the shipment arrived, and records
+// the structured chronicle fact. The guarded status update makes delivery idempotent.
+func (s *Store) PersistShipmentArrival(ctx context.Context, tx pgx.Tx, value shipmentdomain.Shipment) (bool, error) {
+	if err := value.Validate(); err != nil {
+		return false, err
+	}
+	if value.Status != shipmentdomain.StatusArrived || value.ActualArrivalTick == nil {
+		return false, shipmentdomain.ErrInvalidTransition
+	}
+
+	tag, err := tx.Exec(ctx, `
+        UPDATE shipments
+        SET status = 'arrived', actual_arrival_tick = $2
+        WHERE id = $1::uuid
+          AND world_id = $3::uuid
+          AND status = 'in_transit'
+          AND actual_arrival_tick IS NULL
+          AND expected_arrival_tick <= $2
+    `, value.ID, *value.ActualArrivalTick, value.WorldID)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+        INSERT INTO resource_stocks(household_id, resource_code, quantity_milli, updated_at)
+        VALUES ($1::uuid, $2, $3, now())
+        ON CONFLICT (household_id, resource_code)
+        DO UPDATE SET quantity_milli = resource_stocks.quantity_milli + EXCLUDED.quantity_milli,
+                      updated_at = now()
+    `, value.ReceiverHouseholdID, value.ResourceType, value.QuantityMilli); err != nil {
+		return false, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+        INSERT INTO chronicle_entries(
+            household_id, occurred_tick, entry_type, related_household_id,
+            related_shipment_id, data
+        ) VALUES (
+            $1::uuid, $2, 'shipment_arrived', $3::uuid, $4::uuid,
+            jsonb_build_object('resource_type', $5::text, 'quantity_milli', $6::bigint)
+        )
+    `, value.ReceiverHouseholdID, *value.ActualArrivalTick, value.SenderHouseholdID,
+		value.ID, value.ResourceType, value.QuantityMilli); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipment) (shipmentdomain.Shipment, error) {
+	if err := value.Validate(); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if value.Status != shipmentdomain.StatusInTransit || value.ActualArrivalTick != nil {
+		return shipmentdomain.Shipment{}, shipmentdomain.ErrInvalidTransition
+	}
+
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var currentTick int64
+	err = tx.QueryRow(ctx, `
+        SELECT w.current_tick
+        FROM worlds w
+        JOIN households sender
+          ON sender.id = $2::uuid AND sender.world_id = w.id AND sender.location_id = $4::uuid
+        JOIN households receiver
+          ON receiver.id = $3::uuid AND receiver.world_id = w.id AND receiver.location_id = $5::uuid
+        JOIN locations origin ON origin.id = $4::uuid AND origin.world_id = w.id
+        JOIN locations destination ON destination.id = $5::uuid AND destination.world_id = w.id
+        JOIN resource_types resource ON resource.code = $6
+        WHERE w.id = $1::uuid
+        FOR UPDATE OF w, sender, receiver
+    `, value.WorldID, value.SenderHouseholdID, value.ReceiverHouseholdID,
+		value.OriginLocationID, value.DestinationLocationID, value.ResourceType).Scan(&currentTick)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return shipmentdomain.Shipment{}, ErrInvalidShipmentReferences
+	}
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if shipmentdomain.Tick(currentTick) != value.DepartureTick {
+		return shipmentdomain.Shipment{}, ErrShipmentTickConflict
+	}
+
+	tag, err := tx.Exec(ctx, `
+        UPDATE resource_stocks
+        SET quantity_milli = quantity_milli - $3, updated_at = now()
+        WHERE household_id = $1::uuid AND resource_code = $2 AND quantity_milli >= $3
+    `, value.SenderHouseholdID, value.ResourceType, value.QuantityMilli)
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return shipmentdomain.Shipment{}, ErrInsufficientResources
+	}
+
+	created, err := scanShipment(tx.QueryRow(ctx, `
+        INSERT INTO shipments(
+            id, world_id, sender_household_id, receiver_household_id,
+            origin_location_id, destination_location_id, resource_code,
+            quantity_milli, departure_tick, expected_arrival_tick,
+            transport_cost_milli, status
+        ) VALUES (
+            COALESCE(NULLIF($1::text, '')::uuid, gen_random_uuid()), $2::uuid, $3::uuid, $4::uuid,
+            $5::uuid, $6::uuid, $7, $8, $9, $10, $11, 'in_transit'
+        )
+        RETURNING id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
+                  origin_location_id::text, destination_location_id::text, resource_code,
+                  quantity_milli, departure_tick, expected_arrival_tick,
+                  actual_arrival_tick, transport_cost_milli, status
+    `, value.ID, value.WorldID, value.SenderHouseholdID, value.ReceiverHouseholdID,
+		value.OriginLocationID, value.DestinationLocationID, value.ResourceType,
+		value.QuantityMilli, value.DepartureTick, value.ExpectedArrivalTick, value.TransportCostMilli))
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	return created, nil
+}
+
+func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) ([]ShipmentRecord, error) {
+	var exists bool
+	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM households WHERE id = $1::uuid)`, householdID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, pgx.ErrNoRows
+	}
+
+	rows, err := s.Pool.Query(ctx, `
+        SELECT id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
+               origin_location_id::text, destination_location_id::text, resource_code,
+               quantity_milli, departure_tick, expected_arrival_tick,
+               actual_arrival_tick, transport_cost_milli, status
+        FROM shipments
+        WHERE sender_household_id = $1::uuid OR receiver_household_id = $1::uuid
+        ORDER BY departure_tick DESC, id
+    `, householdID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]ShipmentRecord, 0)
+	for rows.Next() {
+		value, err := scanShipment(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, shipmentRecord(value))
+	}
+	return records, rows.Err()
+}
+
 type CharacterRecord struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -108,6 +304,78 @@ type AssignmentRecord struct {
 	StartsTick  int64  `json:"starts_tick"`
 	EndsTick    int64  `json:"ends_tick"`
 	Status      string `json:"status"`
+}
+
+type ShipmentRecord struct {
+	ID                    string `json:"id"`
+	WorldID               string `json:"world_id"`
+	SenderHouseholdID     string `json:"sender_household_id"`
+	ReceiverHouseholdID   string `json:"receiver_household_id"`
+	OriginLocationID      string `json:"origin_location_id"`
+	DestinationLocationID string `json:"destination_location_id"`
+	ResourceType          string `json:"resource_type"`
+	QuantityMilli         int64  `json:"quantity_milli"`
+	DepartureTick         int64  `json:"departure_tick"`
+	ExpectedArrivalTick   int64  `json:"expected_arrival_tick"`
+	ActualArrivalTick     *int64 `json:"actual_arrival_tick,omitempty"`
+	TransportCostMilli    int64  `json:"transport_cost_milli"`
+	Status                string `json:"status"`
+}
+
+var (
+	ErrInvalidShipmentReferences = errors.New("invalid shipment references")
+	ErrInsufficientResources     = errors.New("insufficient resources for shipment")
+	ErrShipmentTickConflict      = errors.New("shipment departure tick is not current")
+)
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanShipment(row rowScanner) (shipmentdomain.Shipment, error) {
+	var record ShipmentRecord
+	if err := row.Scan(
+		&record.ID, &record.WorldID, &record.SenderHouseholdID, &record.ReceiverHouseholdID,
+		&record.OriginLocationID, &record.DestinationLocationID, &record.ResourceType,
+		&record.QuantityMilli, &record.DepartureTick, &record.ExpectedArrivalTick,
+		&record.ActualArrivalTick, &record.TransportCostMilli, &record.Status,
+	); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	var actual *shipmentdomain.Tick
+	if record.ActualArrivalTick != nil {
+		v := shipmentdomain.Tick(*record.ActualArrivalTick)
+		actual = &v
+	}
+	return shipmentdomain.Shipment{
+		ID: shipmentdomain.ID(record.ID), WorldID: shipmentdomain.WorldID(record.WorldID),
+		SenderHouseholdID:     shipmentdomain.HouseholdID(record.SenderHouseholdID),
+		ReceiverHouseholdID:   shipmentdomain.HouseholdID(record.ReceiverHouseholdID),
+		OriginLocationID:      shipmentdomain.LocationID(record.OriginLocationID),
+		DestinationLocationID: shipmentdomain.LocationID(record.DestinationLocationID),
+		ResourceType:          shipmentdomain.ResourceType(record.ResourceType),
+		QuantityMilli:         shipmentdomain.QuantityMilli(record.QuantityMilli),
+		DepartureTick:         shipmentdomain.Tick(record.DepartureTick),
+		ExpectedArrivalTick:   shipmentdomain.Tick(record.ExpectedArrivalTick),
+		ActualArrivalTick:     actual, TransportCostMilli: shipmentdomain.MoneyMilli(record.TransportCostMilli),
+		Status: shipmentdomain.Status(record.Status),
+	}, nil
+}
+
+func shipmentRecord(value shipmentdomain.Shipment) ShipmentRecord {
+	var actual *int64
+	if value.ActualArrivalTick != nil {
+		v := int64(*value.ActualArrivalTick)
+		actual = &v
+	}
+	return ShipmentRecord{
+		ID: string(value.ID), WorldID: string(value.WorldID),
+		SenderHouseholdID: string(value.SenderHouseholdID), ReceiverHouseholdID: string(value.ReceiverHouseholdID),
+		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
+		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
+		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
+		ActualArrivalTick: actual, TransportCostMilli: int64(value.TransportCostMilli), Status: string(value.Status),
+	}
 }
 
 type HouseholdSnapshot struct {

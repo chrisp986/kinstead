@@ -1,14 +1,17 @@
--- Development-only Bjornvik seed. Run after 000001_init.sql.
+-- Development-only Bjornvik seed. Run after all migrations.
 BEGIN;
 
 INSERT INTO worlds (id, name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0, 14400, now());
 
 INSERT INTO locations (id, world_id, name, location_type) VALUES
-('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000001','Bjornvik','farm');
+('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000001','Bjornvik','farm'),
+('00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000001','Hrafnstead','farm');
 
 INSERT INTO households (id, world_id, location_id, name, specialization, created_tick)
-VALUES ('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000010','Bjornvik','fishing',0);
+VALUES
+('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000010','Bjornvik','fishing',0),
+('00000000-0000-0000-0000-000000000021','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','Hrafnstead','agriculture',0);
 
 INSERT INTO characters (id, household_id, name, birth_tick, labor_capacity_milli) VALUES
 ('00000000-0000-0000-0000-000000000101','00000000-0000-0000-0000-000000000020','Bjorn',-11680,1000),
@@ -25,6 +28,23 @@ INSERT INTO resource_stocks (household_id, resource_code, quantity_milli) VALUES
 ('00000000-0000-0000-0000-000000000020','provisions',150000),
 ('00000000-0000-0000-0000-000000000020','wood',20000),
 ('00000000-0000-0000-0000-000000000020','trade_goods',4000),
-('00000000-0000-0000-0000-000000000020','silver',30000);
+('00000000-0000-0000-0000-000000000020','silver',30000),
+-- Hrafnstead has 20 provisions left after dispatching the 30-unit demo shipment.
+('00000000-0000-0000-0000-000000000021','provisions',20000);
+
+INSERT INTO shipments (
+    id, world_id, sender_household_id, receiver_household_id,
+    origin_location_id, destination_location_id, resource_code,
+    quantity_milli, departure_tick, expected_arrival_tick,
+    transport_cost_milli, status
+) VALUES (
+    '00000000-0000-0000-0000-000000000301',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000021',
+    '00000000-0000-0000-0000-000000000020',
+    '00000000-0000-0000-0000-000000000011',
+    '00000000-0000-0000-0000-000000000010',
+    'provisions', 30000, 0, 2, 0, 'in_transit'
+);
 
 COMMIT;

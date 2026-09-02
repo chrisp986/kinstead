@@ -1,6 +1,7 @@
 DATABASE_URL ?= postgres://game:game@localhost:5432/game?sslmode=disable
+TEST_DATABASE_URL ?= $(DATABASE_URL)
 
-.PHONY: test test-postgres sim api worker deps db-up db-down db-bootstrap db-reset smoke
+.PHONY: test test-postgres test-integration sim api worker deps db-up db-down db-bootstrap db-reset smoke
 
 test:
 	go test ./...
@@ -11,6 +12,9 @@ deps:
 
 test-postgres:
 	go test -tags postgres ./...
+
+test-integration:
+	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -count=1 -tags postgres ./...
 
 sim:
 	go run ./cmd/simulator

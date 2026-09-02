@@ -1,4 +1,4 @@
-# Backend milestone 3 — PostgreSQL tick + first REST API
+# Backend milestone 4 — transactional shipments
 
 This milestone wires the deterministic Go simulation core into PostgreSQL and exposes the first endpoints needed by a future SvelteKit UI.
 
@@ -11,14 +11,18 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
 - Persistent work plans with 1 / 3 / 6 / 12 tick durations.
 - Work-plan writes serialize against the same world row as tick processing.
 - Assignment lifecycle: `planned -> active -> completed`.
+- First-class shipments that reserve sender goods and arrive before household simulation.
+- Idempotent, atomic arrival credits with structured `shipment_arrived` chronicle facts.
 - Farm-report read model with supply days, resources, characters, plans and up to three alerts.
 - REST endpoints:
   - `GET /healthz`
   - `GET /api/households/{id}/report`
   - `GET /api/households/{id}/assignments`
   - `POST /api/households/{id}/assignments`
-- PostgreSQL 16 Docker Compose setup.
+  - `GET /api/households/{id}/shipments`
+- PostgreSQL 18.6 Docker Compose setup.
 - Bjornvik development seed.
+- A 30-provision Hrafnstead-to-Bjornvik shipment due at tick 2.
 - Offline Go simulation tests remain runnable without PostgreSQL dependencies.
 
 ## Important clock correction
@@ -34,7 +38,7 @@ The database stores the historical conversion as `historical_days_per_tick_num /
 
 ## Requirements for full local test
 
-- Go 1.23+
+- Go 1.27+
 - Docker + Docker Compose
 - Internet access once, so Go can download `pgx`
 - `curl`
@@ -55,6 +59,13 @@ make sim
 ```bash
 make deps
 make test-postgres
+```
+
+With a migrated local database running, execute the PostgreSQL arrival, idempotency,
+and rollback tests instead of skipping them:
+
+```bash
+make test-integration
 ```
 
 ## 3. Create a fresh development database
@@ -115,8 +126,28 @@ curl -X POST \
 
 The API rejects overlapping work plans and plans that start in an already processed tick.
 
+## Observe the seeded shipment
+
+After `make db-reset`, start the API and worker, then inspect Bjornvik's inbound shipment:
+
+```bash
+curl http://localhost:8080/api/households/00000000-0000-0000-0000-000000000020/shipments
+```
+
+Force two sequential ticks (run the update once, wait for the worker, then repeat):
+
+```bash
+docker compose -f ../docker-compose.yml exec -T postgres \
+  psql -U game -d game -c \
+  "UPDATE worlds SET next_tick_at=now() WHERE id='00000000-0000-0000-0000-000000000001';"
+```
+
+The shipment remains `in_transit` after tick 1. At tick 2 it becomes `arrived`, stores
+`actual_arrival_tick: 2`, and credits 30,000 milli-provisions before that tick's
+production and consumption.
+
 ## Deliberately not yet persisted
 
-The online worker currently persists the core loop already implemented by `simulation.ProcessTick`: assignments, seasonal production, household consumption, wood upkeep and fatigue. The offline v0.3 scenario still contains richer strategy behavior such as automated trade, construction progression and Jarl decisions.
+The online worker currently persists shipment arrivals plus the core loop already implemented by `simulation.ProcessTick`: assignments, seasonal production, household consumption, wood upkeep and fatigue. The offline v0.3 scenario still contains richer strategy behavior such as automated trade, construction progression and Jarl decisions.
 
-The next integration increment should move **shipments + market**, then **contracts**, into the same transactional production path rather than duplicating those rules in HTTP handlers.
+The next integration increment should add **market purchase transactions that create shipments**, then contracts, without duplicating rules in HTTP handlers.

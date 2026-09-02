@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/postgres"
 	"game/backend/internal/simulation"
 )
@@ -45,6 +46,12 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("world %s tick %d already processed while current_tick is %d", world.ID, tick, world.CurrentTick)
 	}
 
+	// Canonical tick step 1: shipments arrive before assignments, production,
+	// consumption, and fatigue are evaluated for this tick.
+	if err := p.processShipmentArrivals(ctx, tx, world.ID, tick); err != nil {
+		return false, err
+	}
+
 	householdIDs, err := p.Store.ListHouseholdIDs(ctx, tx, world.ID)
 	if err != nil {
 		return false, err
@@ -73,4 +80,25 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx pgx.Tx, worldID string, tick int64) error {
+	due, err := p.Store.LoadDueShipments(ctx, tx, worldID, tick)
+	if err != nil {
+		return fmt.Errorf("load shipment arrivals: %w", err)
+	}
+	for _, value := range due {
+		arrived, err := value.Arrive(shipmentdomain.Tick(tick))
+		if err != nil {
+			return fmt.Errorf("arrive shipment %s: %w", value.ID, err)
+		}
+		persisted, err := p.Store.PersistShipmentArrival(ctx, tx, arrived)
+		if err != nil {
+			return fmt.Errorf("persist shipment %s arrival: %w", value.ID, err)
+		}
+		if !persisted {
+			return fmt.Errorf("shipment %s arrival was already persisted", value.ID)
+		}
+	}
+	return nil
 }
