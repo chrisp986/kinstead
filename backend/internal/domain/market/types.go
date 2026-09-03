@@ -3,6 +3,8 @@ package market
 import (
 	"errors"
 	"math"
+
+	"game/backend/internal/domain/geography"
 )
 
 type OfferID string
@@ -14,15 +16,15 @@ type QuantityMilli int64
 type MoneyMilli int64
 type Tick int64
 type OfferStatus string
-type DistanceClass string
+type DistanceClass = geography.DistanceClass
 
 const (
-	DistanceNeighbor     DistanceClass = "neighbor"
-	DistanceLocal        DistanceClass = "local"
-	DistanceNearRegional DistanceClass = "near_regional"
-	DistanceRegional     DistanceClass = "regional"
-	DistanceFarRegional  DistanceClass = "far_regional"
-	DistanceLong         DistanceClass = "long_distance"
+	DistanceNeighbor     = geography.DistanceNeighbor
+	DistanceLocal        = geography.DistanceLocal
+	DistanceNearRegional = geography.DistanceNearRegional
+	DistanceRegional     = geography.DistanceRegional
+	DistanceFarRegional  = geography.DistanceFarRegional
+	DistanceLong         = geography.DistanceLong
 )
 
 const (
@@ -56,29 +58,17 @@ type Route struct {
 }
 
 func RouteForDistance(worldID WorldID, origin, destination LocationID, distance DistanceClass) (Route, error) {
-	route := Route{WorldID: worldID, OriginLocationID: origin, DestinationLocationID: destination, DistanceClass: distance}
-	switch distance {
-	case DistanceNeighbor:
-		route.TravelTicks, route.TransportCostMilli = 1, 0
-	case DistanceLocal:
-		route.TravelTicks, route.TransportCostMilli = 2, 1_000
-	case DistanceNearRegional:
-		route.TravelTicks, route.TransportCostMilli = 3, 2_000
-	case DistanceRegional:
-		route.TravelTicks, route.TransportCostMilli = 5, 3_000
-	case DistanceFarRegional:
-		route.TravelTicks, route.TransportCostMilli = 8, 5_000
-	case DistanceLong:
-		// The frozen reference defines a 12-tick duration but no transport
-		// price. Do not invent an authoritative economy value.
-		return Route{}, ErrRouteUnavailable
-	default:
+	value, err := geography.RouteForDistance(
+		geography.WorldID(worldID), geography.LocationID(origin), geography.LocationID(destination), distance,
+	)
+	if err != nil {
 		return Route{}, ErrRouteUnavailable
 	}
-	if worldID == "" || origin == "" || destination == "" || origin == destination {
-		return Route{}, ErrRouteUnavailable
-	}
-	return route, nil
+	return Route{
+		WorldID: worldID, OriginLocationID: origin, DestinationLocationID: destination,
+		DistanceClass: value.DistanceClass, TravelTicks: Tick(value.TravelTicks),
+		TransportCostMilli: MoneyMilli(value.TransportCostMilli),
+	}, nil
 }
 
 type Offer struct {
