@@ -24,11 +24,13 @@ type Querier interface {
 	ListContractsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractsForHouseholdRow, error)
 	ListShipmentsByHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByHouseholdRow, error)
 	ListShipmentsByWorld(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByWorldRow, error)
+	LoadContractObligationsForTick(ctx context.Context, arg LoadContractObligationsForTickParams) ([]LoadContractObligationsForTickRow, error)
 	LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipmentsDueForArrivalParams) ([]LoadShipmentsDueForArrivalRow, error)
 	LockContractForResponse(ctx context.Context, dollar_1 pgtype.UUID) (LockContractForResponseRow, error)
 	LockMarketOffer(ctx context.Context, dollar_1 pgtype.UUID) (LockMarketOfferRow, error)
 	MarkShipmentArrived(ctx context.Context, arg MarkShipmentArrivedParams) (string, error)
 	MarkWorldTickProcessed(ctx context.Context, arg MarkWorldTickProcessedParams) error
+	UpdateContractObligationAssessment(ctx context.Context, arg UpdateContractObligationAssessmentParams) (int64, error)
 	UpdateContractStatus(ctx context.Context, arg UpdateContractStatusParams) (int64, error)
 	UpdateMarketOfferAfterPurchase(ctx context.Context, arg UpdateMarketOfferAfterPurchaseParams) (UpdateMarketOfferAfterPurchaseRow, error)
 }

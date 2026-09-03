@@ -198,7 +198,8 @@ func (o Obligation) Assess(currentTick Tick, actualArrival *shipmentdomain.Tick)
 	if err := o.Validate(); err != nil || currentTick < 0 {
 		return Obligation{}, ErrInvalidObligation
 	}
-	if o.Status == ObligationFulfilled || o.Status == ObligationBroken || (o.Status == ObligationLate && o.FulfilledTick != nil) {
+	if o.Status == ObligationFulfilled || (o.Status == ObligationLate && o.FulfilledTick != nil) ||
+		(o.Status == ObligationBroken && (o.FulfilledTick != nil || actualArrival == nil)) {
 		return o, nil
 	}
 	if actualArrival != nil {

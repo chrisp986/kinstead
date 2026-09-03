@@ -6,6 +6,7 @@ import (
 
 	"game/backend/internal/balance"
 	"game/backend/internal/calendar"
+	contractdomain "game/backend/internal/domain/contract"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	"game/backend/internal/simulation"
@@ -48,6 +49,10 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	if err := p.processShipmentArrivals(ctx, tx, world.ID, tick); err != nil {
 		return false, err
 	}
+	// Canonical tick step 2: obligations observe arrivals persisted by step 1.
+	if err := p.processContractObligations(ctx, tx, world.ID, tick); err != nil {
+		return false, err
+	}
 
 	householdIDs, err := tx.ListHouseholdIDs(ctx, world.ID)
 	if err != nil {
@@ -82,6 +87,34 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("commit world tick: %w", err)
 	}
 	return true, nil
+}
+
+func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {
+	assessments, err := tx.LoadContractObligationsForTick(ctx, worldID, tick)
+	if err != nil {
+		return fmt.Errorf("load contract obligations: %w", err)
+	}
+	for _, assessment := range assessments {
+		updated, err := assessment.Obligation.Assess(contractdomain.Tick(tick), assessment.ActualArrivalTick)
+		if err != nil {
+			return fmt.Errorf("assess contract obligation %s: %w", assessment.Obligation.ID, err)
+		}
+		if updated.Status == assessment.Obligation.Status && equalContractTick(updated.FulfilledTick, assessment.Obligation.FulfilledTick) {
+			continue
+		}
+		persisted, err := tx.PersistContractObligationAssessment(ctx, assessment.Obligation, updated)
+		if err != nil {
+			return fmt.Errorf("persist contract obligation %s: %w", assessment.Obligation.ID, err)
+		}
+		if !persisted {
+			return fmt.Errorf("contract obligation %s changed during tick", assessment.Obligation.ID)
+		}
+	}
+	return nil
+}
+
+func equalContractTick(a, b *contractdomain.Tick) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {

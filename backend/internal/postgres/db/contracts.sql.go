@@ -308,6 +308,76 @@ func (q *Queries) ListContractsForHousehold(ctx context.Context, dollar_1 pgtype
 	return items, nil
 }
 
+const loadContractObligationsForTick = `-- name: LoadContractObligationsForTick :many
+SELECT o.id::text AS id, o.contract_id::text AS contract_id,
+       o.debtor_household_id::text AS debtor_household_id,
+       o.creditor_household_id::text AS creditor_household_id,
+       o.resource_code, o.quantity_milli, o.due_arrival_tick,
+       COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
+       o.status, o.fulfilled_tick, s.actual_arrival_tick
+FROM contract_obligations o
+JOIN contracts c ON c.id = o.contract_id
+LEFT JOIN shipments s ON s.id = o.shipment_id
+WHERE c.world_id = $1::uuid
+  AND c.status = 'active'
+  AND o.status IN ('pending', 'dispatched', 'late', 'broken')
+  AND (o.due_arrival_tick <= $2 OR s.actual_arrival_tick IS NOT NULL)
+  AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))
+ORDER BY o.due_arrival_tick, o.id
+FOR UPDATE OF o
+`
+
+type LoadContractObligationsForTickParams struct {
+	Column1        pgtype.UUID
+	DueArrivalTick int64
+}
+
+type LoadContractObligationsForTickRow struct {
+	ID                  string
+	ContractID          string
+	DebtorHouseholdID   string
+	CreditorHouseholdID string
+	ResourceCode        string
+	QuantityMilli       int64
+	DueArrivalTick      int64
+	ShipmentID          string
+	Status              string
+	FulfilledTick       pgtype.Int8
+	ActualArrivalTick   pgtype.Int8
+}
+
+func (q *Queries) LoadContractObligationsForTick(ctx context.Context, arg LoadContractObligationsForTickParams) ([]LoadContractObligationsForTickRow, error) {
+	rows, err := q.db.Query(ctx, loadContractObligationsForTick, arg.Column1, arg.DueArrivalTick)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LoadContractObligationsForTickRow{}
+	for rows.Next() {
+		var i LoadContractObligationsForTickRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ContractID,
+			&i.DebtorHouseholdID,
+			&i.CreditorHouseholdID,
+			&i.ResourceCode,
+			&i.QuantityMilli,
+			&i.DueArrivalTick,
+			&i.ShipmentID,
+			&i.Status,
+			&i.FulfilledTick,
+			&i.ActualArrivalTick,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockContractForResponse = `-- name: LockContractForResponse :one
 SELECT c.id::text AS id, c.world_id::text AS world_id,
        c.party_a_household_id::text AS party_a_household_id,
@@ -347,6 +417,38 @@ func (q *Queries) LockContractForResponse(ctx context.Context, dollar_1 pgtype.U
 		&i.CurrentTick,
 	)
 	return i, err
+}
+
+const updateContractObligationAssessment = `-- name: UpdateContractObligationAssessment :execrows
+UPDATE contract_obligations
+SET status = $1,
+    fulfilled_tick = $2::bigint,
+    updated_at = now()
+WHERE id = $3::uuid
+  AND status = $4
+  AND fulfilled_tick IS NOT DISTINCT FROM $5::bigint
+`
+
+type UpdateContractObligationAssessmentParams struct {
+	NewStatus        string
+	FulfilledTick    pgtype.Int8
+	ID               pgtype.UUID
+	OldStatus        string
+	OldFulfilledTick pgtype.Int8
+}
+
+func (q *Queries) UpdateContractObligationAssessment(ctx context.Context, arg UpdateContractObligationAssessmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateContractObligationAssessment,
+		arg.NewStatus,
+		arg.FulfilledTick,
+		arg.ID,
+		arg.OldStatus,
+		arg.OldFulfilledTick,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateContractStatus = `-- name: UpdateContractStatus :execrows

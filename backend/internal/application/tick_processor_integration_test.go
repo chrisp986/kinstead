@@ -23,7 +23,7 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 	}
 	t.Cleanup(store.Close)
 
-	worldID, receiverID, shipmentID := createTickShipmentFixture(t, ctx, store)
+	worldID, receiverID, shipmentID, contractID := createTickShipmentFixture(t, ctx, store)
 	t.Cleanup(func() { removeTickShipmentFixture(t, ctx, store, worldID) })
 	processor := NewTickProcessor(store)
 
@@ -32,6 +32,7 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 		t.Fatalf("process tick 1 = %v, %v", processed, err)
 	}
 	assertTickShipment(t, ctx, store, worldID, receiverID, shipmentID, 1, 5_100, "in_transit", nil)
+	assertTickContract(t, ctx, store, contractID, "dispatched", "pending", "dispatched", nil)
 
 	if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at = now() - interval '1 day' WHERE id = $1::uuid`, worldID); err != nil {
 		t.Fatal(err)
@@ -43,6 +44,30 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 	arrivalTick := int64(2)
 	// 10,000 - 4,900 + 30,000 - 4,900: arrival is credited before tick-2 consumption.
 	assertTickShipment(t, ctx, store, worldID, receiverID, shipmentID, 2, 30_200, "arrived", &arrivalTick)
+	assertTickContract(t, ctx, store, contractID, "fulfilled", "pending", "dispatched", nil)
+
+	for _, expectation := range []struct {
+		tick   int64
+		status string
+	}{{3, "late"}, {4, "late"}, {5, "broken"}} {
+		if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at = now() - interval '1 day' WHERE id = $1::uuid`, worldID); err != nil {
+			t.Fatal(err)
+		}
+		processed, err = processDueWorldWithRetry(ctx, processor)
+		if err != nil || !processed {
+			t.Fatalf("process tick %d = %v, %v", expectation.tick, processed, err)
+		}
+		assertTickContract(t, ctx, store, contractID, "fulfilled", expectation.status, expectation.status, nil)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at = now() - interval '1 day' WHERE id = $1::uuid`, worldID); err != nil {
+		t.Fatal(err)
+	}
+	processed, err = processDueWorldWithRetry(ctx, processor)
+	if err != nil || !processed {
+		t.Fatalf("process tick 6 = %v, %v", processed, err)
+	}
+	delayedArrivalTick := int64(6)
+	assertTickContract(t, ctx, store, contractID, "fulfilled", "broken", "broken", &delayedArrivalTick)
 }
 
 func processDueWorldWithRetry(ctx context.Context, processor *TickProcessor) (bool, error) {
@@ -57,7 +82,7 @@ func processDueWorldWithRetry(ctx context.Context, processor *TickProcessor) (bo
 	return processed, err
 }
 
-func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgres.Store) (string, string, string) {
+func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgres.Store) (string, string, string, string) {
 	t.Helper()
 	tx, err := store.Begin(ctx)
 	if err != nil {
@@ -113,13 +138,110 @@ func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
             quantity_milli, departure_tick, expected_arrival_tick, status
         ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',30000,0,2,'in_transit')
         RETURNING id::text
-    `, worldID, senderID, receiverID, originID, destinationID).Scan(&shipmentID); err != nil {
+	`, worldID, senderID, receiverID, originID, destinationID).Scan(&shipmentID); err != nil {
+		t.Fatal(err)
+	}
+	var delayedShipmentID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO shipments(
+			world_id, sender_household_id, receiver_household_id,
+			origin_location_id, destination_location_id, resource_code,
+			quantity_milli, departure_tick, expected_arrival_tick, status
+		) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'trade_goods',1000,0,6,'in_transit')
+		RETURNING id::text
+	`, worldID, senderID, receiverID, originID, destinationID).Scan(&delayedShipmentID); err != nil {
+		t.Fatal(err)
+	}
+	var contractID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO contracts(
+			world_id, party_a_household_id, party_b_household_id,
+			starts_tick, ends_tick, interval_ticks, status
+		) VALUES ($1::uuid, $2::uuid, $3::uuid, 2, 2, 1, 'active')
+		RETURNING id::text
+	`, worldID, senderID, receiverID).Scan(&contractID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO contract_terms(contract_id, debtor_household_id, creditor_household_id, resource_code, quantity_milli)
+		VALUES
+			($1::uuid, $2::uuid, $3::uuid, 'provisions', 30000),
+			($1::uuid, $2::uuid, $3::uuid, 'wood', 1000),
+			($1::uuid, $2::uuid, $3::uuid, 'trade_goods', 1000)
+	`, contractID, senderID, receiverID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO contract_obligations(
+			contract_id, debtor_household_id, creditor_household_id,
+			resource_code, quantity_milli, due_arrival_tick, shipment_id, status
+		) VALUES
+			($1::uuid, $2::uuid, $3::uuid, 'provisions', 30000, 2, $4::uuid, 'dispatched'),
+			($1::uuid, $2::uuid, $3::uuid, 'wood', 1000, 2, NULL, 'pending'),
+			($1::uuid, $2::uuid, $3::uuid, 'trade_goods', 1000, 2, $5::uuid, 'dispatched')
+	`, contractID, senderID, receiverID, shipmentID, delayedShipmentID); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	return worldID, receiverID, shipmentID
+	return worldID, receiverID, shipmentID, contractID
+}
+
+func assertTickContract(
+	t *testing.T,
+	ctx context.Context,
+	store *postgres.Store,
+	contractID, wantLinkedStatus, wantUnlinkedStatus, wantDelayedStatus string,
+	wantDelayedFulfilled *int64,
+) {
+	t.Helper()
+	rows, err := store.Pool.Query(ctx, `
+		SELECT resource_code, status, fulfilled_tick
+		FROM contract_obligations
+		WHERE contract_id = $1::uuid
+		ORDER BY resource_code
+	`, contractID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	type state struct {
+		status    string
+		fulfilled *int64
+	}
+	states := make(map[string]state)
+	for rows.Next() {
+		var resource string
+		var value state
+		if err := rows.Scan(&resource, &value.status, &value.fulfilled); err != nil {
+			t.Fatal(err)
+		}
+		states[resource] = value
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	provisions := states["provisions"]
+	if provisions.status != wantLinkedStatus {
+		t.Fatalf("linked obligation = %+v, want %s", provisions, wantLinkedStatus)
+	}
+	if provisions.status == "fulfilled" && (provisions.fulfilled == nil || *provisions.fulfilled != 2) {
+		t.Fatalf("linked obligation fulfillment = %+v, want tick 2", provisions)
+	}
+	if wood := states["wood"]; wood.status != wantUnlinkedStatus || wood.fulfilled != nil {
+		t.Fatalf("unlinked obligation = %+v, want %s without fulfillment", wood, wantUnlinkedStatus)
+	}
+	delayed := states["trade_goods"]
+	if delayed.status != wantDelayedStatus {
+		t.Fatalf("delayed obligation = %+v, want %s", delayed, wantDelayedStatus)
+	}
+	if wantDelayedFulfilled == nil && delayed.fulfilled != nil {
+		t.Fatalf("delayed obligation fulfillment = %d, want NULL", *delayed.fulfilled)
+	}
+	if wantDelayedFulfilled != nil && (delayed.fulfilled == nil || *delayed.fulfilled != *wantDelayedFulfilled) {
+		t.Fatalf("delayed obligation fulfillment = %v, want %d", delayed.fulfilled, *wantDelayedFulfilled)
+	}
 }
 
 func assertTickShipment(
@@ -164,6 +286,8 @@ func removeTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
 	t.Helper()
 	for _, statement := range []string{
 		`DELETE FROM chronicle_entries WHERE household_id IN (SELECT id FROM households WHERE world_id = $1::uuid)`,
+		`DELETE FROM contract_obligations WHERE contract_id IN (SELECT id FROM contracts WHERE world_id = $1::uuid)`,
+		`DELETE FROM contracts WHERE world_id = $1::uuid`,
 		`DELETE FROM shipments WHERE world_id = $1::uuid`,
 		`DELETE FROM households WHERE world_id = $1::uuid`,
 		`DELETE FROM locations WHERE world_id = $1::uuid`,

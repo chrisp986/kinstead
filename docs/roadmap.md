@@ -68,8 +68,9 @@ travel/transport values.
 
 Progress: contract/obligation domain rules, atomic proposal persistence, and
 counterparty acceptance/rejection with retry-safe recurring-obligation
-generation are complete. Next: canonical tick-step evaluation followed by
-shipment linkage.
+generation are complete. Contract evaluation now runs at canonical tick step 2
+after shipment arrivals, with arrival-based fulfilled, late, and broken
+obligation states. Next: contract shipment linkage and lifecycle rollups.
 
 ### 5. Politics
 

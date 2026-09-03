@@ -73,3 +73,30 @@ SELECT id::text AS id, contract_id::text AS contract_id,
 FROM contract_obligations
 WHERE contract_id = $1::uuid
 ORDER BY due_arrival_tick, debtor_household_id, creditor_household_id, resource_code;
+
+-- name: LoadContractObligationsForTick :many
+SELECT o.id::text AS id, o.contract_id::text AS contract_id,
+       o.debtor_household_id::text AS debtor_household_id,
+       o.creditor_household_id::text AS creditor_household_id,
+       o.resource_code, o.quantity_milli, o.due_arrival_tick,
+       COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
+       o.status, o.fulfilled_tick, s.actual_arrival_tick
+FROM contract_obligations o
+JOIN contracts c ON c.id = o.contract_id
+LEFT JOIN shipments s ON s.id = o.shipment_id
+WHERE c.world_id = $1::uuid
+  AND c.status = 'active'
+  AND o.status IN ('pending', 'dispatched', 'late', 'broken')
+  AND (o.due_arrival_tick <= $2 OR s.actual_arrival_tick IS NOT NULL)
+  AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))
+ORDER BY o.due_arrival_tick, o.id
+FOR UPDATE OF o;
+
+-- name: UpdateContractObligationAssessment :execrows
+UPDATE contract_obligations
+SET status = sqlc.arg(new_status),
+    fulfilled_tick = sqlc.narg(fulfilled_tick)::bigint,
+    updated_at = now()
+WHERE id = sqlc.arg(id)::uuid
+  AND status = sqlc.arg(old_status)
+  AND fulfilled_tick IS NOT DISTINCT FROM sqlc.narg(old_fulfilled_tick)::bigint;

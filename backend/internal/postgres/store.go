@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	contractdomain "game/backend/internal/domain/contract"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
@@ -69,6 +70,12 @@ func (t *worldTickTx) LoadDueShipments(ctx context.Context, worldID string, tick
 }
 func (t *worldTickTx) PersistShipmentArrival(ctx context.Context, value shipmentdomain.Shipment) (bool, error) {
 	return t.store.PersistShipmentArrival(ctx, t.tx, value)
+}
+func (t *worldTickTx) LoadContractObligationsForTick(ctx context.Context, worldID string, tick int64) ([]port.ContractObligationAssessment, error) {
+	return t.store.LoadContractObligationsForTick(ctx, t.tx, worldID, tick)
+}
+func (t *worldTickTx) PersistContractObligationAssessment(ctx context.Context, before, after contractdomain.Obligation) (bool, error) {
+	return t.store.PersistContractObligationAssessment(ctx, t.tx, before, after)
 }
 func (t *worldTickTx) ListHouseholdIDs(ctx context.Context, worldID string) ([]string, error) {
 	return t.store.ListHouseholdIDs(ctx, t.tx, worldID)

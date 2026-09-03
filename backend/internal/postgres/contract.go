@@ -5,8 +5,10 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	contractdomain "game/backend/internal/domain/contract"
 	shipmentdomain "game/backend/internal/domain/shipment"
@@ -255,6 +257,78 @@ func (s *Store) ListContractObligations(ctx context.Context, contractID contract
 		values = append(values, value)
 	}
 	return values, nil
+}
+
+func (s *Store) LoadContractObligationsForTick(ctx context.Context, tx pgx.Tx, worldID string, tick int64) ([]port.ContractObligationAssessment, error) {
+	id, err := uuidParam(worldID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := sqlcdb.New(tx).LoadContractObligationsForTick(ctx, sqlcdb.LoadContractObligationsForTickParams{
+		Column1: id, DueArrivalTick: tick,
+	})
+	if err != nil {
+		return nil, err
+	}
+	values := make([]port.ContractObligationAssessment, 0, len(rows))
+	for _, row := range rows {
+		value := contractdomain.Obligation{
+			ID: contractdomain.ObligationID(row.ID), ContractID: contractdomain.ID(row.ContractID),
+			DebtorHouseholdID:   contractdomain.HouseholdID(row.DebtorHouseholdID),
+			CreditorHouseholdID: contractdomain.HouseholdID(row.CreditorHouseholdID),
+			ResourceType:        contractdomain.ResourceType(row.ResourceCode), QuantityMilli: contractdomain.QuantityMilli(row.QuantityMilli),
+			DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), ShipmentID: shipmentdomain.ID(row.ShipmentID),
+			Status: contractdomain.ObligationStatus(row.Status),
+		}
+		if row.FulfilledTick.Valid {
+			fulfilled := contractdomain.Tick(row.FulfilledTick.Int64)
+			value.FulfilledTick = &fulfilled
+		}
+		if err := value.Validate(); err != nil {
+			return nil, fmt.Errorf("contract obligation %s: %w", value.ID, err)
+		}
+		assessment := port.ContractObligationAssessment{Obligation: value}
+		if row.ActualArrivalTick.Valid {
+			arrival := shipmentdomain.Tick(row.ActualArrivalTick.Int64)
+			assessment.ActualArrivalTick = &arrival
+		}
+		values = append(values, assessment)
+	}
+	return values, nil
+}
+
+func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.Tx, before, after contractdomain.Obligation) (bool, error) {
+	if err := before.Validate(); err != nil {
+		return false, err
+	}
+	if err := after.Validate(); err != nil {
+		return false, err
+	}
+	if before.ID == "" || before.ID != after.ID || before.ContractID != after.ContractID ||
+		before.DebtorHouseholdID != after.DebtorHouseholdID || before.CreditorHouseholdID != after.CreditorHouseholdID ||
+		before.ResourceType != after.ResourceType || before.QuantityMilli != after.QuantityMilli ||
+		before.DueArrivalTick != after.DueArrivalTick || before.ShipmentID != after.ShipmentID {
+		return false, contractdomain.ErrInvalidObligation
+	}
+	id, err := uuidParam(string(after.ID))
+	if err != nil {
+		return false, err
+	}
+	rows, err := sqlcdb.New(tx).UpdateContractObligationAssessment(ctx, sqlcdb.UpdateContractObligationAssessmentParams{
+		NewStatus:        string(after.Status),
+		FulfilledTick:    nullableContractTick(after.FulfilledTick),
+		ID:               id,
+		OldStatus:        string(before.Status),
+		OldFulfilledTick: nullableContractTick(before.FulfilledTick),
+	})
+	return rows == 1, err
+}
+
+func nullableContractTick(value *contractdomain.Tick) pgtype.Int8 {
+	if value == nil {
+		return pgtype.Int8{}
+	}
+	return pgtype.Int8{Int64: int64(*value), Valid: true}
 }
 
 func loadContractTerms(ctx context.Context, queries *sqlcdb.Queries, value contractdomain.Contract) (contractdomain.Contract, error) {

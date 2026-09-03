@@ -119,4 +119,19 @@ func TestObligationAssessmentUsesActualArrival(t *testing.T) {
 	}
 }
 
+func TestBrokenObligationRecordsEventualArrival(t *testing.T) {
+	dispatched, err := pendingObligation().Dispatch(matchingShipment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken, err := dispatched.Assess(11, nil)
+	if err != nil || broken.Status != ObligationBroken || broken.FulfilledTick != nil {
+		t.Fatalf("broken assessment = %+v, %v", broken, err)
+	}
+	arrived, err := broken.Assess(12, shipmentTick(12))
+	if err != nil || arrived.Status != ObligationBroken || arrived.FulfilledTick == nil || *arrived.FulfilledTick != 12 {
+		t.Fatalf("eventual arrival = %+v, %v", arrived, err)
+	}
+}
+
 func shipmentTick(value shipmentdomain.Tick) *shipmentdomain.Tick { return &value }

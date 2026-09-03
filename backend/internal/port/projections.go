@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	contractdomain "game/backend/internal/domain/contract"
 	marketdomain "game/backend/internal/domain/market"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/simulation"
@@ -132,6 +133,11 @@ type WorldClaim struct {
 	NextTickAt          time.Time
 }
 
+type ContractObligationAssessment struct {
+	Obligation        contractdomain.Obligation
+	ActualArrivalTick *shipmentdomain.Tick
+}
+
 // WorldTickTransaction contains only the operations required by the canonical
 // atomic tick. The ordering remains application-owned, not persistence-owned.
 type WorldTickTransaction interface {
@@ -139,6 +145,8 @@ type WorldTickTransaction interface {
 	IsTickProcessed(context.Context, string, int64) (bool, error)
 	LoadDueShipments(context.Context, string, int64) ([]shipmentdomain.Shipment, error)
 	PersistShipmentArrival(context.Context, shipmentdomain.Shipment) (bool, error)
+	LoadContractObligationsForTick(context.Context, string, int64) ([]ContractObligationAssessment, error)
+	PersistContractObligationAssessment(context.Context, contractdomain.Obligation, contractdomain.Obligation) (bool, error)
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult) error
