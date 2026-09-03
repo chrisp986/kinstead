@@ -13,19 +13,23 @@ import (
 type Querier interface {
 	ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error)
 	CreateContract(ctx context.Context, arg CreateContractParams) (CreateContractRow, error)
+	CreateContractObligation(ctx context.Context, arg CreateContractObligationParams) error
 	CreateContractTerm(ctx context.Context, arg CreateContractTermParams) error
 	GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetContractRow, error)
 	GetMarketRouteDistance(ctx context.Context, arg GetMarketRouteDistanceParams) (string, error)
 	IsWorldTickProcessed(ctx context.Context, arg IsWorldTickProcessedParams) (bool, error)
 	ListActiveMarketOffers(ctx context.Context, dollar_1 pgtype.UUID) ([]ListActiveMarketOffersRow, error)
+	ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error)
 	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)
 	ListContractsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractsForHouseholdRow, error)
 	ListShipmentsByHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByHouseholdRow, error)
 	ListShipmentsByWorld(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByWorldRow, error)
 	LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipmentsDueForArrivalParams) ([]LoadShipmentsDueForArrivalRow, error)
+	LockContractForResponse(ctx context.Context, dollar_1 pgtype.UUID) (LockContractForResponseRow, error)
 	LockMarketOffer(ctx context.Context, dollar_1 pgtype.UUID) (LockMarketOfferRow, error)
 	MarkShipmentArrived(ctx context.Context, arg MarkShipmentArrivedParams) (string, error)
 	MarkWorldTickProcessed(ctx context.Context, arg MarkWorldTickProcessedParams) error
+	UpdateContractStatus(ctx context.Context, arg UpdateContractStatusParams) (int64, error)
 	UpdateMarketOfferAfterPurchase(ctx context.Context, arg UpdateMarketOfferAfterPurchaseParams) (UpdateMarketOfferAfterPurchaseRow, error)
 }
 

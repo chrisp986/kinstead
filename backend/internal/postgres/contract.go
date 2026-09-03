@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	contractdomain "game/backend/internal/domain/contract"
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
 )
@@ -23,6 +24,10 @@ type contractProposalTx struct {
 	snapshot *port.ContractPartiesSnapshot
 }
 
+type contractResponseTx struct {
+	tx pgx.Tx
+}
+
 func (s *Store) BeginContractProposal(ctx context.Context) (port.ContractProposalTransaction, error) {
 	tx, err := s.Begin(ctx)
 	if err != nil {
@@ -31,8 +36,18 @@ func (s *Store) BeginContractProposal(ctx context.Context) (port.ContractProposa
 	return &contractProposalTx{store: s, tx: tx}, nil
 }
 
+func (s *Store) BeginContractResponse(ctx context.Context) (port.ContractResponseTransaction, error) {
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &contractResponseTx{tx: tx}, nil
+}
+
 func (t *contractProposalTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
 func (t *contractProposalTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
+func (t *contractResponseTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
+func (t *contractResponseTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 
 func (t *contractProposalTx) LoadParties(ctx context.Context, partyA, partyB contractdomain.HouseholdID) (port.ContractPartiesSnapshot, error) {
 	if partyA == "" || partyB == "" || partyA == partyB {
@@ -137,6 +152,104 @@ func (s *Store) ListContractsForHousehold(ctx context.Context, householdID contr
 		value, err := loadContractTerms(ctx, queries, contractFromRow(row.ID, row.WorldID, row.PartyAHouseholdID,
 			row.PartyBHouseholdID, row.StartsTick, row.EndsTick, row.IntervalTicks, row.Status))
 		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, nil
+}
+
+func (t *contractResponseTx) LoadForResponse(ctx context.Context, id contractdomain.ID) (port.ContractResponseSnapshot, error) {
+	contractID, err := uuidParam(string(id))
+	if err != nil {
+		return port.ContractResponseSnapshot{}, err
+	}
+	queries := sqlcdb.New(t.tx)
+	row, err := queries.LockContractForResponse(ctx, contractID)
+	if err != nil {
+		return port.ContractResponseSnapshot{}, err
+	}
+	value := contractFromRow(row.ID, row.WorldID, row.PartyAHouseholdID, row.PartyBHouseholdID,
+		row.StartsTick, row.EndsTick, row.IntervalTicks, row.Status)
+	value, err = loadContractTerms(ctx, queries, value)
+	if err != nil {
+		return port.ContractResponseSnapshot{}, err
+	}
+	return port.ContractResponseSnapshot{Contract: value, CurrentTick: contractdomain.Tick(row.CurrentTick)}, nil
+}
+
+func (t *contractResponseTx) SetStatus(ctx context.Context, id contractdomain.ID, from, to contractdomain.Status) error {
+	contractID, err := uuidParam(string(id))
+	if err != nil {
+		return err
+	}
+	rows, err := sqlcdb.New(t.tx).UpdateContractStatus(ctx, sqlcdb.UpdateContractStatusParams{
+		Column1: contractID, Status: string(to), Status_2: string(from),
+	})
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return contractdomain.ErrInvalidTransition
+	}
+	return nil
+}
+
+func (t *contractResponseTx) CreateObligations(ctx context.Context, obligations []contractdomain.Obligation) error {
+	queries := sqlcdb.New(t.tx)
+	for _, obligation := range obligations {
+		if err := obligation.Validate(); err != nil || obligation.ID != "" || obligation.Status != contractdomain.ObligationPending {
+			return contractdomain.ErrInvalidObligation
+		}
+		contractID, err := uuidParam(string(obligation.ContractID))
+		if err != nil {
+			return err
+		}
+		debtorID, err := uuidParam(string(obligation.DebtorHouseholdID))
+		if err != nil {
+			return err
+		}
+		creditorID, err := uuidParam(string(obligation.CreditorHouseholdID))
+		if err != nil {
+			return err
+		}
+		if err := queries.CreateContractObligation(ctx, sqlcdb.CreateContractObligationParams{
+			Column1: contractID, Column2: debtorID, Column3: creditorID,
+			ResourceCode: string(obligation.ResourceType), QuantityMilli: int64(obligation.QuantityMilli),
+			DueArrivalTick: int64(obligation.DueArrivalTick), Status: string(obligation.Status),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ListContractObligations(ctx context.Context, contractID contractdomain.ID) ([]contractdomain.Obligation, error) {
+	id, err := uuidParam(string(contractID))
+	if err != nil {
+		return nil, err
+	}
+	rows, err := sqlcdb.New(s.Pool).ListContractObligations(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	values := make([]contractdomain.Obligation, 0, len(rows))
+	for _, row := range rows {
+		value := contractdomain.Obligation{
+			ID: contractdomain.ObligationID(row.ID), ContractID: contractdomain.ID(row.ContractID),
+			DebtorHouseholdID:   contractdomain.HouseholdID(row.DebtorHouseholdID),
+			CreditorHouseholdID: contractdomain.HouseholdID(row.CreditorHouseholdID),
+			ResourceType:        contractdomain.ResourceType(row.ResourceCode), QuantityMilli: contractdomain.QuantityMilli(row.QuantityMilli),
+			DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), Status: contractdomain.ObligationStatus(row.Status),
+		}
+		if row.ShipmentID != "" {
+			value.ShipmentID = shipmentdomain.ID(row.ShipmentID)
+		}
+		if row.FulfilledTick.Valid {
+			fulfilled := contractdomain.Tick(row.FulfilledTick.Int64)
+			value.FulfilledTick = &fulfilled
+		}
+		if err := value.Validate(); err != nil {
 			return nil, err
 		}
 		values = append(values, value)

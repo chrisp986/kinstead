@@ -48,6 +48,60 @@ func TestContractProposalPersistenceAndRollback(t *testing.T) {
 	if loaded.Status != contractdomain.StatusProposed || len(loaded.Terms) != 1 || loaded.Terms[0].QuantityMilli != 10_000 {
 		t.Fatalf("loaded contract = %+v", loaded)
 	}
+	if _, err := service.Respond(ctx, RespondContractCommand{
+		ContractID: string(created.ID), CounterpartyHouseholdID: fixture.partyA, Accept: true,
+	}); err != ErrContractResponseForbidden {
+		t.Fatalf("unauthorized response error = %v", err)
+	}
+	responseResults := make(chan struct {
+		value contractdomain.Contract
+		err   error
+	}, 2)
+	for range 2 {
+		go func() {
+			value, err := service.Respond(ctx, RespondContractCommand{
+				ContractID: string(created.ID), CounterpartyHouseholdID: fixture.partyB, Accept: true,
+			})
+			responseResults <- struct {
+				value contractdomain.Contract
+				err   error
+			}{value: value, err: err}
+		}()
+	}
+	var responseErrors []error
+	for range 2 {
+		result := <-responseResults
+		if result.err != nil {
+			responseErrors = append(responseErrors, result.err)
+			continue
+		}
+		if result.value.Status != contractdomain.StatusActive {
+			t.Fatalf("concurrent acceptance = %+v", result.value)
+		}
+	}
+	for _, responseErr := range responseErrors {
+		if _, err := service.Respond(ctx, RespondContractCommand{
+			ContractID: string(created.ID), CounterpartyHouseholdID: fixture.partyB, Accept: true,
+		}); err != nil {
+			t.Fatalf("retry after concurrent response error %v: %v", responseErr, err)
+		}
+	}
+	obligations, err := service.ListObligations(ctx, string(created.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obligations) != 3 || obligations[0].DueArrivalTick != 7 || obligations[1].DueArrivalTick != 10 || obligations[2].DueArrivalTick != 13 {
+		t.Fatalf("obligations = %+v", obligations)
+	}
+	if _, err := service.Respond(ctx, RespondContractCommand{
+		ContractID: string(created.ID), CounterpartyHouseholdID: fixture.partyB, Accept: true,
+	}); err != nil {
+		t.Fatalf("idempotent acceptance: %v", err)
+	}
+	replayed, err := service.ListObligations(ctx, string(created.ID))
+	if err != nil || len(replayed) != len(obligations) {
+		t.Fatalf("obligations after retry = %+v, %v", replayed, err)
+	}
 	listed, err := service.ListForHousehold(ctx, fixture.partyB)
 	if err != nil || len(listed) != 1 || listed[0].ID != created.ID {
 		t.Fatalf("listed contracts = %+v, %v", listed, err)

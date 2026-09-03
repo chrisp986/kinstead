@@ -67,6 +67,38 @@ func (q *Queries) CreateContract(ctx context.Context, arg CreateContractParams) 
 	return i, err
 }
 
+const createContractObligation = `-- name: CreateContractObligation :exec
+INSERT INTO contract_obligations(
+    contract_id, debtor_household_id, creditor_household_id,
+    resource_code, quantity_milli, due_arrival_tick, status
+) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7)
+ON CONFLICT (contract_id, debtor_household_id, creditor_household_id, resource_code, due_arrival_tick)
+DO NOTHING
+`
+
+type CreateContractObligationParams struct {
+	Column1        pgtype.UUID
+	Column2        pgtype.UUID
+	Column3        pgtype.UUID
+	ResourceCode   string
+	QuantityMilli  int64
+	DueArrivalTick int64
+	Status         string
+}
+
+func (q *Queries) CreateContractObligation(ctx context.Context, arg CreateContractObligationParams) error {
+	_, err := q.db.Exec(ctx, createContractObligation,
+		arg.Column1,
+		arg.Column2,
+		arg.Column3,
+		arg.ResourceCode,
+		arg.QuantityMilli,
+		arg.DueArrivalTick,
+		arg.Status,
+	)
+	return err
+}
+
 const createContractTerm = `-- name: CreateContractTerm :exec
 INSERT INTO contract_terms(
     contract_id, debtor_household_id, creditor_household_id,
@@ -127,6 +159,62 @@ func (q *Queries) GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetCon
 		&i.Status,
 	)
 	return i, err
+}
+
+const listContractObligations = `-- name: ListContractObligations :many
+SELECT id::text AS id, contract_id::text AS contract_id,
+       debtor_household_id::text AS debtor_household_id,
+       creditor_household_id::text AS creditor_household_id,
+       resource_code, quantity_milli, due_arrival_tick,
+       COALESCE(shipment_id::text, ''::text)::text AS shipment_id,
+       status, fulfilled_tick
+FROM contract_obligations
+WHERE contract_id = $1::uuid
+ORDER BY due_arrival_tick, debtor_household_id, creditor_household_id, resource_code
+`
+
+type ListContractObligationsRow struct {
+	ID                  string
+	ContractID          string
+	DebtorHouseholdID   string
+	CreditorHouseholdID string
+	ResourceCode        string
+	QuantityMilli       int64
+	DueArrivalTick      int64
+	ShipmentID          string
+	Status              string
+	FulfilledTick       pgtype.Int8
+}
+
+func (q *Queries) ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error) {
+	rows, err := q.db.Query(ctx, listContractObligations, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListContractObligationsRow{}
+	for rows.Next() {
+		var i ListContractObligationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ContractID,
+			&i.DebtorHouseholdID,
+			&i.CreditorHouseholdID,
+			&i.ResourceCode,
+			&i.QuantityMilli,
+			&i.DueArrivalTick,
+			&i.ShipmentID,
+			&i.Status,
+			&i.FulfilledTick,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listContractTerms = `-- name: ListContractTerms :many
@@ -218,4 +306,65 @@ func (q *Queries) ListContractsForHousehold(ctx context.Context, dollar_1 pgtype
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockContractForResponse = `-- name: LockContractForResponse :one
+SELECT c.id::text AS id, c.world_id::text AS world_id,
+       c.party_a_household_id::text AS party_a_household_id,
+       c.party_b_household_id::text AS party_b_household_id,
+       c.starts_tick, c.ends_tick, c.interval_ticks, c.status,
+       w.current_tick
+FROM contracts c
+JOIN worlds w ON w.id = c.world_id
+WHERE c.id = $1::uuid
+FOR UPDATE OF c, w
+`
+
+type LockContractForResponseRow struct {
+	ID                string
+	WorldID           string
+	PartyAHouseholdID string
+	PartyBHouseholdID string
+	StartsTick        int64
+	EndsTick          int64
+	IntervalTicks     int32
+	Status            string
+	CurrentTick       int64
+}
+
+func (q *Queries) LockContractForResponse(ctx context.Context, dollar_1 pgtype.UUID) (LockContractForResponseRow, error) {
+	row := q.db.QueryRow(ctx, lockContractForResponse, dollar_1)
+	var i LockContractForResponseRow
+	err := row.Scan(
+		&i.ID,
+		&i.WorldID,
+		&i.PartyAHouseholdID,
+		&i.PartyBHouseholdID,
+		&i.StartsTick,
+		&i.EndsTick,
+		&i.IntervalTicks,
+		&i.Status,
+		&i.CurrentTick,
+	)
+	return i, err
+}
+
+const updateContractStatus = `-- name: UpdateContractStatus :execrows
+UPDATE contracts
+SET status = $2, updated_at = now()
+WHERE id = $1::uuid AND status = $3
+`
+
+type UpdateContractStatusParams struct {
+	Column1  pgtype.UUID
+	Status   string
+	Status_2 string
+}
+
+func (q *Queries) UpdateContractStatus(ctx context.Context, arg UpdateContractStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateContractStatus, arg.Column1, arg.Status, arg.Status_2)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

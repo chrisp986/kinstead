@@ -10,6 +10,7 @@ import (
 )
 
 var ErrContractStartsInPast = errors.New("contract must start after the current tick")
+var ErrContractResponseForbidden = errors.New("only the proposed counterparty may respond to a contract")
 
 type ContractTermIntent struct {
 	DebtorHouseholdID   string
@@ -25,6 +26,12 @@ type ProposeContractCommand struct {
 	EndsTick                int64
 	IntervalTicks           int64
 	Terms                   []ContractTermIntent
+}
+
+type RespondContractCommand struct {
+	ContractID              string
+	CounterpartyHouseholdID string
+	Accept                  bool
 }
 
 type ContractService struct {
@@ -83,4 +90,58 @@ func (s *ContractService) Get(ctx context.Context, id string) (contractdomain.Co
 
 func (s *ContractService) ListForHousehold(ctx context.Context, householdID string) ([]contractdomain.Contract, error) {
 	return s.Store.ListContractsForHousehold(ctx, contractdomain.HouseholdID(householdID))
+}
+
+func (s *ContractService) ListObligations(ctx context.Context, contractID string) ([]contractdomain.Obligation, error) {
+	return s.Store.ListContractObligations(ctx, contractdomain.ID(contractID))
+}
+
+// Respond accepts or rejects a proposal as its counterparty. Repeating the
+// same decision is idempotent; an accepted contract and all of its recurring
+// obligations are committed atomically.
+func (s *ContractService) Respond(ctx context.Context, cmd RespondContractCommand) (contractdomain.Contract, error) {
+	tx, err := s.Store.BeginContractResponse(ctx)
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	snapshot, err := tx.LoadForResponse(ctx, contractdomain.ID(cmd.ContractID))
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	value := snapshot.Contract
+	if contractdomain.HouseholdID(cmd.CounterpartyHouseholdID) != value.PartyBHouseholdID {
+		return contractdomain.Contract{}, ErrContractResponseForbidden
+	}
+	target := contractdomain.StatusRejected
+	if cmd.Accept {
+		target = contractdomain.StatusActive
+	}
+	if value.Status == target {
+		return value, nil
+	}
+	if cmd.Accept && value.StartsTick <= snapshot.CurrentTick {
+		return contractdomain.Contract{}, ErrContractStartsInPast
+	}
+	updated, err := value.Transition(target)
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	if err := tx.SetStatus(ctx, value.ID, value.Status, target); err != nil {
+		return contractdomain.Contract{}, err
+	}
+	if cmd.Accept {
+		obligations, err := contractdomain.GenerateObligations(updated)
+		if err != nil {
+			return contractdomain.Contract{}, err
+		}
+		if err := tx.CreateObligations(ctx, obligations); err != nil {
+			return contractdomain.Contract{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return contractdomain.Contract{}, fmt.Errorf("commit contract response: %w", err)
+	}
+	return updated, nil
 }

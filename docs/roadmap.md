@@ -66,9 +66,10 @@ travel/transport values.
 -   trust/history events
 -   contract API
 
-Progress: contract/obligation domain rules and atomic proposal persistence are
-complete. Next: counterparty acceptance with idempotent recurring-obligation
-generation, followed by tick-step evaluation and shipment linkage.
+Progress: contract/obligation domain rules, atomic proposal persistence, and
+counterparty acceptance/rejection with retry-safe recurring-obligation
+generation are complete. Next: canonical tick-step evaluation followed by
+shipment linkage.
 
 ### 5. Politics
 
