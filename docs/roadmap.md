@@ -66,6 +66,10 @@ travel/transport values.
 -   trust/history events
 -   contract API
 
+Progress: contract/obligation domain rules and atomic proposal persistence are
+complete. Next: counterparty acceptance with idempotent recurring-obligation
+generation, followed by tick-step evaluation and shipment linkage.
+
 ### 5. Politics
 
 -   Jarl demands

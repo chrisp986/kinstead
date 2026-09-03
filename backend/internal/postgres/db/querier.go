@@ -12,9 +12,14 @@ import (
 
 type Querier interface {
 	ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error)
+	CreateContract(ctx context.Context, arg CreateContractParams) (CreateContractRow, error)
+	CreateContractTerm(ctx context.Context, arg CreateContractTermParams) error
+	GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetContractRow, error)
 	GetMarketRouteDistance(ctx context.Context, arg GetMarketRouteDistanceParams) (string, error)
 	IsWorldTickProcessed(ctx context.Context, arg IsWorldTickProcessedParams) (bool, error)
 	ListActiveMarketOffers(ctx context.Context, dollar_1 pgtype.UUID) ([]ListActiveMarketOffersRow, error)
+	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)
+	ListContractsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractsForHouseholdRow, error)
 	ListShipmentsByHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByHouseholdRow, error)
 	ListShipmentsByWorld(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByWorldRow, error)
 	LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipmentsDueForArrivalParams) ([]LoadShipmentsDueForArrivalRow, error)

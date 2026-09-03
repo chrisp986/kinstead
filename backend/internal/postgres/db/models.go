@@ -66,6 +66,7 @@ type Contract struct {
 	IntervalTicks     int32
 	Status            string
 	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 type ContractObligation struct {
@@ -79,6 +80,15 @@ type ContractObligation struct {
 	ShipmentID          pgtype.UUID
 	Status              string
 	FulfilledTick       pgtype.Int8
+	UpdatedAt           pgtype.Timestamptz
+}
+
+type ContractTerm struct {
+	ContractID          pgtype.UUID
+	DebtorHouseholdID   pgtype.UUID
+	CreditorHouseholdID pgtype.UUID
+	ResourceCode        string
+	QuantityMilli       int64
 }
 
 type Household struct {
