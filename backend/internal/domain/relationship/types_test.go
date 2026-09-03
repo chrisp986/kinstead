@@ -32,7 +32,89 @@ func relationshipObligation() contractdomain.Obligation {
 	}
 }
 
-func TestContractOutcomeEmitsOnlyFinalOutcome(t *testing.T) {
+func TestTrustDeltaForContractOutcome(t *testing.T) {
+	due := contractdomain.Tick(10)
+	arrival := func(value int64) *contractdomain.Tick {
+		tick := contractdomain.Tick(value)
+		return &tick
+	}
+	tests := []struct {
+		name      string
+		eventType EventType
+		fulfilled *contractdomain.Tick
+		wantDelta int
+	}{
+		{"fulfilled on time", EventContractFulfilled, arrival(10), TrustDeltaContractFulfilled},
+		{"fulfilled early", EventContractFulfilled, arrival(9), TrustDeltaContractFulfilled},
+		{"late one tick", EventContractLate, arrival(11), TrustDeltaContractLateOneTick},
+		{"late two ticks", EventContractLate, arrival(12), TrustDeltaContractLateTwoTicks},
+		{"broken unresolved", EventContractBroken, nil, TrustDeltaContractBroken},
+		{"broken eventual arrival", EventContractBroken, arrival(13), TrustDeltaContractBroken},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := TrustDeltaForContractOutcome(tt.eventType, due, tt.fulfilled)
+			if err != nil || got != tt.wantDelta {
+				t.Fatalf("trust delta = %d, %v; want %d", got, err, tt.wantDelta)
+			}
+		})
+	}
+}
+
+func TestTrustDeltaRejectsInvalidOutcomeCombinations(t *testing.T) {
+	due := contractdomain.Tick(10)
+	invalid := []struct {
+		name      string
+		eventType EventType
+		fulfilled *contractdomain.Tick
+	}{
+		{"late without fulfillment", EventContractLate, nil},
+		{"late on due tick", EventContractLate, contractTick(10)},
+		{"late three ticks", EventContractLate, contractTick(13)},
+	}
+	for _, tt := range invalid {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := TrustDeltaForContractOutcome(tt.eventType, due, tt.fulfilled); !errors.Is(err, ErrInvalidEvent) {
+				t.Fatalf("error = %v, want %v", err, ErrInvalidEvent)
+			}
+		})
+	}
+}
+
+func TestContractOutcomeEmitsFinalTrustConsequences(t *testing.T) {
+	tests := []struct {
+		name      string
+		current   contractdomain.Tick
+		arrival   *shipmentdomain.Tick
+		wantType  EventType
+		wantDelta int
+	}{
+		{"on time", 8, shipmentTick(8), EventContractFulfilled, TrustDeltaContractFulfilled},
+		{"early", 8, shipmentTick(7), EventContractFulfilled, TrustDeltaContractFulfilled},
+		{"one tick late", 9, shipmentTick(9), EventContractLate, TrustDeltaContractLateOneTick},
+		{"two ticks late", 10, shipmentTick(10), EventContractLate, TrustDeltaContractLateTwoTicks},
+		{"broken", 11, nil, EventContractBroken, TrustDeltaContractBroken},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := relationshipObligation()
+			after, err := before.Assess(tt.current, tt.arrival)
+			if err != nil {
+				t.Fatal(err)
+			}
+			event, err := ContractOutcome("world", before, after, tt.current)
+			if err != nil || event == nil {
+				t.Fatalf("event = %+v, %v", event, err)
+			}
+			if event.Type != tt.wantType || event.TrustDelta != tt.wantDelta {
+				t.Fatalf("event type/delta = %s/%d, want %s/%d", event.Type, event.TrustDelta, tt.wantType, tt.wantDelta)
+			}
+			if event.SourceHouseholdID != "creditor" || event.TargetHouseholdID != "debtor" {
+				t.Fatalf("direction = %s -> %s, want creditor -> debtor", event.SourceHouseholdID, event.TargetHouseholdID)
+			}
+		})
+	}
+
 	before := relationshipObligation()
 	overdue, err := before.Assess(9, nil)
 	if err != nil {
@@ -41,26 +123,41 @@ func TestContractOutcomeEmitsOnlyFinalOutcome(t *testing.T) {
 	if event, err := ContractOutcome("world", before, overdue, 9); err != nil || event != nil {
 		t.Fatalf("overdue event = %+v, %v", event, err)
 	}
-	arrival := contractdomain.Tick(10)
-	late, err := overdue.Assess(10, shipmentTick(10))
+}
+
+func TestContractOutcomeRejectsInvalidTrustDelta(t *testing.T) {
+	before := relationshipObligation()
+	after, err := before.Assess(8, shipmentTick(8))
 	if err != nil {
 		t.Fatal(err)
 	}
-	event, err := ContractOutcome("world", overdue, late, 10)
-	if err != nil || event == nil || event.Type != EventContractLate || event.TrustDelta != 0 || event.ActualFulfillmentTick == nil || *event.ActualFulfillmentTick != arrival {
-		t.Fatalf("late event = %+v, %v", event, err)
+	event, err := ContractOutcome("world", before, after, 8)
+	if err != nil || event == nil {
+		t.Fatalf("event = %+v, %v", event, err)
 	}
-	broken, err := before.Assess(11, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	event, err = ContractOutcome("world", before, broken, 11)
-	if err != nil || event == nil || event.Type != EventContractBroken || event.SourceHouseholdID != "creditor" || event.TargetHouseholdID != "debtor" {
-		t.Fatalf("broken event = %+v, %v", event, err)
+	event.TrustDelta = TrustDeltaContractBroken
+	if !errors.Is(event.Validate(), ErrInvalidEvent) {
+		t.Fatalf("mismatched trust delta validation = %v", event.Validate())
 	}
 }
 
 func shipmentTick(value int64) *shipmentdomain.Tick {
 	tick := shipmentdomain.Tick(value)
 	return &tick
+}
+
+func contractTick(value int64) *contractdomain.Tick {
+	tick := contractdomain.Tick(value)
+	return &tick
+}
+
+func TestStandingReflectsAccumulatedContractTrust(t *testing.T) {
+	standing, err := StandingForTrust(29 + TrustDeltaContractFulfilled)
+	if err != nil || standing != StandingFavorable {
+		t.Fatalf("standing after fulfillment = %s, %v; want %s", standing, err, StandingFavorable)
+	}
+	standing, err = StandingForTrust(-29 + TrustDeltaContractBroken)
+	if err != nil || standing != StandingDisapproving {
+		t.Fatalf("standing after broken outcome = %s, %v; want %s", standing, err, StandingDisapproving)
+	}
 }

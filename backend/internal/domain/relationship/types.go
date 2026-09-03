@@ -2,6 +2,7 @@ package relationship
 
 import (
 	"errors"
+	"math"
 
 	contractdomain "game/backend/internal/domain/contract"
 	shipmentdomain "game/backend/internal/domain/shipment"
@@ -17,6 +18,13 @@ const (
 )
 
 const (
+	TrustDeltaContractFulfilled    = 2
+	TrustDeltaContractLateOneTick  = -1
+	TrustDeltaContractLateTwoTicks = -2
+	TrustDeltaContractBroken       = -8
+)
+
+const (
 	StandingDisapproving Standing = "disapproving"
 	StandingNeutral      Standing = "neutral"
 	StandingFavorable    Standing = "favorable"
@@ -25,6 +33,43 @@ const (
 
 var ErrInvalidEvent = errors.New("invalid relationship event")
 var ErrInvalidTrust = errors.New("relationship trust must be between -100 and 100")
+
+// TrustDeltaForContractOutcome maps one final contract-obligation outcome to
+// the directional trust consequence for the creditor's view of the debtor.
+// A late outcome must include its actual arrival so the one- and two-tick
+// penalties remain deterministic. A broken outcome may record an eventual
+// arrival at least three ticks late, or no arrival at all.
+func TrustDeltaForContractOutcome(eventType EventType, dueTick contractdomain.Tick, fulfilledTick *contractdomain.Tick) (int, error) {
+	if dueTick < 0 || dueTick > contractdomain.Tick(math.MaxInt64-3) {
+		return 0, ErrInvalidEvent
+	}
+	switch eventType {
+	case EventContractFulfilled:
+		if fulfilledTick == nil || *fulfilledTick < 0 || *fulfilledTick > dueTick {
+			return 0, ErrInvalidEvent
+		}
+		return TrustDeltaContractFulfilled, nil
+	case EventContractLate:
+		if fulfilledTick == nil || *fulfilledTick <= dueTick {
+			return 0, ErrInvalidEvent
+		}
+		switch *fulfilledTick - dueTick {
+		case 1:
+			return TrustDeltaContractLateOneTick, nil
+		case 2:
+			return TrustDeltaContractLateTwoTicks, nil
+		default:
+			return 0, ErrInvalidEvent
+		}
+	case EventContractBroken:
+		if fulfilledTick != nil && (*fulfilledTick < 0 || *fulfilledTick < dueTick+3) {
+			return 0, ErrInvalidEvent
+		}
+		return TrustDeltaContractBroken, nil
+	default:
+		return 0, ErrInvalidEvent
+	}
+}
 
 func StandingForTrust(trust int) (Standing, error) {
 	switch {
@@ -74,13 +119,17 @@ func (e Event) Validate() error {
 			return ErrInvalidEvent
 		}
 	case EventContractBroken:
-		if e.ActualFulfillmentTick != nil && (e.ShipmentID == "" || *e.ActualFulfillmentTick < e.DueArrivalTick+3) {
+		if e.OccurredTick < e.DueArrivalTick+3 || (e.ActualFulfillmentTick != nil && (e.ShipmentID == "" || *e.ActualFulfillmentTick < e.DueArrivalTick+3)) {
 			return ErrInvalidEvent
 		}
 	default:
 		return ErrInvalidEvent
 	}
 	if e.ActualFulfillmentTick != nil && e.OccurredTick != *e.ActualFulfillmentTick {
+		return ErrInvalidEvent
+	}
+	delta, err := TrustDeltaForContractOutcome(e.Type, e.DueArrivalTick, e.ActualFulfillmentTick)
+	if err != nil || e.TrustDelta != delta {
 		return ErrInvalidEvent
 	}
 	return nil
@@ -120,6 +169,11 @@ func ContractOutcome(worldID contractdomain.WorldID, before, after contractdomai
 		ShipmentID: after.ShipmentID, ResourceType: after.ResourceType, QuantityMilli: after.QuantityMilli,
 		DueArrivalTick: after.DueArrivalTick, ActualFulfillmentTick: after.FulfilledTick,
 	}
+	delta, err := TrustDeltaForContractOutcome(eventType, after.DueArrivalTick, after.FulfilledTick)
+	if err != nil {
+		return nil, err
+	}
+	event.TrustDelta = delta
 	if err := event.Validate(); err != nil {
 		return nil, err
 	}
