@@ -129,6 +129,18 @@ player states: disapproving (-100..-31), neutral (-30..29), favorable
 (30..69), connected (70..100). Political demands consume labor/resources
 and create opportunity costs.
 
+Contract trust consequences are fixed and directional: fulfilled on time or
+early is +2, one tick late is -1, two ticks late is -2, and broken/3+ ticks
+late is -8. Each obligation produces at most one consequence; trust is clamped
+to -100..100 and does not scale by quantity, value, resource type, distance,
+or contract duration.
+
+Jarl demands use production event types `political_labor_service` and
+`political_levy`. Labor service reserves one full-capacity character for four
+ticks. Levy honor costs 18,000 wood or 6,000 silver milli-units. Honoring is
++10 political score; refusal or expiry default is -5. Political standing is
+derived from score and is never persisted separately.
+
 Chronicle stores structured facts and renders prose later. Record major
 trades, contracts, buildings, political choices, shipment issues, and
 emergency actions.

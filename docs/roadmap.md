@@ -19,7 +19,7 @@ relationships** under asynchronous time.
 -   existing world/market/shipment SQL migrated toward generated `sqlc` queries
 -   CI added for backend, PostgreSQL integration, frontend, and Playwright
 
-Next: begin Politics after the completed Contracts + Relationships milestone.
+Next: begin Chronicle + Farm Report after the completed Politics milestone.
 
 ## Implementation order
 
@@ -75,14 +75,19 @@ contract/relationship UI. Trust outcomes are +2 on time/early, -1 one tick
 late, -2 two ticks late, and -8 broken/3+ ticks late; the creditor's trust in
 the debtor changes and no reverse relationship is modified automatically.
 
-### 5. Politics --- next major milestone
+### 5. Politics --- complete
 
 -   Jarl demands
 -   decision expiry/defaults
 -   labor/resource opportunity costs
 -   relationship effects
 
-### 6. Chronicle + Farm Report
+Complete: deterministic Jarl labor-service and levy demands, expiry/default
+refusal, transactional resource and assignment consequences, score clamps and
+derived standing, structured chronicle outcomes, REST/OpenAPI projections,
+generated client, and household Politics UI.
+
+### 6. Chronicle + Farm Report --- next major milestone
 
 -   structured chronicle entries
 -   "what changed / needs attention / decisions now"

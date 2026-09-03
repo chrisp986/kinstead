@@ -150,6 +150,9 @@ createServer(async (request, response) => {
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/relationships`) {
 		return send(response, 200, { relationships });
 	}
+	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/politics`) {
+		return send(response, 200, { relationships: [], decisions: [] });
+	}
 	if (request.method === 'GET' && url.pathname === '/api/market/offers') {
 		const offers =
 			offerQuantity > 0

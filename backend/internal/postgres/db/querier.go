@@ -11,13 +11,21 @@ import (
 )
 
 type Querier interface {
+	ApplyPoliticalScoreDelta(ctx context.Context, arg ApplyPoliticalScoreDeltaParams) error
 	ApplyRelationshipDelta(ctx context.Context, arg ApplyRelationshipDeltaParams) error
+	AssignmentOverlaps(ctx context.Context, arg AssignmentOverlapsParams) (bool, error)
+	AutoResolvePoliticalDecision(ctx context.Context, arg AutoResolvePoliticalDecisionParams) (int64, error)
 	ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error)
 	CreateContract(ctx context.Context, arg CreateContractParams) (CreateContractRow, error)
 	CreateContractObligation(ctx context.Context, arg CreateContractObligationParams) error
 	CreateContractTerm(ctx context.Context, arg CreateContractTermParams) error
+	CreateRulerServiceAssignment(ctx context.Context, arg CreateRulerServiceAssignmentParams) (string, error)
+	DeductResourceStock(ctx context.Context, arg DeductResourceStockParams) error
 	GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetContractRow, error)
 	GetRouteDistance(ctx context.Context, arg GetRouteDistanceParams) (string, error)
+	InsertHouseholdDecision(ctx context.Context, arg InsertHouseholdDecisionParams) (int64, error)
+	InsertPoliticalChronicle(ctx context.Context, arg InsertPoliticalChronicleParams) (int64, error)
+	InsertPoliticalReceivedChronicle(ctx context.Context, arg InsertPoliticalReceivedChronicleParams) error
 	InsertRelationshipEvent(ctx context.Context, arg InsertRelationshipEventParams) (int64, error)
 	IsWorldTickProcessed(ctx context.Context, arg IsWorldTickProcessedParams) (bool, error)
 	LinkContractObligationShipment(ctx context.Context, arg LinkContractObligationShipmentParams) (int64, error)
@@ -26,17 +34,27 @@ type Querier interface {
 	ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error)
 	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)
 	ListContractsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractsForHouseholdRow, error)
+	ListHouseholdsForPoliticalEvent(ctx context.Context, worldEventID pgtype.UUID) ([]ListHouseholdsForPoliticalEventRow, error)
+	ListPoliticalDecisionsForHousehold(ctx context.Context, householdID pgtype.UUID) ([]ListPoliticalDecisionsForHouseholdRow, error)
+	ListPoliticalRelationshipsForHousehold(ctx context.Context, householdID pgtype.UUID) ([]ListPoliticalRelationshipsForHouseholdRow, error)
 	ListRelationshipEventsBetween(ctx context.Context, arg ListRelationshipEventsBetweenParams) ([]ListRelationshipEventsBetweenRow, error)
 	ListRelationshipsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListRelationshipsForHouseholdRow, error)
 	ListShipmentsByHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByHouseholdRow, error)
 	ListShipmentsByWorld(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByWorldRow, error)
 	LoadContractObligationsForTick(ctx context.Context, arg LoadContractObligationsForTickParams) ([]LoadContractObligationsForTickRow, error)
+	LoadExpiringPoliticalDecisions(ctx context.Context, arg LoadExpiringPoliticalDecisionsParams) ([]LoadExpiringPoliticalDecisionsRow, error)
+	LoadPoliticalCharacter(ctx context.Context, arg LoadPoliticalCharacterParams) (LoadPoliticalCharacterRow, error)
+	LoadPoliticalEventsStartingTick(ctx context.Context, arg LoadPoliticalEventsStartingTickParams) ([]LoadPoliticalEventsStartingTickRow, error)
 	LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipmentsDueForArrivalParams) ([]LoadShipmentsDueForArrivalRow, error)
 	LockContractForResponse(ctx context.Context, dollar_1 pgtype.UUID) (LockContractForResponseRow, error)
 	LockContractObligationForDispatch(ctx context.Context, dollar_1 pgtype.UUID) (LockContractObligationForDispatchRow, error)
 	LockMarketOffer(ctx context.Context, dollar_1 pgtype.UUID) (LockMarketOfferRow, error)
+	LockPoliticalDecision(ctx context.Context, arg LockPoliticalDecisionParams) (LockPoliticalDecisionRow, error)
+	LockPoliticalRelationshipScore(ctx context.Context, arg LockPoliticalRelationshipScoreParams) (int32, error)
+	LockResourceStock(ctx context.Context, arg LockResourceStockParams) (int64, error)
 	MarkShipmentArrived(ctx context.Context, arg MarkShipmentArrivedParams) (string, error)
 	MarkWorldTickProcessed(ctx context.Context, arg MarkWorldTickProcessedParams) error
+	ResolvePoliticalDecision(ctx context.Context, arg ResolvePoliticalDecisionParams) (int64, error)
 	UpdateContractObligationAssessment(ctx context.Context, arg UpdateContractObligationAssessmentParams) (int64, error)
 	UpdateContractStatus(ctx context.Context, arg UpdateContractStatusParams) (int64, error)
 	UpdateMarketOfferAfterPurchase(ctx context.Context, arg UpdateMarketOfferAfterPurchaseParams) (UpdateMarketOfferAfterPurchaseRow, error)

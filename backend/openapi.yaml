@@ -137,6 +137,44 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Contract' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/households/{householdId}/politics:
+    get:
+      operationId: getHouseholdPolitics
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+      responses:
+        '200':
+          description: Political relationships and Jarl demands
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PoliticsOverview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/political-demands/{decisionId}/respond:
+    post:
+      operationId: respondToPoliticalDemand
+      parameters:
+        - name: decisionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RespondPoliticalDemandIntent' }
+      responses:
+        '200':
+          description: Demand resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/contracts:
     post:
       operationId: proposeContract
@@ -419,6 +457,53 @@ components:
         events:
           type: array
           items: { $ref: '#/components/schemas/RelationshipEvent' }
+    PoliticsOverview:
+      type: object
+      required: [relationships, decisions]
+      properties:
+        relationships:
+          type: array
+          items: { $ref: '#/components/schemas/PoliticalRelationship' }
+        decisions:
+          type: array
+          items: { $ref: '#/components/schemas/PoliticalDecision' }
+    PoliticalRelationship:
+      type: object
+      required: [political_actor_id, actor_name, actor_type, score, standing]
+      properties:
+        political_actor_id: { type: string, format: uuid }
+        actor_name: { type: string }
+        actor_type: { type: string }
+        score: { type: integer, minimum: -100, maximum: 100 }
+        standing: { type: string, enum: [disapproving, neutral, favorable, connected] }
+    PoliticalDecision:
+      type: object
+      required: [id, demand_type, status, actor_id, actor_name, actor_type, available_from_tick, expires_tick, options]
+      properties:
+        id: { type: string, format: uuid }
+        demand_type: { type: string, enum: [political_labor_service, political_levy] }
+        status: { type: string, enum: [pending, resolved, auto_resolved] }
+        actor_id: { type: string, format: uuid }
+        actor_name: { type: string }
+        actor_type: { type: string }
+        available_from_tick: { type: integer, format: int64 }
+        expires_tick: { type: integer, format: int64 }
+        selected_option: { type: string }
+        standing_delta: { type: integer }
+        parameters: { type: object, additionalProperties: true }
+        options:
+          type: array
+          items: { type: string }
+        eligible_characters:
+          type: array
+          items: { $ref: '#/components/schemas/Character' }
+    RespondPoliticalDemandIntent:
+      type: object
+      required: [household_id, option]
+      properties:
+        household_id: { type: string, format: uuid }
+        option: { type: string, enum: [serve, pay_wood, pay_silver, refuse] }
+        character_id: { type: string, format: uuid }
     ContractTerm:
       type: object
       required: [debtor_household_id, creditor_household_id, resource_type, quantity_milli]

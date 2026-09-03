@@ -15,6 +15,7 @@ import (
 	contractdomain "game/backend/internal/domain/contract"
 	"game/backend/internal/domain/geography"
 	marketdomain "game/backend/internal/domain/market"
+	politicsdomain "game/backend/internal/domain/politics"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	"game/backend/internal/postgres"
@@ -28,6 +29,7 @@ type Server struct {
 	chronicle     *application.ChronicleService
 	relationships *application.RelationshipService
 	contracts     *application.ContractService
+	politics      *application.PoliticsService
 	log           *slog.Logger
 }
 
@@ -39,6 +41,7 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 		chronicle:     application.NewChronicleService(store),
 		relationships: application.NewRelationshipService(store),
 		contracts:     application.NewContractService(store),
+		politics:      application.NewPoliticsService(store, store),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -50,12 +53,39 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
 	mux.HandleFunc("GET /api/households/{id}/relationships", s.householdRelationships)
 	mux.HandleFunc("GET /api/households/{id}/contracts", s.householdContracts)
+	mux.HandleFunc("GET /api/households/{id}/politics", s.householdPolitics)
 	mux.HandleFunc("POST /api/contracts", s.proposeContract)
 	mux.HandleFunc("POST /api/contracts/{id}/respond", s.respondContract)
 	mux.HandleFunc("POST /api/contract-obligations/{id}/dispatch", s.dispatchContractObligation)
+	mux.HandleFunc("POST /api/political-demands/{id}/respond", s.respondPoliticalDemand)
 	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
 	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
 	return cors(mux)
+}
+
+func (s *Server) householdPolitics(w http.ResponseWriter, r *http.Request) {
+	p, err := s.politics.GetHouseholdPolitics(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+func (s *Server) respondPoliticalDemand(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		HouseholdID string `json:"household_id"`
+		Option      string `json:"option"`
+		CharacterID string `json:"character_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if err := s.politics.Respond(r.Context(), application.RespondPoliticalDemandCommand{DecisionID: r.PathValue("id"), HouseholdID: req.HouseholdID, Option: req.Option, CharacterID: req.CharacterID}); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "resolved"})
 }
 
 func (s *Server) householdContracts(w http.ResponseWriter, r *http.Request) {
@@ -343,6 +373,14 @@ func validDuration(v int64) bool   { return v == 1 || v == 3 || v == 6 || v == 1
 func (s *Server) writeError(w http.ResponseWriter, err error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if errors.Is(err, politicsdomain.ErrInvalidOption) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_political_option", "message": err.Error()})
+		return
+	}
+	if strings.Contains(err.Error(), "political demand has expired") || strings.Contains(err.Error(), "already resolved") || strings.Contains(err.Error(), "overlaps") || strings.Contains(err.Error(), "insufficient") || strings.Contains(err.Error(), "not eligible") || strings.Contains(err.Error(), "requires a character") {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "political_demand_conflict", "message": err.Error()})
 		return
 	}
 	if errors.Is(err, postgres.ErrInvalidMarketParticipants) {

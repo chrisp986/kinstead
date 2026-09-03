@@ -109,6 +109,43 @@ export type Relationship = {
 	events: Array<RelationshipEvent>;
 };
 
+export type PoliticsOverview = {
+	relationships: Array<PoliticalRelationship>;
+	decisions: Array<PoliticalDecision>;
+};
+
+export type PoliticalRelationship = {
+	political_actor_id: string;
+	actor_name: string;
+	actor_type: string;
+	score: number;
+	standing: 'disapproving' | 'neutral' | 'favorable' | 'connected';
+};
+
+export type PoliticalDecision = {
+	id: string;
+	demand_type: 'political_labor_service' | 'political_levy';
+	status: 'pending' | 'resolved' | 'auto_resolved';
+	actor_id: string;
+	actor_name: string;
+	actor_type: string;
+	available_from_tick: number;
+	expires_tick: number;
+	selected_option?: string;
+	standing_delta?: number;
+	parameters?: {
+		[key: string]: unknown;
+	};
+	options: Array<string>;
+	eligible_characters?: Array<Character>;
+};
+
+export type RespondPoliticalDemandIntent = {
+	household_id: string;
+	option: 'serve' | 'pay_wood' | 'pay_silver' | 'refuse';
+	character_id?: string;
+};
+
 export type ContractTerm = {
 	debtor_household_id: string;
 	creditor_household_id: string;
@@ -419,6 +456,74 @@ export type ListHouseholdContractsResponses = {
 
 export type ListHouseholdContractsResponse =
 	ListHouseholdContractsResponses[keyof ListHouseholdContractsResponses];
+
+export type GetHouseholdPoliticsData = {
+	body?: never;
+	path: {
+		householdId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/politics';
+};
+
+export type GetHouseholdPoliticsErrors = {
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type GetHouseholdPoliticsError =
+	GetHouseholdPoliticsErrors[keyof GetHouseholdPoliticsErrors];
+
+export type GetHouseholdPoliticsResponses = {
+	/**
+	 * Political relationships and Jarl demands
+	 */
+	200: PoliticsOverview;
+};
+
+export type GetHouseholdPoliticsResponse =
+	GetHouseholdPoliticsResponses[keyof GetHouseholdPoliticsResponses];
+
+export type RespondToPoliticalDemandData = {
+	body: RespondPoliticalDemandIntent;
+	path: {
+		decisionId: string;
+	};
+	query?: never;
+	url: '/api/political-demands/{decisionId}/respond';
+};
+
+export type RespondToPoliticalDemandErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Intent conflicts with current state
+	 */
+	409: ApiError;
+};
+
+export type RespondToPoliticalDemandError =
+	RespondToPoliticalDemandErrors[keyof RespondToPoliticalDemandErrors];
+
+export type RespondToPoliticalDemandResponses = {
+	/**
+	 * Demand resolved
+	 */
+	200: {
+		status: string;
+	};
+};
+
+export type RespondToPoliticalDemandResponse =
+	RespondToPoliticalDemandResponses[keyof RespondToPoliticalDemandResponses];
 
 export type ProposeContractData = {
 	body: ProposeContractIntent;

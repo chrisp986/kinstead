@@ -148,6 +148,7 @@ type ContractRollupSnapshot struct {
 // WorldTickTransaction contains only the operations required by the canonical
 // atomic tick. The ordering remains application-owned, not persistence-owned.
 type WorldTickTransaction interface {
+	PoliticsTickStore
 	ClaimDueWorld(context.Context) (WorldClaim, bool, error)
 	IsTickProcessed(context.Context, string, int64) (bool, error)
 	LoadDueShipments(context.Context, string, int64) ([]shipmentdomain.Shipment, error)

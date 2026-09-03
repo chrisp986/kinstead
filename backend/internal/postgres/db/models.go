@@ -43,17 +43,19 @@ type CharacterSkill struct {
 }
 
 type ChronicleEntry struct {
-	ID                  pgtype.UUID
-	HouseholdID         pgtype.UUID
-	OccurredTick        int64
-	EntryType           string
-	SubjectCharacterID  pgtype.UUID
-	RelatedHouseholdID  pgtype.UUID
-	RelatedContractID   pgtype.UUID
-	Data                []byte
-	CreatedAt           pgtype.Timestamptz
-	RelatedShipmentID   pgtype.UUID
-	RelatedAssignmentID pgtype.UUID
+	ID                         pgtype.UUID
+	HouseholdID                pgtype.UUID
+	OccurredTick               int64
+	EntryType                  string
+	SubjectCharacterID         pgtype.UUID
+	RelatedHouseholdID         pgtype.UUID
+	RelatedContractID          pgtype.UUID
+	Data                       []byte
+	CreatedAt                  pgtype.Timestamptz
+	RelatedShipmentID          pgtype.UUID
+	RelatedAssignmentID        pgtype.UUID
+	RelatedHouseholdDecisionID pgtype.UUID
+	RelatedPoliticalActorID    pgtype.UUID
 }
 
 type Contract struct {
@@ -112,18 +114,22 @@ type HouseholdBuilding struct {
 }
 
 type HouseholdDecision struct {
-	ID                pgtype.UUID
-	HouseholdID       pgtype.UUID
-	WorldEventID      pgtype.UUID
-	DecisionType      string
-	AvailableFromTick int64
-	ExpiresTick       int64
-	Status            string
-	SelectedOption    pgtype.Text
-	DefaultOption     string
-	Parameters        []byte
-	ResolvedTick      pgtype.Int8
-	CreatedAt         pgtype.Timestamptz
+	ID                  pgtype.UUID
+	HouseholdID         pgtype.UUID
+	WorldEventID        pgtype.UUID
+	DecisionType        string
+	AvailableFromTick   int64
+	ExpiresTick         int64
+	Status              string
+	SelectedOption      pgtype.Text
+	DefaultOption       string
+	Parameters          []byte
+	ResolvedTick        pgtype.Int8
+	CreatedAt           pgtype.Timestamptz
+	WorldID             pgtype.UUID
+	StandingDelta       pgtype.Int4
+	RelatedAssignmentID pgtype.UUID
+	UpdatedAt           pgtype.Timestamptz
 }
 
 type Location struct {
@@ -187,6 +193,8 @@ type PoliticalRelationship struct {
 	HouseholdID      pgtype.UUID
 	PoliticalActorID pgtype.UUID
 	Standing         int32
+	WorldID          pgtype.UUID
+	UpdatedAt        pgtype.Timestamptz
 }
 
 type ProcessedWorldTick struct {
@@ -263,12 +271,13 @@ type World struct {
 }
 
 type WorldEvent struct {
-	ID         pgtype.UUID
-	WorldID    pgtype.UUID
-	LocationID pgtype.UUID
-	EventType  string
-	StartsTick int64
-	EndsTick   pgtype.Int8
-	Parameters []byte
-	CreatedAt  pgtype.Timestamptz
+	ID               pgtype.UUID
+	WorldID          pgtype.UUID
+	LocationID       pgtype.UUID
+	EventType        string
+	StartsTick       int64
+	EndsTick         pgtype.Int8
+	Parameters       []byte
+	CreatedAt        pgtype.Timestamptz
+	PoliticalActorID pgtype.UUID
 }

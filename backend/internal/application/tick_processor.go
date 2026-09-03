@@ -2,11 +2,13 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"game/backend/internal/balance"
 	"game/backend/internal/calendar"
 	contractdomain "game/backend/internal/domain/contract"
+	politicsdomain "game/backend/internal/domain/politics"
 	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
@@ -83,6 +85,10 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("save household %s: %w", householdID, err)
 		}
 	}
+	// Canonical tick step 7: resolve political events after fatigue/health.
+	if err := p.processPolitics(ctx, tx, world.ID, tick); err != nil {
+		return false, err
+	}
 
 	if err := tx.FinishWorldTick(ctx, world, tick); err != nil {
 		return false, err
@@ -91,6 +97,65 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("commit world tick: %w", err)
 	}
 	return true, nil
+}
+
+func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {
+	decisions, err := tx.LoadExpiringPoliticalDecisions(ctx, worldID, tick)
+	if err != nil {
+		return fmt.Errorf("load expiring political demands: %w", err)
+	}
+	for _, d := range decisions {
+		changed, err := tx.AutoResolvePoliticalDecision(ctx, d, tick)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			continue
+		}
+		if err := tx.ApplyPoliticalScoreDelta(ctx, d.WorldID, d.HouseholdID, d.PoliticalActorID, politicsdomain.StandingRefusedDelta); err != nil {
+			return err
+		}
+		data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": "refuse", "standing_delta": politicsdomain.StandingRefusedDelta, "deadline_tick": d.ExpiresTick})
+		if err := tx.InsertPoliticalChronicle(ctx, d.HouseholdID, tick, "political_demand_auto_resolved", d.ID, d.PoliticalActorID, "", data); err != nil {
+			return err
+		}
+	}
+	events, err := tx.LoadPoliticalEventsStartingTick(ctx, worldID, tick)
+	if err != nil {
+		return fmt.Errorf("load political demands: %w", err)
+	}
+	for _, event := range events {
+		if event.ExpiresTick <= event.StartsTick {
+			return fmt.Errorf("political event %s has invalid deadline", event.ID)
+		}
+		households, err := tx.ListHouseholdsForPoliticalEvent(ctx, event.ID)
+		if err != nil {
+			return err
+		}
+		for _, householdID := range households {
+			params := map[string]any{"honor_standing_delta": politicsdomain.StandingHonoredDelta, "refuse_standing_delta": politicsdomain.StandingRefusedDelta}
+			if event.EventType == string(politicsdomain.DemandLaborService) {
+				params["service_ticks"] = politicsdomain.LaborServiceTicks
+			} else {
+				params["wood_cost_milli"] = politicsdomain.LevyWoodMilli
+				params["silver_cost_milli"] = politicsdomain.LevySilverMilli
+			}
+			encoded, _ := json.Marshal(params)
+			d := port.PoliticalDecisionRecord{HouseholdID: householdID, WorldID: worldID, WorldEventID: event.ID, DecisionType: event.EventType, AvailableFromTick: event.StartsTick, ExpiresTick: event.ExpiresTick, Parameters: encoded}
+			created, err := tx.InsertPoliticalDecision(ctx, d)
+			if err != nil {
+				return err
+			}
+			if !created {
+				continue
+			}
+			data, _ := json.Marshal(map[string]any{"actor_id": event.PoliticalActorID, "demand_type": event.EventType, "deadline_tick": event.ExpiresTick})
+			if err := tx.InsertPoliticalReceivedChronicle(ctx, householdID, tick, event.ID, event.PoliticalActorID, data); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {

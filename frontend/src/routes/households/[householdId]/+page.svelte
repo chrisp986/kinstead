@@ -6,6 +6,7 @@
 	import ResourceSummary from '$lib/components/ResourceSummary.svelte';
 	import RelationshipPanel from '$lib/components/RelationshipPanel.svelte';
 	import ShipmentList from '$lib/components/ShipmentList.svelte';
+	import PoliticsPanel from '$lib/components/PoliticsPanel.svelte';
 	import { resolve } from '$app/paths';
 	let { data, form } = $props();
 </script>
@@ -42,6 +43,7 @@
 
 <main class="dashboard">
 	<ResourceSummary resources={data.report.resources} supplyDays={data.report.supply_days} />
+	<PoliticsPanel politics={data.politics} householdId={data.report.household_id} feedback={form} />
 	<MarketPanel offers={data.offers} householdId={data.report.household_id} feedback={form} />
 	<ContractPanel
 		contracts={data.contracts}

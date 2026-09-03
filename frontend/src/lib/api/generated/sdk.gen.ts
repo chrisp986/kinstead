@@ -14,6 +14,9 @@ import type {
 	DispatchContractObligationResponses,
 	GetHealthData,
 	GetHealthResponses,
+	GetHouseholdPoliticsData,
+	GetHouseholdPoliticsErrors,
+	GetHouseholdPoliticsResponses,
 	GetHouseholdReportData,
 	GetHouseholdReportErrors,
 	GetHouseholdReportResponses,
@@ -41,7 +44,10 @@ import type {
 	PurchaseMarketOfferResponses,
 	RespondToContractData,
 	RespondToContractErrors,
-	RespondToContractResponses
+	RespondToContractResponses,
+	RespondToPoliticalDemandData,
+	RespondToPoliticalDemandErrors,
+	RespondToPoliticalDemandResponses
 } from './types.gen';
 
 export type Options<
@@ -145,6 +151,31 @@ export const listHouseholdContracts = <ThrowOnError extends boolean = false>(
 		ListHouseholdContractsErrors,
 		ThrowOnError
 	>({ url: '/api/households/{householdId}/contracts', ...options });
+
+export const getHouseholdPolitics = <ThrowOnError extends boolean = false>(
+	options: Options<GetHouseholdPoliticsData, ThrowOnError>
+): RequestResult<GetHouseholdPoliticsResponses, GetHouseholdPoliticsErrors, ThrowOnError> =>
+	(options.client ?? client).get<
+		GetHouseholdPoliticsResponses,
+		GetHouseholdPoliticsErrors,
+		ThrowOnError
+	>({ url: '/api/households/{householdId}/politics', ...options });
+
+export const respondToPoliticalDemand = <ThrowOnError extends boolean = false>(
+	options: Options<RespondToPoliticalDemandData, ThrowOnError>
+): RequestResult<RespondToPoliticalDemandResponses, RespondToPoliticalDemandErrors, ThrowOnError> =>
+	(options.client ?? client).post<
+		RespondToPoliticalDemandResponses,
+		RespondToPoliticalDemandErrors,
+		ThrowOnError
+	>({
+		url: '/api/political-demands/{decisionId}/respond',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
 
 export const proposeContract = <ThrowOnError extends boolean = false>(
 	options: Options<ProposeContractData, ThrowOnError>

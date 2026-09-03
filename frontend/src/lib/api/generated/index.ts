@@ -5,6 +5,7 @@ export {
 	createHouseholdAssignment,
 	dispatchContractObligation,
 	getHealth,
+	getHouseholdPolitics,
 	getHouseholdReport,
 	listHouseholdAssignments,
 	listHouseholdChronicle,
@@ -15,7 +16,8 @@ export {
 	type Options,
 	proposeContract,
 	purchaseMarketOffer,
-	respondToContract
+	respondToContract,
+	respondToPoliticalDemand
 } from './sdk.gen';
 export type {
 	Alert,
@@ -49,6 +51,11 @@ export type {
 	GetHealthData,
 	GetHealthResponse,
 	GetHealthResponses,
+	GetHouseholdPoliticsData,
+	GetHouseholdPoliticsError,
+	GetHouseholdPoliticsErrors,
+	GetHouseholdPoliticsResponse,
+	GetHouseholdPoliticsResponses,
 	GetHouseholdReportData,
 	GetHouseholdReportError,
 	GetHouseholdReportErrors,
@@ -83,6 +90,9 @@ export type {
 	ListMarketOffersResponse,
 	ListMarketOffersResponses,
 	MarketOffer,
+	PoliticalDecision,
+	PoliticalRelationship,
+	PoliticsOverview,
 	ProposeContractData,
 	ProposeContractError,
 	ProposeContractErrors,
@@ -99,10 +109,16 @@ export type {
 	Relationship,
 	RelationshipEvent,
 	RespondContractIntent,
+	RespondPoliticalDemandIntent,
 	RespondToContractData,
 	RespondToContractError,
 	RespondToContractErrors,
 	RespondToContractResponse,
 	RespondToContractResponses,
+	RespondToPoliticalDemandData,
+	RespondToPoliticalDemandError,
+	RespondToPoliticalDemandErrors,
+	RespondToPoliticalDemandResponse,
+	RespondToPoliticalDemandResponses,
 	Shipment
 } from './types.gen';

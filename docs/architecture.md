@@ -30,6 +30,12 @@ implement those ports; transaction ordering and game decisions remain in the
 application/domain layers. Stable locking and
 projection queries are generated with `sqlc`.
 
+Politics uses a dedicated narrow port for Jarl-demand projections, responses,
+and tick generation/expiry. Demand terms are snapshotted in the decision;
+responses lock the world and decision in a serializable transaction, apply
+resource or assignment consequences, update the political score, and record a
+structured chronicle fact together.
+
 Production and balancing simulator must share the same gameplay
 mechanics.
 

@@ -5,6 +5,8 @@ import {
 	listHouseholdChronicle,
 	listHouseholdContracts,
 	listHouseholdRelationships,
+	getHouseholdPolitics,
+	respondToPoliticalDemand,
 	listHouseholdShipments,
 	listMarketOffers,
 	proposeContract,
@@ -31,14 +33,21 @@ export const load: PageServerLoad = async ({ fetch, params }) => {
 			);
 		}
 
-		const [shipmentResult, marketResult, chronicleResult, contractResult, relationshipResult] =
-			await Promise.all([
-				listHouseholdShipments({ client, path: { householdId: params.householdId } }),
-				listMarketOffers({ client, query: { world_id: reportResult.data.world_id } }),
-				listHouseholdChronicle({ client, path: { householdId: params.householdId } }),
-				listHouseholdContracts({ client, path: { householdId: params.householdId } }),
-				listHouseholdRelationships({ client, path: { householdId: params.householdId } })
-			]);
+		const [
+			shipmentResult,
+			marketResult,
+			chronicleResult,
+			contractResult,
+			relationshipResult,
+			politicsResult
+		] = await Promise.all([
+			listHouseholdShipments({ client, path: { householdId: params.householdId } }),
+			listMarketOffers({ client, query: { world_id: reportResult.data.world_id } }),
+			listHouseholdChronicle({ client, path: { householdId: params.householdId } }),
+			listHouseholdContracts({ client, path: { householdId: params.householdId } }),
+			listHouseholdRelationships({ client, path: { householdId: params.householdId } }),
+			getHouseholdPolitics({ client, path: { householdId: params.householdId } })
+		]);
 		if (!shipmentResult.data)
 			error(shipmentResult.response?.status ?? 502, 'Unable to load shipments');
 		if (!marketResult.data) {
@@ -65,6 +74,11 @@ export const load: PageServerLoad = async ({ fetch, params }) => {
 				apiErrorMessage(relationshipResult.error, 'Unable to load household relationships')
 			);
 		}
+		if (!politicsResult.data)
+			error(
+				politicsResult.response?.status ?? 502,
+				apiErrorMessage(politicsResult.error, 'Unable to load politics')
+			);
 
 		return {
 			report: reportResult.data,
@@ -72,7 +86,8 @@ export const load: PageServerLoad = async ({ fetch, params }) => {
 			offers: marketResult.data.offers,
 			chronicle: chronicleResult.data.entries,
 			contracts: contractResult.data.contracts,
-			relationships: relationshipResult.data.relationships
+			relationships: relationshipResult.data.relationships,
+			politics: politicsResult.data
 		};
 	} catch (cause) {
 		if (cause && typeof cause === 'object' && 'status' in cause) throw cause;
@@ -280,6 +295,40 @@ export const actions = {
 		} catch {
 			return fail(503, {
 				action: 'dispatchObligation',
+				message: 'The simulation backend is unavailable.'
+			});
+		}
+	},
+
+	respondPoliticalDemand: async ({ fetch, params, request }) => {
+		const formData = await request.formData();
+		const decisionId = String(formData.get('decision_id') ?? '');
+		const option = String(formData.get('option') ?? '');
+		const characterId = String(formData.get('character_id') ?? '');
+		if (!decisionId || !['serve', 'pay_wood', 'pay_silver', 'refuse'].includes(option))
+			return fail(400, {
+				action: 'respondPoliticalDemand',
+				message: 'Choose a valid demand option.'
+			});
+		try {
+			const result = await respondToPoliticalDemand({
+				client: createServerApi(fetch),
+				path: { decisionId },
+				body: {
+					household_id: params.householdId,
+					option: option as 'serve' | 'pay_wood' | 'pay_silver' | 'refuse',
+					...(characterId ? { character_id: characterId } : {})
+				}
+			});
+			if (!result.data)
+				return fail(result.response?.status ?? 502, {
+					action: 'respondPoliticalDemand',
+					message: apiErrorMessage(result.error, 'The demand response could not be recorded.')
+				});
+			return { success: true, action: 'respondPoliticalDemand', message: 'Jarl demand resolved.' };
+		} catch {
+			return fail(503, {
+				action: 'respondPoliticalDemand',
 				message: 'The simulation backend is unavailable.'
 			});
 		}
