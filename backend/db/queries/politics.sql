@@ -113,7 +113,8 @@ INSERT INTO chronicle_entries(
 ) VALUES (sqlc.arg(household_id)::uuid, sqlc.arg(occurred_tick), sqlc.arg(entry_type),
           sqlc.arg(decision_id)::uuid, sqlc.arg(actor_id)::uuid,
           NULLIF(sqlc.arg(assignment_id)::text, '')::uuid, sqlc.arg(data)::jsonb)
-ON CONFLICT (household_id, related_household_decision_id, entry_type) DO NOTHING;
+ON CONFLICT (household_id, related_household_decision_id, entry_type)
+WHERE related_household_decision_id IS NOT NULL DO NOTHING;
 
 -- name: InsertPoliticalReceivedChronicle :exec
 INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type,
@@ -123,7 +124,8 @@ SELECT d.household_id, sqlc.arg(occurred_tick), 'political_demand_received', d.i
 FROM household_decisions d
 WHERE d.household_id = sqlc.arg(household_id)::uuid
   AND d.world_event_id = sqlc.arg(world_event_id)::uuid
-ON CONFLICT (household_id, related_household_decision_id, entry_type) DO NOTHING;
+ON CONFLICT (household_id, related_household_decision_id, entry_type)
+WHERE related_household_decision_id IS NOT NULL DO NOTHING;
 
 -- name: ListPoliticalRelationshipsForHousehold :many
 SELECT r.political_actor_id::text AS political_actor_id, a.name AS actor_name, a.actor_type,
@@ -142,8 +144,7 @@ WHERE d.household_id = sqlc.arg(household_id)::uuid
 ORDER BY d.expires_tick DESC, d.id DESC;
 
 -- name: ListEligiblePoliticalCharacters :many
-SELECT c.id::text AS id, c.household_id::text AS household_id, c.name,
-       c.birth_date::text AS birth_date, c.labor_capacity_milli, c.status
+SELECT c.id::text AS id, c.name, c.labor_capacity_milli
 FROM characters c
 JOIN household_decisions d ON d.household_id = c.household_id
 WHERE d.id = sqlc.arg(decision_id)::uuid

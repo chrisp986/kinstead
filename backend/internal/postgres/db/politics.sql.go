@@ -184,7 +184,8 @@ INSERT INTO chronicle_entries(
 ) VALUES ($1::uuid, $2, $3,
           $4::uuid, $5::uuid,
           NULLIF($6::text, '')::uuid, $7::jsonb)
-ON CONFLICT (household_id, related_household_decision_id, entry_type) DO NOTHING
+ON CONFLICT (household_id, related_household_decision_id, entry_type)
+WHERE related_household_decision_id IS NOT NULL DO NOTHING
 `
 
 type InsertPoliticalChronicleParams struct {
@@ -221,7 +222,8 @@ SELECT d.household_id, $1, 'political_demand_received', d.id,
 FROM household_decisions d
 WHERE d.household_id = $4::uuid
   AND d.world_event_id = $5::uuid
-ON CONFLICT (household_id, related_household_decision_id, entry_type) DO NOTHING
+ON CONFLICT (household_id, related_household_decision_id, entry_type)
+WHERE related_household_decision_id IS NOT NULL DO NOTHING
 `
 
 type InsertPoliticalReceivedChronicleParams struct {
@@ -244,8 +246,7 @@ func (q *Queries) InsertPoliticalReceivedChronicle(ctx context.Context, arg Inse
 }
 
 const listEligiblePoliticalCharacters = `-- name: ListEligiblePoliticalCharacters :many
-SELECT c.id::text AS id, c.household_id::text AS household_id, c.name,
-       c.birth_date::text AS birth_date, c.labor_capacity_milli, c.status
+SELECT c.id::text AS id, c.name, c.labor_capacity_milli
 FROM characters c
 JOIN household_decisions d ON d.household_id = c.household_id
 WHERE d.id = $1::uuid
@@ -263,11 +264,8 @@ ORDER BY c.name, c.id
 
 type ListEligiblePoliticalCharactersRow struct {
 	ID                 string
-	HouseholdID        string
 	Name               string
-	BirthDate          string
 	LaborCapacityMilli int32
-	Status             string
 }
 
 func (q *Queries) ListEligiblePoliticalCharacters(ctx context.Context, decisionID pgtype.UUID) ([]ListEligiblePoliticalCharactersRow, error) {
@@ -279,14 +277,7 @@ func (q *Queries) ListEligiblePoliticalCharacters(ctx context.Context, decisionI
 	items := []ListEligiblePoliticalCharactersRow{}
 	for rows.Next() {
 		var i ListEligiblePoliticalCharactersRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.HouseholdID,
-			&i.Name,
-			&i.BirthDate,
-			&i.LaborCapacityMilli,
-			&i.Status,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.Name, &i.LaborCapacityMilli); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
