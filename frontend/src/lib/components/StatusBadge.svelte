@@ -5,9 +5,11 @@
 	let tone = $derived(
 		status === 'arrived' || status === 'completed' || status === 'active'
 			? 'positive'
-			: status === 'cancelled'
-				? 'muted'
-				: 'pending'
+			: status === 'broken' || status === 'late'
+				? 'critical'
+				: status === 'cancelled' || status === 'rejected'
+					? 'muted'
+					: 'pending'
 	);
 </script>
 
@@ -38,5 +40,10 @@
 	.muted {
 		background: var(--surface-muted);
 		color: var(--ink-soft);
+	}
+	.critical {
+		border-color: #b66d61;
+		background: #f5ded6;
+		color: var(--critical);
 	}
 </style>

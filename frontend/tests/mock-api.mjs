@@ -16,6 +16,29 @@ const chronicleEntries = [
 	}
 ];
 let offerQuantity = 10_000;
+const contractId = '00000000-0000-0000-0000-000000000601';
+const obligationId = '00000000-0000-0000-0000-000000000602';
+const contracts = [
+	{
+		id: contractId,
+		world_id: worldId,
+		party_a_household_id: sellerId,
+		party_b_household_id: householdId,
+		starts_tick: 2,
+		ends_tick: 2,
+		interval_ticks: 1,
+		status: 'proposed',
+		terms: [
+			{
+				debtor_household_id: householdId,
+				creditor_household_id: sellerId,
+				resource_type: 'wood',
+				quantity_milli: 5_000
+			}
+		],
+		obligations: []
+	}
+];
 
 function shipment(id, quantity) {
 	return {
@@ -86,6 +109,12 @@ createServer(async (request, response) => {
 	}
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/chronicle`) {
 		return send(response, 200, { entries: chronicleEntries });
+	}
+	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/contracts`) {
+		return send(response, 200, { contracts });
+	}
+	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/relationships`) {
+		return send(response, 200, { relationships: [] });
 	}
 	if (request.method === 'GET' && url.pathname === '/api/market/offers') {
 		const offers =
@@ -171,6 +200,46 @@ createServer(async (request, response) => {
 			},
 			shipment: created
 		});
+	}
+	if (request.method === 'POST' && url.pathname === `/api/contracts/${contractId}/respond`) {
+		const body = await readBody(request);
+		contracts[0].status = body.decision === 'accept' ? 'active' : 'rejected';
+		if (body.decision === 'accept') {
+			contracts[0].obligations = [
+				{
+					id: obligationId,
+					contract_id: contractId,
+					debtor_household_id: householdId,
+					creditor_household_id: sellerId,
+					resource_type: 'wood',
+					quantity_milli: 5_000,
+					due_arrival_tick: 2,
+					status: 'pending'
+				}
+			];
+		}
+		return send(response, 200, contracts[0]);
+	}
+	if (
+		request.method === 'POST' &&
+		url.pathname === `/api/contract-obligations/${obligationId}/dispatch`
+	) {
+		const created = {
+			...shipment('00000000-0000-0000-0000-000000000603', 5_000),
+			sender_household_id: householdId,
+			receiver_household_id: sellerId,
+			origin_location_id: '00000000-0000-0000-0000-000000000010',
+			destination_location_id: '00000000-0000-0000-0000-000000000011',
+			resource_type: 'wood',
+			transport_cost_milli: 1_000
+		};
+		shipments.push(created);
+		contracts[0].obligations[0] = {
+			...contracts[0].obligations[0],
+			shipment_id: created.id,
+			status: 'dispatched'
+		};
+		return send(response, 201, { obligation: contracts[0].obligations[0], shipment: created });
 	}
 	return send(response, 404, { error: 'not_found' });
 }).listen(9080, '127.0.0.1');

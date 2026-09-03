@@ -81,7 +81,10 @@ balance decision. A relationship read projection exposes the specified
 standing bands and newest-first structured history through REST/OpenAPI.
 Contract proposal, response, obligation dispatch, and household contract
 projections are exposed as REST/OpenAPI commands with generated frontend types.
-Next: contract and relationship frontend integration.
+The household dashboard now supports contract proposal, received-proposal
+response, obligation dispatch, contract status/history, and directed
+relationship history. Remaining in this milestone: choose and apply explicit
+trust deltas for fulfilled, late, and broken outcomes.
 
 ### 5. Politics
 

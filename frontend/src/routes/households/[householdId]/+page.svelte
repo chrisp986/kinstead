@@ -1,8 +1,10 @@
 <script lang="ts">
 	import AssignmentPanel from '$lib/components/AssignmentPanel.svelte';
 	import ChronicleLog from '$lib/components/ChronicleLog.svelte';
+	import ContractPanel from '$lib/components/ContractPanel.svelte';
 	import MarketPanel from '$lib/components/MarketPanel.svelte';
 	import ResourceSummary from '$lib/components/ResourceSummary.svelte';
+	import RelationshipPanel from '$lib/components/RelationshipPanel.svelte';
 	import ShipmentList from '$lib/components/ShipmentList.svelte';
 	import { resolve } from '$app/paths';
 	let { data, form } = $props();
@@ -41,12 +43,21 @@
 <main class="dashboard">
 	<ResourceSummary resources={data.report.resources} supplyDays={data.report.supply_days} />
 	<MarketPanel offers={data.offers} householdId={data.report.household_id} feedback={form} />
+	<ContractPanel
+		contracts={data.contracts}
+		relationships={data.relationships}
+		offers={data.offers}
+		householdId={data.report.household_id}
+		currentTick={data.report.tick}
+		feedback={form}
+	/>
 	<AssignmentPanel
 		characters={data.report.characters}
 		assignments={data.report.assignments}
 		feedback={form}
 	/>
 	<ShipmentList shipments={data.shipments} householdId={data.report.household_id} />
+	<RelationshipPanel relationships={data.relationships} householdId={data.report.household_id} />
 	<ChronicleLog entries={data.chronicle} />
 </main>
 
