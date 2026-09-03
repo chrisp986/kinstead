@@ -162,6 +162,13 @@ func (s *Store) ListContractsForHousehold(ctx context.Context, householdID contr
 	if err != nil {
 		return nil, err
 	}
+	var exists bool
+	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM households WHERE id = $1::uuid)`, id).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, pgx.ErrNoRows
+	}
 	queries := sqlcdb.New(s.Pool)
 	rows, err := queries.ListContractsForHousehold(ctx, id)
 	if err != nil {

@@ -119,6 +119,87 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Relationship' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/households/{householdId}/contracts:
+    get:
+      operationId: listHouseholdContracts
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+      responses:
+        '200':
+          description: Contracts involving the household with their recurring obligations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [contracts]
+                properties:
+                  contracts:
+                    type: array
+                    items: { $ref: '#/components/schemas/Contract' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/contracts:
+    post:
+      operationId: proposeContract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProposeContractIntent' }
+      responses:
+        '201':
+          description: Contract proposed to the counterparty
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contract' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/contracts/{contractId}/respond:
+    post:
+      operationId: respondToContract
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RespondContractIntent' }
+      responses:
+        '200':
+          description: Proposal accepted or rejected; acceptance includes generated obligations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contract' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/contract-obligations/{obligationId}/dispatch:
+    post:
+      operationId: dispatchContractObligation
+      parameters:
+        - name: obligationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DispatchContractObligationIntent' }
+      responses:
+        '201':
+          description: Promised goods reserved and geography-derived shipment linked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DispatchContractObligationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/shipments/{shipmentId}/cancel:
     post:
       operationId: cancelShipment
@@ -338,6 +419,78 @@ components:
         events:
           type: array
           items: { $ref: '#/components/schemas/RelationshipEvent' }
+    ContractTerm:
+      type: object
+      required: [debtor_household_id, creditor_household_id, resource_type, quantity_milli]
+      properties:
+        debtor_household_id: { type: string, format: uuid }
+        creditor_household_id: { type: string, format: uuid }
+        resource_type: { type: string }
+        quantity_milli: { type: integer, format: int64, minimum: 1 }
+    ContractObligation:
+      type: object
+      required:
+        [id, contract_id, debtor_household_id, creditor_household_id, resource_type, quantity_milli, due_arrival_tick, status]
+      properties:
+        id: { type: string, format: uuid }
+        contract_id: { type: string, format: uuid }
+        debtor_household_id: { type: string, format: uuid }
+        creditor_household_id: { type: string, format: uuid }
+        resource_type: { type: string }
+        quantity_milli: { type: integer, format: int64 }
+        due_arrival_tick: { type: integer, format: int64 }
+        shipment_id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, dispatched, fulfilled, late, broken] }
+        fulfilled_tick: { type: integer, format: int64 }
+    Contract:
+      type: object
+      required:
+        [id, world_id, party_a_household_id, party_b_household_id, starts_tick, ends_tick, interval_ticks, status, terms, obligations]
+      properties:
+        id: { type: string, format: uuid }
+        world_id: { type: string, format: uuid }
+        party_a_household_id: { type: string, format: uuid }
+        party_b_household_id: { type: string, format: uuid }
+        starts_tick: { type: integer, format: int64 }
+        ends_tick: { type: integer, format: int64 }
+        interval_ticks: { type: integer, format: int64, minimum: 1 }
+        status: { type: string, enum: [proposed, active, completed, rejected, cancelled, broken] }
+        terms:
+          type: array
+          items: { $ref: '#/components/schemas/ContractTerm' }
+        obligations:
+          type: array
+          items: { $ref: '#/components/schemas/ContractObligation' }
+    ProposeContractIntent:
+      type: object
+      required: [proposer_household_id, counterparty_household_id, starts_tick, ends_tick, interval_ticks, terms]
+      properties:
+        proposer_household_id: { type: string, format: uuid }
+        counterparty_household_id: { type: string, format: uuid }
+        starts_tick: { type: integer, format: int64 }
+        ends_tick: { type: integer, format: int64 }
+        interval_ticks: { type: integer, format: int64, minimum: 1 }
+        terms:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ContractTerm' }
+    RespondContractIntent:
+      type: object
+      required: [counterparty_household_id, decision]
+      properties:
+        counterparty_household_id: { type: string, format: uuid }
+        decision: { type: string, enum: [accept, reject] }
+    DispatchContractObligationIntent:
+      type: object
+      required: [debtor_household_id]
+      properties:
+        debtor_household_id: { type: string, format: uuid }
+    DispatchContractObligationResult:
+      type: object
+      required: [obligation, shipment]
+      properties:
+        obligation: { $ref: '#/components/schemas/ContractObligation' }
+        shipment: { $ref: '#/components/schemas/Shipment' }
     MarketOffer:
       type: object
       required:

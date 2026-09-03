@@ -16,10 +16,10 @@ var ErrContractResponseForbidden = errors.New("only the proposed counterparty ma
 var ErrContractDispatchForbidden = errors.New("only the obligation debtor may dispatch its shipment")
 
 type ContractTermIntent struct {
-	DebtorHouseholdID   string
-	CreditorHouseholdID string
-	ResourceType        string
-	QuantityMilli       int64
+	DebtorHouseholdID   string `json:"debtor_household_id"`
+	CreditorHouseholdID string `json:"creditor_household_id"`
+	ResourceType        string `json:"resource_type"`
+	QuantityMilli       int64  `json:"quantity_milli"`
 }
 
 type ProposeContractCommand struct {
@@ -45,6 +45,39 @@ type DispatchContractObligationCommand struct {
 type DispatchContractObligationResult struct {
 	Obligation contractdomain.Obligation
 	Shipment   shipmentdomain.Shipment
+}
+
+type ContractTermProjection struct {
+	DebtorHouseholdID   string `json:"debtor_household_id"`
+	CreditorHouseholdID string `json:"creditor_household_id"`
+	ResourceType        string `json:"resource_type"`
+	QuantityMilli       int64  `json:"quantity_milli"`
+}
+
+type ContractObligationProjection struct {
+	ID                  string  `json:"id"`
+	ContractID          string  `json:"contract_id"`
+	DebtorHouseholdID   string  `json:"debtor_household_id"`
+	CreditorHouseholdID string  `json:"creditor_household_id"`
+	ResourceType        string  `json:"resource_type"`
+	QuantityMilli       int64   `json:"quantity_milli"`
+	DueArrivalTick      int64   `json:"due_arrival_tick"`
+	ShipmentID          *string `json:"shipment_id,omitempty"`
+	Status              string  `json:"status"`
+	FulfilledTick       *int64  `json:"fulfilled_tick,omitempty"`
+}
+
+type ContractProjection struct {
+	ID                string                         `json:"id"`
+	WorldID           string                         `json:"world_id"`
+	PartyAHouseholdID string                         `json:"party_a_household_id"`
+	PartyBHouseholdID string                         `json:"party_b_household_id"`
+	StartsTick        int64                          `json:"starts_tick"`
+	EndsTick          int64                          `json:"ends_tick"`
+	IntervalTicks     int64                          `json:"interval_ticks"`
+	Status            string                         `json:"status"`
+	Terms             []ContractTermProjection       `json:"terms"`
+	Obligations       []ContractObligationProjection `json:"obligations"`
 }
 
 type ContractService struct {
@@ -107,6 +140,68 @@ func (s *ContractService) ListForHousehold(ctx context.Context, householdID stri
 
 func (s *ContractService) ListObligations(ctx context.Context, contractID string) ([]contractdomain.Obligation, error) {
 	return s.Store.ListContractObligations(ctx, contractdomain.ID(contractID))
+}
+
+func (s *ContractService) Detail(ctx context.Context, contractID string) (ContractProjection, error) {
+	value, err := s.Get(ctx, contractID)
+	if err != nil {
+		return ContractProjection{}, err
+	}
+	obligations, err := s.ListObligations(ctx, contractID)
+	if err != nil {
+		return ContractProjection{}, err
+	}
+	return projectContract(value, obligations), nil
+}
+
+func (s *ContractService) ListDetailsForHousehold(ctx context.Context, householdID string) ([]ContractProjection, error) {
+	contracts, err := s.ListForHousehold(ctx, householdID)
+	if err != nil {
+		return nil, err
+	}
+	values := make([]ContractProjection, 0, len(contracts))
+	for _, value := range contracts {
+		obligations, err := s.Store.ListContractObligations(ctx, value.ID)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, projectContract(value, obligations))
+	}
+	return values, nil
+}
+
+func projectContract(value contractdomain.Contract, obligations []contractdomain.Obligation) ContractProjection {
+	projection := ContractProjection{
+		ID: string(value.ID), WorldID: string(value.WorldID),
+		PartyAHouseholdID: string(value.PartyAHouseholdID), PartyBHouseholdID: string(value.PartyBHouseholdID),
+		StartsTick: int64(value.StartsTick), EndsTick: int64(value.EndsTick), IntervalTicks: value.IntervalTicks,
+		Status: string(value.Status), Terms: make([]ContractTermProjection, 0, len(value.Terms)),
+		Obligations: make([]ContractObligationProjection, 0, len(obligations)),
+	}
+	for _, term := range value.Terms {
+		projection.Terms = append(projection.Terms, ContractTermProjection{
+			DebtorHouseholdID: string(term.DebtorHouseholdID), CreditorHouseholdID: string(term.CreditorHouseholdID),
+			ResourceType: string(term.ResourceType), QuantityMilli: int64(term.QuantityMilli),
+		})
+	}
+	for _, obligation := range obligations {
+		item := ContractObligationProjection{
+			ID: string(obligation.ID), ContractID: string(obligation.ContractID),
+			DebtorHouseholdID: string(obligation.DebtorHouseholdID), CreditorHouseholdID: string(obligation.CreditorHouseholdID),
+			ResourceType: string(obligation.ResourceType), QuantityMilli: int64(obligation.QuantityMilli),
+			DueArrivalTick: int64(obligation.DueArrivalTick), Status: string(obligation.Status),
+		}
+		if obligation.ShipmentID != "" {
+			shipmentID := string(obligation.ShipmentID)
+			item.ShipmentID = &shipmentID
+		}
+		if obligation.FulfilledTick != nil {
+			fulfilled := int64(*obligation.FulfilledTick)
+			item.FulfilledTick = &fulfilled
+		}
+		projection.Obligations = append(projection.Obligations, item)
+	}
+	return projection
 }
 
 // Respond accepts or rejects a proposal as its counterparty. Repeating the

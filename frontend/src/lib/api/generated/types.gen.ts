@@ -109,6 +109,62 @@ export type Relationship = {
 	events: Array<RelationshipEvent>;
 };
 
+export type ContractTerm = {
+	debtor_household_id: string;
+	creditor_household_id: string;
+	resource_type: string;
+	quantity_milli: number;
+};
+
+export type ContractObligation = {
+	id: string;
+	contract_id: string;
+	debtor_household_id: string;
+	creditor_household_id: string;
+	resource_type: string;
+	quantity_milli: number;
+	due_arrival_tick: number;
+	shipment_id?: string;
+	status: 'pending' | 'dispatched' | 'fulfilled' | 'late' | 'broken';
+	fulfilled_tick?: number;
+};
+
+export type Contract = {
+	id: string;
+	world_id: string;
+	party_a_household_id: string;
+	party_b_household_id: string;
+	starts_tick: number;
+	ends_tick: number;
+	interval_ticks: number;
+	status: 'proposed' | 'active' | 'completed' | 'rejected' | 'cancelled' | 'broken';
+	terms: Array<ContractTerm>;
+	obligations: Array<ContractObligation>;
+};
+
+export type ProposeContractIntent = {
+	proposer_household_id: string;
+	counterparty_household_id: string;
+	starts_tick: number;
+	ends_tick: number;
+	interval_ticks: number;
+	terms: Array<ContractTerm>;
+};
+
+export type RespondContractIntent = {
+	counterparty_household_id: string;
+	decision: 'accept' | 'reject';
+};
+
+export type DispatchContractObligationIntent = {
+	debtor_household_id: string;
+};
+
+export type DispatchContractObligationResult = {
+	obligation: ContractObligation;
+	shipment: Shipment;
+};
+
 export type MarketOffer = {
 	id: string;
 	world_id: string;
@@ -332,6 +388,151 @@ export type ListHouseholdRelationshipsResponses = {
 
 export type ListHouseholdRelationshipsResponse =
 	ListHouseholdRelationshipsResponses[keyof ListHouseholdRelationshipsResponses];
+
+export type ListHouseholdContractsData = {
+	body?: never;
+	path: {
+		householdId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/contracts';
+};
+
+export type ListHouseholdContractsErrors = {
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type ListHouseholdContractsError =
+	ListHouseholdContractsErrors[keyof ListHouseholdContractsErrors];
+
+export type ListHouseholdContractsResponses = {
+	/**
+	 * Contracts involving the household with their recurring obligations
+	 */
+	200: {
+		contracts: Array<Contract>;
+	};
+};
+
+export type ListHouseholdContractsResponse =
+	ListHouseholdContractsResponses[keyof ListHouseholdContractsResponses];
+
+export type ProposeContractData = {
+	body: ProposeContractIntent;
+	path?: never;
+	query?: never;
+	url: '/api/contracts';
+};
+
+export type ProposeContractErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Intent conflicts with current state
+	 */
+	409: ApiError;
+};
+
+export type ProposeContractError = ProposeContractErrors[keyof ProposeContractErrors];
+
+export type ProposeContractResponses = {
+	/**
+	 * Contract proposed to the counterparty
+	 */
+	201: Contract;
+};
+
+export type ProposeContractResponse = ProposeContractResponses[keyof ProposeContractResponses];
+
+export type RespondToContractData = {
+	body: RespondContractIntent;
+	path: {
+		contractId: string;
+	};
+	query?: never;
+	url: '/api/contracts/{contractId}/respond';
+};
+
+export type RespondToContractErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Intent conflicts with current state
+	 */
+	409: ApiError;
+};
+
+export type RespondToContractError = RespondToContractErrors[keyof RespondToContractErrors];
+
+export type RespondToContractResponses = {
+	/**
+	 * Proposal accepted or rejected; acceptance includes generated obligations
+	 */
+	200: Contract;
+};
+
+export type RespondToContractResponse =
+	RespondToContractResponses[keyof RespondToContractResponses];
+
+export type DispatchContractObligationData = {
+	body: DispatchContractObligationIntent;
+	path: {
+		obligationId: string;
+	};
+	query?: never;
+	url: '/api/contract-obligations/{obligationId}/dispatch';
+};
+
+export type DispatchContractObligationErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Intent conflicts with current state
+	 */
+	409: ApiError;
+};
+
+export type DispatchContractObligationError =
+	DispatchContractObligationErrors[keyof DispatchContractObligationErrors];
+
+export type DispatchContractObligationResponses = {
+	/**
+	 * Promised goods reserved and geography-derived shipment linked
+	 */
+	201: DispatchContractObligationResult;
+};
+
+export type DispatchContractObligationResponse =
+	DispatchContractObligationResponses[keyof DispatchContractObligationResponses];
 
 export type CancelShipmentData = {
 	body: CancelShipmentIntent;

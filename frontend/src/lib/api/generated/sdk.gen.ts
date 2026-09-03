@@ -9,6 +9,9 @@ import type {
 	CreateHouseholdAssignmentData,
 	CreateHouseholdAssignmentErrors,
 	CreateHouseholdAssignmentResponses,
+	DispatchContractObligationData,
+	DispatchContractObligationErrors,
+	DispatchContractObligationResponses,
 	GetHealthData,
 	GetHealthResponses,
 	GetHouseholdReportData,
@@ -19,6 +22,9 @@ import type {
 	ListHouseholdChronicleData,
 	ListHouseholdChronicleErrors,
 	ListHouseholdChronicleResponses,
+	ListHouseholdContractsData,
+	ListHouseholdContractsErrors,
+	ListHouseholdContractsResponses,
 	ListHouseholdRelationshipsData,
 	ListHouseholdRelationshipsErrors,
 	ListHouseholdRelationshipsResponses,
@@ -27,9 +33,15 @@ import type {
 	ListMarketOffersData,
 	ListMarketOffersErrors,
 	ListMarketOffersResponses,
+	ProposeContractData,
+	ProposeContractErrors,
+	ProposeContractResponses,
 	PurchaseMarketOfferData,
 	PurchaseMarketOfferErrors,
-	PurchaseMarketOfferResponses
+	PurchaseMarketOfferResponses,
+	RespondToContractData,
+	RespondToContractErrors,
+	RespondToContractResponses
 } from './types.gen';
 
 export type Options<
@@ -124,6 +136,63 @@ export const listHouseholdRelationships = <ThrowOnError extends boolean = false>
 		ListHouseholdRelationshipsErrors,
 		ThrowOnError
 	>({ url: '/api/households/{householdId}/relationships', ...options });
+
+export const listHouseholdContracts = <ThrowOnError extends boolean = false>(
+	options: Options<ListHouseholdContractsData, ThrowOnError>
+): RequestResult<ListHouseholdContractsResponses, ListHouseholdContractsErrors, ThrowOnError> =>
+	(options.client ?? client).get<
+		ListHouseholdContractsResponses,
+		ListHouseholdContractsErrors,
+		ThrowOnError
+	>({ url: '/api/households/{householdId}/contracts', ...options });
+
+export const proposeContract = <ThrowOnError extends boolean = false>(
+	options: Options<ProposeContractData, ThrowOnError>
+): RequestResult<ProposeContractResponses, ProposeContractErrors, ThrowOnError> =>
+	(options.client ?? client).post<ProposeContractResponses, ProposeContractErrors, ThrowOnError>({
+		url: '/api/contracts',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const respondToContract = <ThrowOnError extends boolean = false>(
+	options: Options<RespondToContractData, ThrowOnError>
+): RequestResult<RespondToContractResponses, RespondToContractErrors, ThrowOnError> =>
+	(options.client ?? client).post<
+		RespondToContractResponses,
+		RespondToContractErrors,
+		ThrowOnError
+	>({
+		url: '/api/contracts/{contractId}/respond',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const dispatchContractObligation = <ThrowOnError extends boolean = false>(
+	options: Options<DispatchContractObligationData, ThrowOnError>
+): RequestResult<
+	DispatchContractObligationResponses,
+	DispatchContractObligationErrors,
+	ThrowOnError
+> =>
+	(options.client ?? client).post<
+		DispatchContractObligationResponses,
+		DispatchContractObligationErrors,
+		ThrowOnError
+	>({
+		url: '/api/contract-obligations/{obligationId}/dispatch',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
 
 export const cancelShipment = <ThrowOnError extends boolean = false>(
 	options: Options<CancelShipmentData, ThrowOnError>

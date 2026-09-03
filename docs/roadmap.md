@@ -78,8 +78,10 @@ settled before completion. Final obligation outcomes now append idempotent,
 directed relationship history and initialize the current relationship
 projection. Contract outcome deltas remain neutral pending an explicit trust
 balance decision. A relationship read projection exposes the specified
-standing bands and newest-first structured history through REST/OpenAPI. Next:
-contract REST commands/projections and frontend integration.
+standing bands and newest-first structured history through REST/OpenAPI.
+Contract proposal, response, obligation dispatch, and household contract
+projections are exposed as REST/OpenAPI commands with generated frontend types.
+Next: contract and relationship frontend integration.
 
 ### 5. Politics
 

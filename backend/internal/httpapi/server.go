@@ -12,8 +12,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"game/backend/internal/application"
+	contractdomain "game/backend/internal/domain/contract"
+	"game/backend/internal/domain/geography"
 	marketdomain "game/backend/internal/domain/market"
 	shipmentdomain "game/backend/internal/domain/shipment"
+	"game/backend/internal/port"
 	"game/backend/internal/postgres"
 )
 
@@ -24,6 +27,7 @@ type Server struct {
 	market        *application.MarketService
 	chronicle     *application.ChronicleService
 	relationships *application.RelationshipService
+	contracts     *application.ContractService
 	log           *slog.Logger
 }
 
@@ -34,6 +38,7 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 		market:    application.NewMarketService(store), log: log,
 		chronicle:     application.NewChronicleService(store),
 		relationships: application.NewRelationshipService(store),
+		contracts:     application.NewContractService(store),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -44,9 +49,140 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("POST /api/shipments/{id}/cancel", s.cancelShipment)
 	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
 	mux.HandleFunc("GET /api/households/{id}/relationships", s.householdRelationships)
+	mux.HandleFunc("GET /api/households/{id}/contracts", s.householdContracts)
+	mux.HandleFunc("POST /api/contracts", s.proposeContract)
+	mux.HandleFunc("POST /api/contracts/{id}/respond", s.respondContract)
+	mux.HandleFunc("POST /api/contract-obligations/{id}/dispatch", s.dispatchContractObligation)
 	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
 	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
 	return cors(mux)
+}
+
+func (s *Server) householdContracts(w http.ResponseWriter, r *http.Request) {
+	contracts, err := s.contracts.ListDetailsForHousehold(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"contracts": contracts})
+}
+
+type proposeContractRequest struct {
+	ProposerHouseholdID     string                           `json:"proposer_household_id"`
+	CounterpartyHouseholdID string                           `json:"counterparty_household_id"`
+	StartsTick              int64                            `json:"starts_tick"`
+	EndsTick                int64                            `json:"ends_tick"`
+	IntervalTicks           int64                            `json:"interval_ticks"`
+	Terms                   []application.ContractTermIntent `json:"terms"`
+}
+
+func (s *Server) proposeContract(w http.ResponseWriter, r *http.Request) {
+	var req proposeContractRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	created, err := s.contracts.Propose(r.Context(), application.ProposeContractCommand{
+		ProposerHouseholdID: req.ProposerHouseholdID, CounterpartyHouseholdID: req.CounterpartyHouseholdID,
+		StartsTick: req.StartsTick, EndsTick: req.EndsTick, IntervalTicks: req.IntervalTicks, Terms: req.Terms,
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	projection, err := s.contracts.Detail(r.Context(), string(created.ID))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, projection)
+}
+
+type respondContractRequest struct {
+	CounterpartyHouseholdID string `json:"counterparty_household_id"`
+	Decision                string `json:"decision"`
+}
+
+func (s *Server) respondContract(w http.ResponseWriter, r *http.Request) {
+	var req respondContractRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if req.Decision != "accept" && req.Decision != "reject" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_contract_decision"})
+		return
+	}
+	updated, err := s.contracts.Respond(r.Context(), application.RespondContractCommand{
+		ContractID: r.PathValue("id"), CounterpartyHouseholdID: req.CounterpartyHouseholdID,
+		Accept: req.Decision == "accept",
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	projection, err := s.contracts.Detail(r.Context(), string(updated.ID))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, projection)
+}
+
+type dispatchContractObligationRequest struct {
+	DebtorHouseholdID string `json:"debtor_household_id"`
+}
+
+type dispatchContractObligationResponse struct {
+	Obligation application.ContractObligationProjection `json:"obligation"`
+	Shipment   port.ShipmentRecord                      `json:"shipment"`
+}
+
+func (s *Server) dispatchContractObligation(w http.ResponseWriter, r *http.Request) {
+	var req dispatchContractObligationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	result, err := s.contracts.DispatchObligation(r.Context(), application.DispatchContractObligationCommand{
+		ObligationID: r.PathValue("id"), DebtorHouseholdID: req.DebtorHouseholdID,
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	projection, err := s.contracts.Detail(r.Context(), string(result.Obligation.ContractID))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	var obligation application.ContractObligationProjection
+	for _, candidate := range projection.Obligations {
+		if candidate.ID == string(result.Obligation.ID) {
+			obligation = candidate
+			break
+		}
+	}
+	writeJSON(w, http.StatusCreated, dispatchContractObligationResponse{
+		Obligation: obligation,
+		Shipment:   contractShipmentRecord(result.Shipment),
+	})
+}
+
+func contractShipmentRecord(value shipmentdomain.Shipment) port.ShipmentRecord {
+	record := port.ShipmentRecord{
+		ID: string(value.ID), WorldID: string(value.WorldID),
+		SenderHouseholdID: string(value.SenderHouseholdID), ReceiverHouseholdID: string(value.ReceiverHouseholdID),
+		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
+		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
+		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
+		TransportCostMilli: int64(value.TransportCostMilli), Status: string(value.Status),
+	}
+	if value.ActualArrivalTick != nil {
+		actual := int64(*value.ActualArrivalTick)
+		record.ActualArrivalTick = &actual
+	}
+	return record
 }
 
 func (s *Server) householdRelationships(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +351,24 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, marketdomain.ErrInvalidQuantity) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_purchase", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, contractdomain.ErrInvalidContract) || errors.Is(err, contractdomain.ErrInvalidObligation) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_contract", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, application.ErrContractResponseForbidden) || errors.Is(err, application.ErrContractDispatchForbidden) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "contract_action_forbidden", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, postgres.ErrInvalidContractParticipants) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "contract_participant_not_found", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, application.ErrContractStartsInPast) || errors.Is(err, contractdomain.ErrInvalidTransition) ||
+		errors.Is(err, contractdomain.ErrShipmentMismatch) || errors.Is(err, geography.ErrRouteUnavailable) ||
+		errors.Is(err, postgres.ErrContractDispatchStateChanged) || errors.Is(err, postgres.ErrInsufficientResources) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "contract_conflict", "message": err.Error()})
 		return
 	}
 	if errors.Is(err, marketdomain.ErrRouteUnavailable) {
