@@ -2,7 +2,7 @@
 
 ## Project
 
-Async historical dynasty/economy strategy game (\~980 CE). Core:
+Async historical dynasty/economy strategy game (~980 CE). Core:
 **labor, supply, relationships**. `Kinstead` is provisional branding;
 never use it in packages, DB/API names, IDs, or infrastructure.
 
@@ -29,8 +29,12 @@ Tick order:
 Ticks are sequential, atomic, idempotent by `(world_id, tick)`. Process
 missed ticks sequentially.
 
-Balancing time (`48 ticks/year`, `12/season`) is not the production
-historical calendar.
+Authoritative simulated time is absolute integer `game_day`. A gameplay
+year is 364 days = 52 weeks = four 13-week seasons. Derive calendar
+labels from `game_day`; never use SQL `DATE`/`TIMESTAMP` for simulated
+dates. Real-world audit timestamps use `TIMESTAMPTZ`. Ticks are execution
+cadence, not calendar units. The v0.3 `48 ticks/year`, `12/season` model
+is balancing data, not the production calendar.
 
 ## Gameplay constraints
 
