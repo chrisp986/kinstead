@@ -46,6 +46,21 @@ func TestRelationshipEventTrustApplicationIsExactlyOnceAndClamped(t *testing.T) 
 	// and skip the trust update as well as the duplicate event.
 	persistEvent(t, ctx, store, event)
 	assertRelationshipTrust(t, ctx, store, fixture, 2, 1)
+	conflictingOutcome := event
+	conflictingOutcome.Type = relationshipdomain.EventContractBroken
+	conflictingOutcome.TrustDelta = relationshipdomain.TrustDeltaContractBroken
+	conflictingOutcome.ShipmentID = ""
+	conflictingOutcome.OccurredTick = 13
+	conflictingOutcome.ActualFulfillmentTick = nil
+	persistEvent(t, ctx, store, conflictingOutcome)
+	assertRelationshipTrust(t, ctx, store, fixture, 2, 1)
+	var obligationEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM relationship_events WHERE related_obligation_id = $1::uuid`, fixture.obligation[0]).Scan(&obligationEvents); err != nil {
+		t.Fatal(err)
+	}
+	if obligationEvents != 1 {
+		t.Fatalf("events for obligation = %d, want 1", obligationEvents)
+	}
 
 	if _, err := store.Pool.Exec(ctx, `UPDATE relationships SET trust = 99 WHERE source_household_id = $1::uuid AND target_household_id = $2::uuid`, fixture.creditorID, fixture.debtorID); err != nil {
 		t.Fatal(err)

@@ -19,7 +19,7 @@ relationships** under asynchronous time.
 -   existing world/market/shipment SQL migrated toward generated `sqlc` queries
 -   CI added for backend, PostgreSQL integration, frontend, and Playwright
 
-Next: begin contracts and relationships in the incremental order below.
+Next: begin Politics after the completed Contracts + Relationships milestone.
 
 ## Implementation order
 

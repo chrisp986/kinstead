@@ -20,7 +20,7 @@ INSERT INTO relationship_events(
         'actual_fulfillment_tick', sqlc.narg(actual_fulfillment_tick)::bigint
     )
 )
-ON CONFLICT (source_household_id, target_household_id, event_type, related_obligation_id)
+ON CONFLICT (related_obligation_id)
 WHERE related_obligation_id IS NOT NULL
 DO NOTHING;
 
