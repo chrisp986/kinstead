@@ -41,7 +41,11 @@ func (s *PoliticsService) Respond(ctx context.Context, cmd RespondPoliticalDeman
 		return err
 	}
 	demand := politics.DemandType(d.EventType)
-	r, e := politics.ResolveChoice(demand, politics.Option(cmd.Option))
+	terms, e := politicalTerms(d.Parameters, demand)
+	if e != nil {
+		return e
+	}
+	r, e := politics.ResolveChoiceWithTerms(demand, politics.Option(cmd.Option), terms)
 	if e != nil {
 		return e
 	}

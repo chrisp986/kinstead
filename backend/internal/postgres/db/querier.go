@@ -23,6 +23,7 @@ type Querier interface {
 	DeductResourceStock(ctx context.Context, arg DeductResourceStockParams) error
 	GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetContractRow, error)
 	GetRouteDistance(ctx context.Context, arg GetRouteDistanceParams) (string, error)
+	HouseholdExists(ctx context.Context, householdID pgtype.UUID) (bool, error)
 	InsertHouseholdDecision(ctx context.Context, arg InsertHouseholdDecisionParams) (int64, error)
 	InsertPoliticalChronicle(ctx context.Context, arg InsertPoliticalChronicleParams) (int64, error)
 	InsertPoliticalReceivedChronicle(ctx context.Context, arg InsertPoliticalReceivedChronicleParams) error
@@ -34,6 +35,7 @@ type Querier interface {
 	ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error)
 	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)
 	ListContractsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractsForHouseholdRow, error)
+	ListEligiblePoliticalCharacters(ctx context.Context, decisionID pgtype.UUID) ([]ListEligiblePoliticalCharactersRow, error)
 	ListHouseholdsForPoliticalEvent(ctx context.Context, worldEventID pgtype.UUID) ([]ListHouseholdsForPoliticalEventRow, error)
 	ListPoliticalDecisionsForHousehold(ctx context.Context, householdID pgtype.UUID) ([]ListPoliticalDecisionsForHouseholdRow, error)
 	ListPoliticalRelationshipsForHousehold(ctx context.Context, householdID pgtype.UUID) ([]ListPoliticalRelationshipsForHouseholdRow, error)

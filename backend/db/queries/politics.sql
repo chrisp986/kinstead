@@ -54,8 +54,8 @@ FOR UPDATE OF d, w;
 
 -- name: AutoResolvePoliticalDecision :execrows
 UPDATE household_decisions
-SET status = 'auto_resolved', selected_option = 'refuse', resolved_tick = sqlc.arg(resolved_tick),
-    standing_delta = -5, updated_at = now()
+SET status = 'auto_resolved', selected_option = sqlc.arg(selected_option), resolved_tick = sqlc.arg(resolved_tick),
+    standing_delta = sqlc.arg(standing_delta), updated_at = now()
 WHERE id = sqlc.arg(decision_id)::uuid AND status = 'pending';
 
 -- name: ResolvePoliticalDecision :execrows
@@ -140,3 +140,23 @@ FROM household_decisions d JOIN world_events e ON e.id = d.world_event_id
 JOIN political_actors a ON a.id = e.political_actor_id
 WHERE d.household_id = sqlc.arg(household_id)::uuid
 ORDER BY d.expires_tick DESC, d.id DESC;
+
+-- name: ListEligiblePoliticalCharacters :many
+SELECT c.id::text AS id, c.household_id::text AS household_id, c.name,
+       c.birth_date::text AS birth_date, c.labor_capacity_milli, c.status
+FROM characters c
+JOIN household_decisions d ON d.household_id = c.household_id
+WHERE d.id = sqlc.arg(decision_id)::uuid
+  AND d.status = 'pending'
+  AND d.decision_type = 'political_labor_service'
+  AND c.status = 'active' AND c.labor_capacity_milli = 1000
+  AND NOT EXISTS (
+    SELECT 1 FROM assignments a
+    WHERE a.character_id = c.id AND a.status IN ('planned','active')
+      AND a.starts_tick <= d.expires_tick + (d.parameters->>'service_ticks')::bigint - 1
+      AND a.ends_tick >= d.expires_tick
+  )
+ORDER BY c.name, c.id;
+
+-- name: HouseholdExists :one
+SELECT EXISTS(SELECT 1 FROM households WHERE id = sqlc.arg(household_id)::uuid) AS exists;

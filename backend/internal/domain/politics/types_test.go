@@ -45,3 +45,15 @@ func TestResponseDeadline(t *testing.T) {
 		t.Fatalf("expected expiry, got %v", err)
 	}
 }
+
+func TestSnapshottedTermsOverrideDefaults(t *testing.T) {
+	terms := DemandTerms{ServiceTicks: 7, HonoredStandingDelta: 12, RefusedStandingDelta: -9}
+	r, err := ResolveChoiceWithTerms(DemandLaborService, OptionServe, terms)
+	if err != nil || r.ServiceTicks != 7 || r.StandingDelta != 12 {
+		t.Fatalf("unexpected snapshot resolution: %#v %v", r, err)
+	}
+	r, err = ResolveChoiceWithTerms(DemandLaborService, OptionRefuse, terms)
+	if err != nil || r.StandingDelta != -9 {
+		t.Fatalf("unexpected snapshot refusal: %#v %v", r, err)
+	}
+}

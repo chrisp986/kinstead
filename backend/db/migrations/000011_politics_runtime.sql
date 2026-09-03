@@ -3,6 +3,8 @@
 -- Runtime Jarl demands. These columns are deliberately separate from the
 -- balancing simulator's synthetic political calendar.
 ALTER TABLE political_actors ADD CONSTRAINT political_actors_id_world_key UNIQUE (id, world_id);
+ALTER TABLE political_actors ADD CONSTRAINT political_actors_location_world_fk
+    FOREIGN KEY (location_id, world_id) REFERENCES locations(id, world_id);
 ALTER TABLE world_events ADD COLUMN political_actor_id UUID;
 ALTER TABLE world_events ADD CONSTRAINT world_events_political_actor_fk
     FOREIGN KEY (political_actor_id, world_id) REFERENCES political_actors(id, world_id);
@@ -10,6 +12,8 @@ ALTER TABLE world_events ADD CONSTRAINT world_events_political_actor_fk
 ALTER TABLE household_decisions ADD COLUMN world_id UUID;
 UPDATE household_decisions d SET world_id = h.world_id FROM households h WHERE h.id = d.household_id;
 ALTER TABLE household_decisions ALTER COLUMN world_id SET NOT NULL;
+ALTER TABLE household_decisions ADD CONSTRAINT household_decisions_world_fk FOREIGN KEY (world_id) REFERENCES worlds(id);
+ALTER TABLE household_decisions ADD CONSTRAINT household_decisions_household_world_fk FOREIGN KEY (household_id, world_id) REFERENCES households(id, world_id);
 ALTER TABLE household_decisions ADD COLUMN standing_delta INTEGER;
 ALTER TABLE household_decisions ADD COLUMN related_assignment_id UUID REFERENCES assignments(id);
 ALTER TABLE household_decisions ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
@@ -45,6 +49,8 @@ ALTER TABLE political_relationships DROP CONSTRAINT IF EXISTS political_relation
 ALTER TABLE political_relationships DROP COLUMN IF EXISTS updated_at;
 ALTER TABLE political_relationships DROP COLUMN IF EXISTS world_id;
 ALTER TABLE household_decisions DROP CONSTRAINT IF EXISTS household_decisions_state_check;
+ALTER TABLE household_decisions DROP CONSTRAINT IF EXISTS household_decisions_household_world_fk;
+ALTER TABLE household_decisions DROP CONSTRAINT IF EXISTS household_decisions_world_fk;
 DROP INDEX IF EXISTS household_decisions_household_event_unique;
 ALTER TABLE household_decisions DROP COLUMN IF EXISTS updated_at;
 ALTER TABLE household_decisions DROP COLUMN IF EXISTS related_assignment_id;
@@ -52,4 +58,5 @@ ALTER TABLE household_decisions DROP COLUMN IF EXISTS standing_delta;
 ALTER TABLE household_decisions DROP COLUMN IF EXISTS world_id;
 ALTER TABLE world_events DROP CONSTRAINT IF EXISTS world_events_political_actor_fk;
 ALTER TABLE world_events DROP COLUMN IF EXISTS political_actor_id;
+ALTER TABLE political_actors DROP CONSTRAINT IF EXISTS political_actors_location_world_fk;
 ALTER TABLE political_actors DROP CONSTRAINT IF EXISTS political_actors_id_world_key;

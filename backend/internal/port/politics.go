@@ -27,6 +27,14 @@ type PoliticalRelationshipRecord struct {
 	UpdatedAt        string `json:"updated_at,omitempty"`
 	Standing         string `json:"standing"`
 }
+type PoliticalOption struct {
+	Code              string `json:"code"`
+	ResourceCode      string `json:"resource_code,omitempty"`
+	ResourceMilli     int64  `json:"resource_milli,omitempty"`
+	StandingDelta     int    `json:"standing_delta"`
+	ServiceTicks      int64  `json:"service_ticks,omitempty"`
+	RequiresCharacter bool   `json:"requires_character,omitempty"`
+}
 type PoliticalDecisionProjection struct {
 	ID                 string            `json:"id"`
 	DemandType         string            `json:"demand_type"`
@@ -39,12 +47,12 @@ type PoliticalDecisionProjection struct {
 	SelectedOption     *string           `json:"selected_option,omitempty"`
 	StandingDelta      *int              `json:"standing_delta,omitempty"`
 	Parameters         map[string]any    `json:"parameters"`
-	Options            []string          `json:"options"`
+	Options            []PoliticalOption `json:"options"`
 	EligibleCharacters []CharacterRecord `json:"eligible_characters,omitempty"`
 }
 type HouseholdPoliticsProjection struct {
-	Relationships []PoliticalRelationshipRecord
-	Decisions     []PoliticalDecisionProjection
+	Relationships []PoliticalRelationshipRecord `json:"relationships"`
+	Decisions     []PoliticalDecisionProjection `json:"decisions"`
 }
 
 type PoliticsTickStore interface {
@@ -52,7 +60,7 @@ type PoliticsTickStore interface {
 	ListHouseholdsForPoliticalEvent(context.Context, string) ([]string, error)
 	InsertPoliticalDecision(context.Context, PoliticalDecisionRecord) (bool, error)
 	LoadExpiringPoliticalDecisions(context.Context, string, int64) ([]PoliticalDecisionRecord, error)
-	AutoResolvePoliticalDecision(context.Context, PoliticalDecisionRecord, int64) (bool, error)
+	AutoResolvePoliticalDecision(context.Context, PoliticalDecisionRecord, int64, string, int) (bool, error)
 	ApplyPoliticalScoreDelta(context.Context, string, string, string, int) error
 	InsertPoliticalChronicle(context.Context, string, int64, string, string, string, string, []byte) error
 	InsertPoliticalReceivedChronicle(context.Context, string, int64, string, string, []byte) error

@@ -58,18 +58,25 @@ func (q *Queries) AssignmentOverlaps(ctx context.Context, arg AssignmentOverlaps
 
 const autoResolvePoliticalDecision = `-- name: AutoResolvePoliticalDecision :execrows
 UPDATE household_decisions
-SET status = 'auto_resolved', selected_option = 'refuse', resolved_tick = $1,
-    standing_delta = -5, updated_at = now()
-WHERE id = $2::uuid AND status = 'pending'
+SET status = 'auto_resolved', selected_option = $1, resolved_tick = $2,
+    standing_delta = $3, updated_at = now()
+WHERE id = $4::uuid AND status = 'pending'
 `
 
 type AutoResolvePoliticalDecisionParams struct {
-	ResolvedTick pgtype.Int8
-	DecisionID   pgtype.UUID
+	SelectedOption pgtype.Text
+	ResolvedTick   pgtype.Int8
+	StandingDelta  pgtype.Int4
+	DecisionID     pgtype.UUID
 }
 
 func (q *Queries) AutoResolvePoliticalDecision(ctx context.Context, arg AutoResolvePoliticalDecisionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, autoResolvePoliticalDecision, arg.ResolvedTick, arg.DecisionID)
+	result, err := q.db.Exec(ctx, autoResolvePoliticalDecision,
+		arg.SelectedOption,
+		arg.ResolvedTick,
+		arg.StandingDelta,
+		arg.DecisionID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -119,6 +126,17 @@ type DeductResourceStockParams struct {
 func (q *Queries) DeductResourceStock(ctx context.Context, arg DeductResourceStockParams) error {
 	_, err := q.db.Exec(ctx, deductResourceStock, arg.Amount, arg.HouseholdID, arg.ResourceCode)
 	return err
+}
+
+const householdExists = `-- name: HouseholdExists :one
+SELECT EXISTS(SELECT 1 FROM households WHERE id = $1::uuid) AS exists
+`
+
+func (q *Queries) HouseholdExists(ctx context.Context, householdID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, householdExists, householdID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const insertHouseholdDecision = `-- name: InsertHouseholdDecision :execrows
@@ -223,6 +241,60 @@ func (q *Queries) InsertPoliticalReceivedChronicle(ctx context.Context, arg Inse
 		arg.WorldEventID,
 	)
 	return err
+}
+
+const listEligiblePoliticalCharacters = `-- name: ListEligiblePoliticalCharacters :many
+SELECT c.id::text AS id, c.household_id::text AS household_id, c.name,
+       c.birth_date::text AS birth_date, c.labor_capacity_milli, c.status
+FROM characters c
+JOIN household_decisions d ON d.household_id = c.household_id
+WHERE d.id = $1::uuid
+  AND d.status = 'pending'
+  AND d.decision_type = 'political_labor_service'
+  AND c.status = 'active' AND c.labor_capacity_milli = 1000
+  AND NOT EXISTS (
+    SELECT 1 FROM assignments a
+    WHERE a.character_id = c.id AND a.status IN ('planned','active')
+      AND a.starts_tick <= d.expires_tick + (d.parameters->>'service_ticks')::bigint - 1
+      AND a.ends_tick >= d.expires_tick
+  )
+ORDER BY c.name, c.id
+`
+
+type ListEligiblePoliticalCharactersRow struct {
+	ID                 string
+	HouseholdID        string
+	Name               string
+	BirthDate          string
+	LaborCapacityMilli int32
+	Status             string
+}
+
+func (q *Queries) ListEligiblePoliticalCharacters(ctx context.Context, decisionID pgtype.UUID) ([]ListEligiblePoliticalCharactersRow, error) {
+	rows, err := q.db.Query(ctx, listEligiblePoliticalCharacters, decisionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEligiblePoliticalCharactersRow{}
+	for rows.Next() {
+		var i ListEligiblePoliticalCharactersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.HouseholdID,
+			&i.Name,
+			&i.BirthDate,
+			&i.LaborCapacityMilli,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listHouseholdsForPoliticalEvent = `-- name: ListHouseholdsForPoliticalEvent :many

@@ -8,6 +8,8 @@
 	}>();
 	const label = (d: PoliticalDecision) =>
 		d.demand_type === 'political_labor_service' ? 'Labor service' : 'Levy';
+	const option = (d: PoliticalDecision, code: string) =>
+		d.options.find((value) => value.code === code);
 </script>
 
 <section class="panel" aria-labelledby="politics-heading">
@@ -32,7 +34,10 @@
 					<form method="POST" action="?/respondPoliticalDemand">
 						<input type="hidden" name="decision_id" value={demand.id} />
 						{#if demand.demand_type === 'political_labor_service'}
-							<p>Serve for 4 ticks · +10 standing</p>
+							{@const serve = option(demand, 'serve')}
+							<p>
+								Serve for {serve?.service_ticks ?? 0} ticks · {serve?.standing_delta ?? 0} standing
+							</p>
 							<select name="character_id" required aria-label="Service character"
 								><option value="">Choose a full-capacity member</option
 								>{#each demand.eligible_characters ?? [] as character (character.id)}<option
@@ -41,13 +46,24 @@
 							>
 							<button name="option" value="serve">Serve</button>
 						{:else}
-							<p>18 wood → +10 · 6 silver → +10 · Refuse → -5</p>
+							{@const wood = option(demand, 'pay_wood')}
+							{@const silver = option(demand, 'pay_silver')}
+							{@const refuse = option(demand, 'refuse')}
+							<p>
+								{wood?.resource_milli ?? 0}
+								{wood?.resource_code ?? 'wood'} → {wood?.standing_delta ?? 0} · {silver?.resource_milli ??
+									0}
+								{silver?.resource_code ?? 'silver'} → {silver?.standing_delta ?? 0} · Refuse → {refuse?.standing_delta ??
+									0}
+							</p>
 							<button name="option" value="pay_wood">Pay wood</button><button
 								name="option"
 								value="pay_silver">Pay silver</button
 							>
 						{/if}
-						<button name="option" value="refuse" class="secondary">Refuse (-5)</button>
+						<button name="option" value="refuse" class="secondary"
+							>Refuse ({option(demand, 'refuse')?.standing_delta ?? 0})</button
+						>
 					</form>
 				{/if}
 			</article>

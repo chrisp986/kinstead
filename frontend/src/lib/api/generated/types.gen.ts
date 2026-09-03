@@ -136,8 +136,17 @@ export type PoliticalDecision = {
 	parameters?: {
 		[key: string]: unknown;
 	};
-	options: Array<string>;
+	options: Array<PoliticalOption>;
 	eligible_characters?: Array<Character>;
+};
+
+export type PoliticalOption = {
+	code: string;
+	resource_code?: string;
+	resource_milli?: number;
+	standing_delta: number;
+	service_ticks?: number;
+	requires_character?: boolean;
 };
 
 export type RespondPoliticalDemandIntent = {

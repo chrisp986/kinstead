@@ -98,12 +98,12 @@ func (t *worldTickTx) LoadExpiringPoliticalDecisions(ctx context.Context, worldI
 	}
 	return out, nil
 }
-func (t *worldTickTx) AutoResolvePoliticalDecision(ctx context.Context, d port.PoliticalDecisionRecord, tick int64) (bool, error) {
+func (t *worldTickTx) AutoResolvePoliticalDecision(ctx context.Context, d port.PoliticalDecisionRecord, tick int64, option string, delta int) (bool, error) {
 	id, e := uuidParam(d.ID)
 	if e != nil {
 		return false, e
 	}
-	n, e := sqlcdb.New(t.tx).AutoResolvePoliticalDecision(ctx, sqlcdb.AutoResolvePoliticalDecisionParams{DecisionID: id, ResolvedTick: pgtype.Int8{Int64: tick, Valid: true}})
+	n, e := sqlcdb.New(t.tx).AutoResolvePoliticalDecision(ctx, sqlcdb.AutoResolvePoliticalDecisionParams{DecisionID: id, SelectedOption: pgtype.Text{String: option, Valid: true}, ResolvedTick: pgtype.Int8{Int64: tick, Valid: true}, StandingDelta: pgtype.Int4{Int32: int32(delta), Valid: true}})
 	return n == 1, e
 }
 func (t *worldTickTx) ApplyPoliticalScoreDelta(ctx context.Context, w, h, a string, delta int) error {
@@ -273,6 +273,13 @@ func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (p
 	if e != nil {
 		return port.HouseholdPoliticsProjection{}, e
 	}
+	exists, e := sqlcdb.New(s.Pool).HouseholdExists(ctx, id)
+	if e != nil {
+		return port.HouseholdPoliticsProjection{}, e
+	}
+	if !exists {
+		return port.HouseholdPoliticsProjection{}, pgx.ErrNoRows
+	}
 	r, e := sqlcdb.New(s.Pool).ListPoliticalRelationshipsForHousehold(ctx, id)
 	if e != nil {
 		return port.HouseholdPoliticsProjection{}, e
@@ -281,7 +288,7 @@ func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (p
 	if e != nil {
 		return port.HouseholdPoliticsProjection{}, e
 	}
-	out := port.HouseholdPoliticsProjection{}
+	out := port.HouseholdPoliticsProjection{Relationships: make([]port.PoliticalRelationshipRecord, 0), Decisions: make([]port.PoliticalDecisionProjection, 0)}
 	for _, v := range r {
 		out.Relationships = append(out.Relationships, port.PoliticalRelationshipRecord{PoliticalActorID: v.PoliticalActorID, ActorName: v.ActorName, ActorType: v.ActorType, Score: int(v.Standing), Standing: string(politicsdomain.DeriveStanding(politicsdomain.Score(v.Standing))), UpdatedAt: v.UpdatedAt.Time.Format("2006-01-02T15:04:05Z07:00")})
 	}
@@ -296,24 +303,44 @@ func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (p
 			x := int(v.StandingDelta.Int32)
 			sd = &x
 		}
-		options := make([]string, 0)
-		for _, o := range politicsdomain.AvailableOptions(politicsdomain.DemandType(v.DecisionType)) {
-			options = append(options, string(o))
+		demand := politicsdomain.DemandType(v.DecisionType)
+		terms := politicsdomain.DefaultTerms(demand)
+		if len(v.Parameters) != 0 {
+			if err := json.Unmarshal(v.Parameters, &terms); err != nil {
+				return port.HouseholdPoliticsProjection{}, err
+			}
+		}
+		if err := terms.Validate(demand); err != nil {
+			return port.HouseholdPoliticsProjection{}, err
+		}
+		options := make([]port.PoliticalOption, 0)
+		for _, o := range politicsdomain.AvailableOptions(demand) {
+			resolution, _ := politicsdomain.ResolveChoiceWithTerms(demand, o, terms)
+			options = append(options, port.PoliticalOption{Code: string(o), ResourceCode: resolution.ResourceCode, ResourceMilli: resolution.ResourceMilli, StandingDelta: resolution.StandingDelta, ServiceTicks: resolution.ServiceTicks, RequiresCharacter: resolution.RequiresWorker})
 		}
 		params := map[string]any{}
 		_ = json.Unmarshal(v.Parameters, &params)
-		out.Decisions = append(out.Decisions, port.PoliticalDecisionProjection{ID: v.ID, DemandType: v.DecisionType, Status: v.Status, ActorID: v.PoliticalActorID, ActorName: v.ActorName, ActorType: v.ActorType, AvailableFromTick: v.AvailableFromTick, ExpiresTick: v.ExpiresTick, SelectedOption: sel, StandingDelta: sd, Parameters: params, Options: options})
-		found := false; for _, rel := range out.Relationships { if rel.PoliticalActorID == v.PoliticalActorID { found = true; break } }; if !found { out.Relationships = append(out.Relationships, port.PoliticalRelationshipRecord{PoliticalActorID:v.PoliticalActorID, ActorName:v.ActorName, ActorType:v.ActorType, Score:0, Standing:"neutral"}) }
-	}
-	if report, err := s.GetHouseholdReport(ctx, householdID); err == nil {
-		for i := range out.Decisions {
-			if out.Decisions[i].DemandType == string(politicsdomain.DemandLaborService) {
-				for _, c := range report.Characters {
-					if c.LaborPermille == 1000 {
-						out.Decisions[i].EligibleCharacters = append(out.Decisions[i].EligibleCharacters, c)
-					}
-				}
+		projection := port.PoliticalDecisionProjection{ID: v.ID, DemandType: v.DecisionType, Status: v.Status, ActorID: v.PoliticalActorID, ActorName: v.ActorName, ActorType: v.ActorType, AvailableFromTick: v.AvailableFromTick, ExpiresTick: v.ExpiresTick, SelectedOption: sel, StandingDelta: sd, Parameters: params, Options: options}
+		if demand == politicsdomain.DemandLaborService && v.Status == string(politicsdomain.StatusPending) {
+			did, _ := uuidParam(v.ID)
+			eligible, ee := sqlcdb.New(s.Pool).ListEligiblePoliticalCharacters(ctx, did)
+			if ee != nil {
+				return port.HouseholdPoliticsProjection{}, ee
 			}
+			for _, c := range eligible {
+				projection.EligibleCharacters = append(projection.EligibleCharacters, port.CharacterRecord{ID: c.ID, Name: c.Name, BirthDate: c.BirthDate, LaborPermille: int64(c.LaborCapacityMilli)})
+			}
+		}
+		out.Decisions = append(out.Decisions, projection)
+		found := false
+		for _, rel := range out.Relationships {
+			if rel.PoliticalActorID == v.PoliticalActorID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out.Relationships = append(out.Relationships, port.PoliticalRelationshipRecord{PoliticalActorID: v.PoliticalActorID, ActorName: v.ActorName, ActorType: v.ActorType, Score: 0, Standing: "neutral"})
 		}
 	}
 	return out, nil

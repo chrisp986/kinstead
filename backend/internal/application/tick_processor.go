@@ -105,17 +105,25 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 		return fmt.Errorf("load expiring political demands: %w", err)
 	}
 	for _, d := range decisions {
-		changed, err := tx.AutoResolvePoliticalDecision(ctx, d, tick)
+		terms, err := politicalTerms(d.Parameters, politicsdomain.DemandType(d.EventType))
+		if err != nil {
+			return err
+		}
+		resolution, err := politicsdomain.ResolveChoiceWithTerms(politicsdomain.DemandType(d.EventType), politicsdomain.OptionRefuse, terms)
+		if err != nil {
+			return err
+		}
+		changed, err := tx.AutoResolvePoliticalDecision(ctx, d, tick, string(resolution.Option), resolution.StandingDelta)
 		if err != nil {
 			return err
 		}
 		if !changed {
 			continue
 		}
-		if err := tx.ApplyPoliticalScoreDelta(ctx, d.WorldID, d.HouseholdID, d.PoliticalActorID, politicsdomain.StandingRefusedDelta); err != nil {
+		if err := tx.ApplyPoliticalScoreDelta(ctx, d.WorldID, d.HouseholdID, d.PoliticalActorID, resolution.StandingDelta); err != nil {
 			return err
 		}
-		data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": "refuse", "standing_delta": politicsdomain.StandingRefusedDelta, "deadline_tick": d.ExpiresTick})
+		data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": resolution.Option, "standing_delta": resolution.StandingDelta, "deadline_tick": d.ExpiresTick})
 		if err := tx.InsertPoliticalChronicle(ctx, d.HouseholdID, tick, "political_demand_auto_resolved", d.ID, d.PoliticalActorID, "", data); err != nil {
 			return err
 		}
@@ -133,14 +141,8 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 			return err
 		}
 		for _, householdID := range households {
-			params := map[string]any{"honor_standing_delta": politicsdomain.StandingHonoredDelta, "refuse_standing_delta": politicsdomain.StandingRefusedDelta}
-			if event.EventType == string(politicsdomain.DemandLaborService) {
-				params["service_ticks"] = politicsdomain.LaborServiceTicks
-			} else {
-				params["wood_cost_milli"] = politicsdomain.LevyWoodMilli
-				params["silver_cost_milli"] = politicsdomain.LevySilverMilli
-			}
-			encoded, _ := json.Marshal(params)
+			terms := politicsdomain.DefaultTerms(politicsdomain.DemandType(event.EventType))
+			encoded, _ := json.Marshal(terms)
 			d := port.PoliticalDecisionRecord{HouseholdID: householdID, WorldID: worldID, WorldEventID: event.ID, DecisionType: event.EventType, AvailableFromTick: event.StartsTick, ExpiresTick: event.ExpiresTick, Parameters: encoded}
 			created, err := tx.InsertPoliticalDecision(ctx, d)
 			if err != nil {
@@ -188,6 +190,34 @@ func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.
 
 func equalContractTick(a, b *contractdomain.Tick) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func politicalTerms(data []byte, demand politicsdomain.DemandType) (politicsdomain.DemandTerms, error) {
+	terms := politicsdomain.DefaultTerms(demand)
+	if len(data) != 0 && string(data) != "{}" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return politicsdomain.DemandTerms{}, fmt.Errorf("decode political demand terms: %w", err)
+		}
+		required := []string{"honor_standing_delta", "refuse_standing_delta"}
+		if demand == politicsdomain.DemandLaborService {
+			required = append(required, "service_ticks")
+		} else if demand == politicsdomain.DemandLevy {
+			required = append(required, "wood_cost_milli", "silver_cost_milli")
+		}
+		for _, key := range required {
+			if _, ok := raw[key]; !ok {
+				return politicsdomain.DemandTerms{}, fmt.Errorf("missing political demand term %q", key)
+			}
+		}
+		if err := json.Unmarshal(data, &terms); err != nil {
+			return politicsdomain.DemandTerms{}, fmt.Errorf("decode political demand terms: %w", err)
+		}
+	}
+	if err := terms.Validate(demand); err != nil {
+		return politicsdomain.DemandTerms{}, err
+	}
+	return terms, nil
 }
 
 func (p *TickProcessor) processContractRollups(ctx context.Context, tx port.WorldTickTransaction, worldID string) error {

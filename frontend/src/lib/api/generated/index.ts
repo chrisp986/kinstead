@@ -91,6 +91,7 @@ export type {
 	ListMarketOffersResponses,
 	MarketOffer,
 	PoliticalDecision,
+	PoliticalOption,
 	PoliticalRelationship,
 	PoliticsOverview,
 	ProposeContractData,

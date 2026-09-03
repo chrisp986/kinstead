@@ -493,10 +493,20 @@ components:
         parameters: { type: object, additionalProperties: true }
         options:
           type: array
-          items: { type: string }
+          items: { $ref: '#/components/schemas/PoliticalOption' }
         eligible_characters:
           type: array
           items: { $ref: '#/components/schemas/Character' }
+    PoliticalOption:
+      type: object
+      required: [code, standing_delta]
+      properties:
+        code: { type: string }
+        resource_code: { type: string }
+        resource_milli: { type: integer, format: int64 }
+        standing_delta: { type: integer }
+        service_ticks: { type: integer, format: int64 }
+        requires_character: { type: boolean }
     RespondPoliticalDemandIntent:
       type: object
       required: [household_id, option]
