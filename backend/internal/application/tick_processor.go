@@ -53,6 +53,9 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	if err := p.processContractObligations(ctx, tx, world.ID, tick); err != nil {
 		return false, err
 	}
+	if err := p.processContractRollups(ctx, tx, world.ID); err != nil {
+		return false, err
+	}
 
 	householdIDs, err := tx.ListHouseholdIDs(ctx, world.ID)
 	if err != nil {
@@ -115,6 +118,30 @@ func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.
 
 func equalContractTick(a, b *contractdomain.Tick) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func (p *TickProcessor) processContractRollups(ctx context.Context, tx port.WorldTickTransaction, worldID string) error {
+	snapshots, err := tx.LoadActiveContractsForRollup(ctx, worldID)
+	if err != nil {
+		return fmt.Errorf("load contract rollups: %w", err)
+	}
+	for _, snapshot := range snapshots {
+		updated, err := snapshot.Contract.RollUp(snapshot.Obligations)
+		if err != nil {
+			return fmt.Errorf("roll up contract %s: %w", snapshot.Contract.ID, err)
+		}
+		if updated.Status == snapshot.Contract.Status {
+			continue
+		}
+		persisted, err := tx.PersistContractRollup(ctx, snapshot.Contract, updated)
+		if err != nil {
+			return fmt.Errorf("persist contract %s rollup: %w", snapshot.Contract.ID, err)
+		}
+		if !persisted {
+			return fmt.Errorf("contract %s changed during tick", snapshot.Contract.ID)
+		}
+	}
+	return nil
 }
 
 func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {

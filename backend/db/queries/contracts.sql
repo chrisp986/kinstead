@@ -85,10 +85,11 @@ FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
 LEFT JOIN shipments s ON s.id = o.shipment_id
 WHERE c.world_id = $1::uuid
-  AND c.status = 'active'
+  AND c.status IN ('active', 'broken')
   AND o.status IN ('pending', 'dispatched', 'late', 'broken')
   AND (o.due_arrival_tick <= $2 OR s.actual_arrival_tick IS NOT NULL)
   AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))
+  AND (c.status = 'active' OR o.status = 'broken')
 ORDER BY o.due_arrival_tick, o.id
 FOR UPDATE OF o;
 
@@ -126,3 +127,13 @@ FOR UPDATE OF o, c, w, debtor, creditor;
 UPDATE contract_obligations
 SET shipment_id = $2::uuid, status = $3, updated_at = now()
 WHERE id = $1::uuid AND shipment_id IS NULL AND status = $4;
+
+-- name: ListActiveContractsForRollup :many
+SELECT id::text AS id, world_id::text AS world_id,
+       party_a_household_id::text AS party_a_household_id,
+       party_b_household_id::text AS party_b_household_id,
+       starts_tick, ends_tick, interval_ticks, status
+FROM contracts
+WHERE world_id = $1::uuid AND status = 'active'
+ORDER BY id
+FOR UPDATE;

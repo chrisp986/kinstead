@@ -252,6 +252,10 @@ func (s *Store) ListContractObligations(ctx context.Context, contractID contract
 	if err != nil {
 		return nil, err
 	}
+	return contractObligationsFromRows(rows)
+}
+
+func contractObligationsFromRows(rows []sqlcdb.ListContractObligationsRow) ([]contractdomain.Obligation, error) {
 	values := make([]contractdomain.Obligation, 0, len(rows))
 	for _, row := range rows {
 		value := contractdomain.Obligation{
@@ -339,6 +343,79 @@ func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.
 		OldFulfilledTick: nullableContractTick(before.FulfilledTick),
 	})
 	return rows == 1, err
+}
+
+func (s *Store) LoadActiveContractsForRollup(ctx context.Context, tx pgx.Tx, worldID string) ([]port.ContractRollupSnapshot, error) {
+	id, err := uuidParam(worldID)
+	if err != nil {
+		return nil, err
+	}
+	queries := sqlcdb.New(tx)
+	rows, err := queries.ListActiveContractsForRollup(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	values := make([]port.ContractRollupSnapshot, 0, len(rows))
+	for _, row := range rows {
+		value := contractFromRow(row.ID, row.WorldID, row.PartyAHouseholdID, row.PartyBHouseholdID,
+			row.StartsTick, row.EndsTick, row.IntervalTicks, row.Status)
+		value, err = loadContractTerms(ctx, queries, value)
+		if err != nil {
+			return nil, err
+		}
+		contractID, err := uuidParam(row.ID)
+		if err != nil {
+			return nil, err
+		}
+		obligationRows, err := queries.ListContractObligations(ctx, contractID)
+		if err != nil {
+			return nil, err
+		}
+		obligations, err := contractObligationsFromRows(obligationRows)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, port.ContractRollupSnapshot{Contract: value, Obligations: obligations})
+	}
+	return values, nil
+}
+
+func (s *Store) PersistContractRollup(ctx context.Context, tx pgx.Tx, before, after contractdomain.Contract) (bool, error) {
+	if err := before.Validate(); err != nil {
+		return false, err
+	}
+	if err := after.Validate(); err != nil {
+		return false, err
+	}
+	if !sameContractExceptStatus(before, after) {
+		return false, contractdomain.ErrInvalidContract
+	}
+	expected, err := before.Transition(after.Status)
+	if err != nil || expected.Status != after.Status {
+		return false, contractdomain.ErrInvalidTransition
+	}
+	id, err := uuidParam(string(before.ID))
+	if err != nil {
+		return false, err
+	}
+	rows, err := sqlcdb.New(tx).UpdateContractStatus(ctx, sqlcdb.UpdateContractStatusParams{
+		Column1: id, Status: string(after.Status), Status_2: string(before.Status),
+	})
+	return rows == 1, err
+}
+
+func sameContractExceptStatus(a, b contractdomain.Contract) bool {
+	if a.ID != b.ID || a.ID == "" || a.WorldID != b.WorldID || a.PartyAHouseholdID != b.PartyAHouseholdID ||
+		a.PartyBHouseholdID != b.PartyBHouseholdID || a.StartsTick != b.StartsTick || a.EndsTick != b.EndsTick ||
+		a.IntervalTicks != b.IntervalTicks || len(a.Terms) != len(b.Terms) {
+		return false
+	}
+	for i := range a.Terms {
+		if a.Terms[i] != b.Terms[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (t *contractDispatchTx) LoadForDispatch(ctx context.Context, obligationID contractdomain.ObligationID, _ contractdomain.HouseholdID) (port.ContractDispatchSnapshot, error) {

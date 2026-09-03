@@ -19,6 +19,7 @@ type Querier interface {
 	GetRouteDistance(ctx context.Context, arg GetRouteDistanceParams) (string, error)
 	IsWorldTickProcessed(ctx context.Context, arg IsWorldTickProcessedParams) (bool, error)
 	LinkContractObligationShipment(ctx context.Context, arg LinkContractObligationShipmentParams) (int64, error)
+	ListActiveContractsForRollup(ctx context.Context, dollar_1 pgtype.UUID) ([]ListActiveContractsForRollupRow, error)
 	ListActiveMarketOffers(ctx context.Context, dollar_1 pgtype.UUID) ([]ListActiveMarketOffersRow, error)
 	ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error)
 	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)

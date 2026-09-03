@@ -64,6 +64,35 @@ func TestContractRejectsInvalidOrDuplicateTerms(t *testing.T) {
 	}
 }
 
+func TestContractRollUpRequiresCompleteSettledSchedule(t *testing.T) {
+	value := activeContract()
+	obligations, err := GenerateObligations(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range obligations {
+		obligations[i].ID = ObligationID(string(rune('a' + i)))
+		obligations[i].ShipmentID = shipmentdomain.ID(string(rune('A' + i)))
+		fulfilled := obligations[i].DueArrivalTick
+		obligations[i].FulfilledTick = &fulfilled
+		obligations[i].Status = ObligationFulfilled
+	}
+	completed, err := value.RollUp(obligations)
+	if err != nil || completed.Status != StatusCompleted {
+		t.Fatalf("completed rollup = %+v, %v", completed, err)
+	}
+	obligations[1].Status = ObligationBroken
+	lateArrival := obligations[1].DueArrivalTick + 3
+	obligations[1].FulfilledTick = &lateArrival
+	broken, err := value.RollUp(obligations)
+	if err != nil || broken.Status != StatusBroken {
+		t.Fatalf("broken rollup = %+v, %v", broken, err)
+	}
+	if _, err := value.RollUp(obligations[:2]); !errors.Is(err, ErrInvalidContract) {
+		t.Fatalf("incomplete schedule error = %v", err)
+	}
+}
+
 func TestDispatchRequiresMatchingPhysicalShipment(t *testing.T) {
 	dispatched, err := pendingObligation().Dispatch(matchingShipment())
 	if err != nil || dispatched.Status != ObligationDispatched || dispatched.ShipmentID != "shipment" {

@@ -138,6 +138,11 @@ type ContractObligationAssessment struct {
 	ActualArrivalTick *shipmentdomain.Tick
 }
 
+type ContractRollupSnapshot struct {
+	Contract    contractdomain.Contract
+	Obligations []contractdomain.Obligation
+}
+
 // WorldTickTransaction contains only the operations required by the canonical
 // atomic tick. The ordering remains application-owned, not persistence-owned.
 type WorldTickTransaction interface {
@@ -147,6 +152,8 @@ type WorldTickTransaction interface {
 	PersistShipmentArrival(context.Context, shipmentdomain.Shipment) (bool, error)
 	LoadContractObligationsForTick(context.Context, string, int64) ([]ContractObligationAssessment, error)
 	PersistContractObligationAssessment(context.Context, contractdomain.Obligation, contractdomain.Obligation) (bool, error)
+	LoadActiveContractsForRollup(context.Context, string) ([]ContractRollupSnapshot, error)
+	PersistContractRollup(context.Context, contractdomain.Contract, contractdomain.Contract) (bool, error)
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult) error

@@ -103,6 +103,61 @@ func (c Contract) Transition(to Status) (Contract, error) {
 	return c, nil
 }
 
+// RollUp derives an active contract's terminal lifecycle from its complete,
+// persistence-backed obligation schedule. A single broken obligation breaks
+// the contract; otherwise every obligation must have actually settled before
+// the contract completes.
+func (c Contract) RollUp(obligations []Obligation) (Contract, error) {
+	if err := c.Validate(); err != nil || c.ID == "" || c.Status != StatusActive {
+		return Contract{}, ErrInvalidContract
+	}
+	expected, err := GenerateObligations(c)
+	if err != nil || len(obligations) != len(expected) {
+		return Contract{}, ErrInvalidContract
+	}
+	type obligationKey struct {
+		Debtor   HouseholdID
+		Creditor HouseholdID
+		Resource ResourceType
+		Quantity QuantityMilli
+		Due      Tick
+	}
+	expectedKeys := make(map[obligationKey]struct{}, len(expected))
+	for _, obligation := range expected {
+		expectedKeys[obligationKey{
+			Debtor: obligation.DebtorHouseholdID, Creditor: obligation.CreditorHouseholdID,
+			Resource: obligation.ResourceType, Quantity: obligation.QuantityMilli, Due: obligation.DueArrivalTick,
+		}] = struct{}{}
+	}
+	allSettled := true
+	for _, obligation := range obligations {
+		if err := obligation.Validate(); err != nil || obligation.ID == "" || obligation.ContractID != c.ID {
+			return Contract{}, ErrInvalidContract
+		}
+		key := obligationKey{
+			Debtor: obligation.DebtorHouseholdID, Creditor: obligation.CreditorHouseholdID,
+			Resource: obligation.ResourceType, Quantity: obligation.QuantityMilli, Due: obligation.DueArrivalTick,
+		}
+		if _, ok := expectedKeys[key]; !ok {
+			return Contract{}, ErrInvalidContract
+		}
+		delete(expectedKeys, key)
+		if obligation.Status == ObligationBroken {
+			return c.Transition(StatusBroken)
+		}
+		settled := obligation.Status == ObligationFulfilled ||
+			(obligation.Status == ObligationLate && obligation.FulfilledTick != nil)
+		allSettled = allSettled && settled
+	}
+	if len(expectedKeys) != 0 {
+		return Contract{}, ErrInvalidContract
+	}
+	if allSettled {
+		return c.Transition(StatusCompleted)
+	}
+	return c, nil
+}
+
 type Obligation struct {
 	ID                  ObligationID
 	ContractID          ID

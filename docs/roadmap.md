@@ -71,8 +71,10 @@ counterparty acceptance/rejection with retry-safe recurring-obligation
 generation are complete. Contract evaluation now runs at canonical tick step 2
 after shipment arrivals, with arrival-based fulfilled, late, and broken
 obligation states. Debtors can atomically reserve the promised goods and
-dispatch a geography-derived shipment linked to an obligation. Next: contract
-lifecycle rollups and relationship history/projections.
+dispatch a geography-derived shipment linked to an obligation. Active contract
+status now rolls up deterministically from the complete obligation schedule:
+any broken obligation breaks the contract; otherwise all obligations must be
+settled before completion. Next: relationship history/projections.
 
 ### 5. Politics
 

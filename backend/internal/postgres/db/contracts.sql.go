@@ -187,6 +187,57 @@ func (q *Queries) LinkContractObligationShipment(ctx context.Context, arg LinkCo
 	return result.RowsAffected(), nil
 }
 
+const listActiveContractsForRollup = `-- name: ListActiveContractsForRollup :many
+SELECT id::text AS id, world_id::text AS world_id,
+       party_a_household_id::text AS party_a_household_id,
+       party_b_household_id::text AS party_b_household_id,
+       starts_tick, ends_tick, interval_ticks, status
+FROM contracts
+WHERE world_id = $1::uuid AND status = 'active'
+ORDER BY id
+FOR UPDATE
+`
+
+type ListActiveContractsForRollupRow struct {
+	ID                string
+	WorldID           string
+	PartyAHouseholdID string
+	PartyBHouseholdID string
+	StartsTick        int64
+	EndsTick          int64
+	IntervalTicks     int32
+	Status            string
+}
+
+func (q *Queries) ListActiveContractsForRollup(ctx context.Context, dollar_1 pgtype.UUID) ([]ListActiveContractsForRollupRow, error) {
+	rows, err := q.db.Query(ctx, listActiveContractsForRollup, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveContractsForRollupRow{}
+	for rows.Next() {
+		var i ListActiveContractsForRollupRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorldID,
+			&i.PartyAHouseholdID,
+			&i.PartyBHouseholdID,
+			&i.StartsTick,
+			&i.EndsTick,
+			&i.IntervalTicks,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listContractObligations = `-- name: ListContractObligations :many
 SELECT id::text AS id, contract_id::text AS contract_id,
        debtor_household_id::text AS debtor_household_id,
@@ -345,10 +396,11 @@ FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
 LEFT JOIN shipments s ON s.id = o.shipment_id
 WHERE c.world_id = $1::uuid
-  AND c.status = 'active'
+  AND c.status IN ('active', 'broken')
   AND o.status IN ('pending', 'dispatched', 'late', 'broken')
   AND (o.due_arrival_tick <= $2 OR s.actual_arrival_tick IS NOT NULL)
   AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))
+  AND (c.status = 'active' OR o.status = 'broken')
 ORDER BY o.due_arrival_tick, o.id
 FOR UPDATE OF o
 `

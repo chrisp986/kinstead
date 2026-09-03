@@ -77,6 +77,12 @@ func (t *worldTickTx) LoadContractObligationsForTick(ctx context.Context, worldI
 func (t *worldTickTx) PersistContractObligationAssessment(ctx context.Context, before, after contractdomain.Obligation) (bool, error) {
 	return t.store.PersistContractObligationAssessment(ctx, t.tx, before, after)
 }
+func (t *worldTickTx) LoadActiveContractsForRollup(ctx context.Context, worldID string) ([]port.ContractRollupSnapshot, error) {
+	return t.store.LoadActiveContractsForRollup(ctx, t.tx, worldID)
+}
+func (t *worldTickTx) PersistContractRollup(ctx context.Context, before, after contractdomain.Contract) (bool, error) {
+	return t.store.PersistContractRollup(ctx, t.tx, before, after)
+}
 func (t *worldTickTx) ListHouseholdIDs(ctx context.Context, worldID string) ([]string, error) {
 	return t.store.ListHouseholdIDs(ctx, t.tx, worldID)
 }

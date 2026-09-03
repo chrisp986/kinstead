@@ -196,6 +196,17 @@ func assertTickContract(
 	wantDelayedFulfilled *int64,
 ) {
 	t.Helper()
+	wantContractStatus := "active"
+	if wantUnlinkedStatus == "broken" {
+		wantContractStatus = "broken"
+	}
+	var contractStatus string
+	if err := store.Pool.QueryRow(ctx, `SELECT status FROM contracts WHERE id = $1::uuid`, contractID).Scan(&contractStatus); err != nil {
+		t.Fatal(err)
+	}
+	if contractStatus != wantContractStatus {
+		t.Fatalf("contract status = %s, want %s", contractStatus, wantContractStatus)
+	}
 	rows, err := store.Pool.Query(ctx, `
 		SELECT resource_code, status, fulfilled_tick
 		FROM contract_obligations
