@@ -116,3 +116,15 @@ refuses - Loyal: +30; 8 service ticks +18 wood
 
 These agents are balancing probes, not production AI architecture. Monte
 Carlo work is deferred.
+
+## Executable runner status
+
+The frozen table above remains the design reference and must not be changed
+to make code pass. The current Go balancing runner does **not** reproduce it
+exactly; `backend/v03_go_summary.csv` records an older runner comparison and
+is not a replacement baseline. Until the original reference algorithm is
+available or an explicit rebalance is authorized, tests snapshot the current
+Go runner separately so implementation drift is visible while preserving the
+frozen reference unchanged. In particular, the current runner's strategy
+automation and trade cadence differ from the reference, and its strained-day
+counter uses the specified 30-day threshold.

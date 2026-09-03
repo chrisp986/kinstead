@@ -1,6 +1,10 @@
-package simulation
+package v03
 
-import "fmt"
+import (
+	"fmt"
+
+	"game/backend/internal/balance"
+)
 
 type ScenarioSummary struct {
 	Strategy             StrategyName
@@ -18,7 +22,7 @@ type ScenarioSummary struct {
 }
 
 func RunV03Scenario(strategy StrategyName) (ScenarioSummary, error) {
-	cfg := DefaultBalanceConfig()
+	cfg := balance.V03()
 	state := NewBjornvikState()
 	ss := StrategyState{Name: strategy, ServiceCharacter: "Einar"}
 
@@ -28,7 +32,7 @@ func RunV03Scenario(strategy StrategyName) (ScenarioSummary, error) {
 		applyTradeRules(&state, strategy, tick, cfg)
 		assignments := chooseAssignments(state, ss, cfg)
 		startAndProgressBuilding(&state, strategy, assignments)
-		result, err := ProcessTick(state, tick, assignments, cfg)
+		result, err := ProcessTick(state, tick, assignments, contextForTick(tick), cfg)
 		if err != nil {
 			return ScenarioSummary{}, err
 		}

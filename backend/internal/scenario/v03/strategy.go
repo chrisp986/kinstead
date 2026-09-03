@@ -1,4 +1,4 @@
-package simulation
+package v03
 
 import "sort"
 
@@ -24,8 +24,8 @@ func allStrategies() []StrategyName {
 
 func bestFoodActivity(c Character, farmSpecialization Activity, season Season, cfg BalanceConfig) Activity {
 	ctx := TickContext{Season: season, AgricultureModifierPermille: 1000, FishingModifierPermille: 1000}
-	fa := productionFor(c, Assignment{Character: c.Name, Activity: Agriculture, Intensity: Normal}, farmSpecialization, ctx, cfg)
-	ff := productionFor(c, Assignment{Character: c.Name, Activity: Fishing, Intensity: Normal}, farmSpecialization, ctx, cfg)
+	fa := EstimateProduction(c, Assignment{Character: c.Name, Activity: Agriculture, Intensity: Normal}, farmSpecialization, ctx, cfg)
+	ff := EstimateProduction(c, Assignment{Character: c.Name, Activity: Fishing, Intensity: Normal}, farmSpecialization, ctx, cfg)
 	if ff >= fa {
 		return Fishing
 	}

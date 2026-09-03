@@ -32,16 +32,24 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
 - A Hrafnstead provision offer priced at 1.5 silver per unit.
 - Offline Go simulation tests remain runnable without PostgreSQL dependencies.
 
-## Important clock correction
+## Production clock semantics
 
-The 48-day balancing year is **not** a literal 48-day historical calendar. It is an abstract simulation year:
+The v0.3 48-tick balancing year is **not** the production season calendar.
+Production uses four distinct concepts: wall-clock scheduling, sequential
+simulation ticks, a rational tick-to-historical-day conversion, and historical
+dates/seasons.
 
-- 48 simulation ticks = 365 historical days.
-- 12 ticks = one balancing season.
+- Tick 0 is the historical start-date snapshot.
+- By default, 48 production ticks advance 365 historical days.
+- Production season comes from the resulting historical month, not `tick % 48`.
+- The isolated v0.3 simulator still uses 12 balancing ticks per synthetic season.
 - Target pace: one game year in about 8 real days.
 - Therefore the development seed uses one tick every **4 real hours** (`14400` seconds).
 
-The database stores the historical conversion as `historical_days_per_tick_num / historical_days_per_tick_den` (default `365 / 48`) instead of hard-coding it into UI code.
+The database stores the conversion as `historical_days_per_tick_num /
+historical_days_per_tick_den` (default `365 / 48`). Characters store a
+historical `birth_date`; age is derived for the report date rather than stored
+or inferred from balancing ticks.
 
 ## Requirements for full local test
 
@@ -157,7 +165,9 @@ production and consumption.
 ## Purchase the seeded market offer
 
 List active offers, then buy five provisions for Bjornvik. The server calculates the
-7,500 milli-silver cost and two-tick arrival; the request supplies neither value.
+8,500 milli-silver total cost (7,500 goods + 1,000 local transport) and
+two-tick arrival; the request supplies neither value. Both delivery time and
+transport cost are derived from the directed route between the locations.
 
 ```bash
 curl "http://localhost:8080/api/market/offers?world_id=00000000-0000-0000-0000-000000000001"

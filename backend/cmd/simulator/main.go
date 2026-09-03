@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"strings"
 
-	"game/backend/internal/simulation"
+	"game/backend/internal/scenario/v03"
 )
 
 func main() {
 	csvPath := flag.String("csv", "", "write summary CSV to this path")
 	flag.Parse()
 
-	summaries, err := simulation.RunAllV03Scenarios()
+	summaries, err := v03.RunAllV03Scenarios()
 	if err != nil {
 		panic(err)
 	}

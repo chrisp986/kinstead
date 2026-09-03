@@ -1,12 +1,10 @@
-//go:build postgres
-
 package application
 
 import (
 	"context"
 
 	shipmentdomain "game/backend/internal/domain/shipment"
-	"game/backend/internal/postgres"
+	"game/backend/internal/port"
 )
 
 type CreateShipmentCommand struct {
@@ -24,10 +22,10 @@ type CreateShipmentCommand struct {
 }
 
 type ShipmentService struct {
-	Store *postgres.Store
+	Store port.ShipmentRepository
 }
 
-func NewShipmentService(store *postgres.Store) *ShipmentService {
+func NewShipmentService(store port.ShipmentRepository) *ShipmentService {
 	return &ShipmentService{Store: store}
 }
 
@@ -51,6 +49,6 @@ func (s *ShipmentService) Create(ctx context.Context, cmd CreateShipmentCommand)
 	return s.Store.CreateShipment(ctx, dispatched)
 }
 
-func (s *ShipmentService) ListForHousehold(ctx context.Context, householdID string) ([]postgres.ShipmentRecord, error) {
+func (s *ShipmentService) ListForHousehold(ctx context.Context, householdID string) ([]port.ShipmentRecord, error) {
 	return s.Store.ListHouseholdShipments(ctx, householdID)
 }

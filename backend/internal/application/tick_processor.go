@@ -1,44 +1,41 @@
-//go:build postgres
-
 package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
+	"game/backend/internal/balance"
+	"game/backend/internal/calendar"
 	shipmentdomain "game/backend/internal/domain/shipment"
-	"game/backend/internal/postgres"
+	"game/backend/internal/port"
 	"game/backend/internal/simulation"
 )
 
 type TickProcessor struct {
-	Store   *postgres.Store
+	Store   port.TickRepository
 	Balance simulation.BalanceConfig
 }
 
-func NewTickProcessor(store *postgres.Store) *TickProcessor {
-	return &TickProcessor{Store: store, Balance: simulation.DefaultBalanceConfig()}
+func NewTickProcessor(store port.TickRepository) *TickProcessor {
+	return &TickProcessor{Store: store, Balance: balance.V03()}
 }
 
 // ProcessOneDueWorld atomically advances at most one due world by exactly one tick.
 // It returns false when no world is currently due.
 func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
-	tx, err := p.Store.Begin(ctx)
+	tx, err := p.Store.BeginWorldTick(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback(ctx)
 
-	world, ok, err := p.Store.ClaimDueWorld(ctx, tx)
+	world, ok, err := tx.ClaimDueWorld(ctx)
 	if err != nil || !ok {
 		return ok, err
 	}
 
 	tick := world.CurrentTick + 1
-	processed, err := p.Store.IsTickProcessed(ctx, tx, world.ID, tick)
+	processed, err := tx.IsTickProcessed(ctx, world.ID, tick)
 	if err != nil {
 		return false, err
 	}
@@ -52,38 +49,43 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	householdIDs, err := p.Store.ListHouseholdIDs(ctx, tx, world.ID)
+	householdIDs, err := tx.ListHouseholdIDs(ctx, world.ID)
 	if err != nil {
 		return false, err
 	}
 	for _, householdID := range householdIDs {
-		snap, assignments, err := p.Store.LoadHouseholdForTick(ctx, tx, householdID, tick)
+		snap, assignments, err := tx.LoadHouseholdForTick(ctx, householdID, tick)
 		if err != nil {
 			return false, fmt.Errorf("load household %s: %w", householdID, err)
 		}
-		result, err := simulation.ProcessTick(snap.State, tick, assignments, p.Balance)
+		historicalDate, err := (calendar.Clock{
+			StartDate:   snap.HistoricalStart,
+			DaysPerTick: calendar.Rational{Numerator: int64(snap.HistoricalDaysPerTickNum), Denominator: int64(snap.HistoricalDaysPerTickDen)},
+		}).DateAtTick(tick)
+		if err != nil {
+			return false, fmt.Errorf("historical date for world %s tick %d: %w", world.ID, tick, err)
+		}
+		tickContext := simulation.NeutralTickContext(simulation.SeasonForDate(historicalDate))
+		result, err := simulation.ProcessTick(snap.State, tick, assignments, tickContext, p.Balance)
 		if err != nil {
 			return false, fmt.Errorf("simulate household %s: %w", householdID, err)
 		}
-		if err := p.Store.SaveHouseholdTick(ctx, tx, householdID, result); err != nil {
+		if err := tx.SaveHouseholdTick(ctx, householdID, result); err != nil {
 			return false, fmt.Errorf("save household %s: %w", householdID, err)
 		}
 	}
 
-	if err := p.Store.FinishWorldTick(ctx, tx, world, tick); err != nil {
+	if err := tx.FinishWorldTick(ctx, world, tick); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		if errors.Is(err, pgx.ErrTxCommitRollback) {
-			return false, fmt.Errorf("serializable tick conflict: %w", err)
-		}
-		return false, err
+		return false, fmt.Errorf("commit world tick: %w", err)
 	}
 	return true, nil
 }
 
-func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx pgx.Tx, worldID string, tick int64) error {
-	due, err := p.Store.LoadDueShipments(ctx, tx, worldID, tick)
+func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {
+	due, err := tx.LoadDueShipments(ctx, worldID, tick)
 	if err != nil {
 		return fmt.Errorf("load shipment arrivals: %w", err)
 	}
@@ -92,7 +94,7 @@ func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx pgx.Tx, 
 		if err != nil {
 			return fmt.Errorf("arrive shipment %s: %w", value.ID, err)
 		}
-		persisted, err := p.Store.PersistShipmentArrival(ctx, tx, arrived)
+		persisted, err := tx.PersistShipmentArrival(ctx, arrived)
 		if err != nil {
 			return fmt.Errorf("persist shipment %s arrival: %w", value.ID, err)
 		}

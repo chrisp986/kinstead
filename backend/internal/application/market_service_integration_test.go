@@ -35,14 +35,14 @@ func TestMarketPurchaseCreatesShipmentAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.CostMilli != 30_000 || result.Offer.QuantityRemainingMilli != 40_000 || result.Offer.Status != "active" {
+	if result.CostMilli != 31_000 || result.GoodsCostMilli != 30_000 || result.TransportCostMilli != 1_000 || result.Offer.QuantityRemainingMilli != 40_000 || result.Offer.Status != "active" {
 		t.Fatalf("purchase result = %+v", result)
 	}
 	if result.Shipment.Status != "in_transit" || result.Shipment.DepartureTick != 4 ||
-		result.Shipment.ExpectedArrivalTick != 6 || result.Shipment.QuantityMilli != 20_000 {
+		result.Shipment.ExpectedArrivalTick != 6 || result.Shipment.QuantityMilli != 20_000 || result.Shipment.TransportCostMilli != 1_000 {
 		t.Fatalf("shipment = %+v", result.Shipment)
 	}
-	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "silver", 70_000)
+	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "silver", 69_000)
 	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "provisions", 7_000)
 	assertMarketStock(t, ctx, store, fixture.sellerID, "provisions", 80_000)
 	assertMarketStock(t, ctx, store, fixture.sellerID, "silver", 30_000)
@@ -54,10 +54,10 @@ func TestMarketPurchaseCreatesShipmentAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.CostMilli != 60_000 || result.Offer.QuantityRemainingMilli != 0 || result.Offer.Status != "filled" {
+	if result.CostMilli != 61_000 || result.Offer.QuantityRemainingMilli != 0 || result.Offer.Status != "filled" {
 		t.Fatalf("full purchase result = %+v", result)
 	}
-	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "silver", 10_000)
+	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "silver", 8_000)
 	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "provisions", 7_000)
 	assertMarketStock(t, ctx, store, fixture.sellerID, "provisions", 40_000)
 	assertMarketStock(t, ctx, store, fixture.sellerID, "silver", 90_000)
@@ -213,6 +213,14 @@ func createMarketFixture(
 			t.Fatal(err)
 		}
 		fixture.destinationIDs = append(fixture.destinationIDs, locationID)
+	}
+	for _, locationID := range fixture.destinationIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO location_routes(world_id, origin_location_id, destination_location_id, distance_class)
+			VALUES ($1::uuid, $2::uuid, $3::uuid, 'local')
+		`, fixture.worldID, fixture.originID, locationID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tx.QueryRow(ctx, `
         INSERT INTO households(world_id, location_id, name, created_tick)

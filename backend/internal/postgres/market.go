@@ -8,9 +8,12 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	marketdomain "game/backend/internal/domain/market"
 	shipmentdomain "game/backend/internal/domain/shipment"
+	"game/backend/internal/port"
+	sqlcdb "game/backend/internal/postgres/db"
 )
 
 var (
@@ -18,25 +21,33 @@ var (
 	ErrInvalidMarketParticipants = errors.New("invalid market participants")
 )
 
-type MarketOfferRecord struct {
-	ID                     string `json:"id"`
-	WorldID                string `json:"world_id"`
-	SellerHouseholdID      string `json:"seller_household_id"`
-	OriginLocationID       string `json:"origin_location_id"`
-	ResourceType           string `json:"resource_type"`
-	QuantityRemainingMilli int64  `json:"quantity_remaining_milli"`
-	PricePerUnitMilli      int64  `json:"price_per_unit_milli"`
-	CreatedTick            int64  `json:"created_tick"`
-	ExpiresTick            *int64 `json:"expires_tick,omitempty"`
-	Status                 string `json:"status"`
+type MarketOfferRecord = port.MarketOfferRecord
+
+type MarketPurchaseSnapshot = port.MarketPurchaseSnapshot
+
+type marketPurchaseTx struct {
+	store *Store
+	tx    pgx.Tx
 }
 
-type MarketPurchaseSnapshot struct {
-	Offer            marketdomain.Offer
-	Buyer            marketdomain.Buyer
-	SellerStockMilli marketdomain.QuantityMilli
-	CurrentTick      int64
+func (s *Store) BeginMarketPurchase(ctx context.Context) (port.MarketPurchaseTransaction, error) {
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &marketPurchaseTx{store: s, tx: tx}, nil
 }
+
+func (t *marketPurchaseTx) Load(ctx context.Context, offerID, buyerHouseholdID string) (port.MarketPurchaseSnapshot, error) {
+	return t.store.LoadMarketPurchase(ctx, t.tx, offerID, buyerHouseholdID)
+}
+
+func (t *marketPurchaseTx) Persist(ctx context.Context, purchase marketdomain.Purchase, shipment shipmentdomain.Shipment) (port.MarketOfferRecord, port.ShipmentRecord, error) {
+	return t.store.PersistMarketPurchase(ctx, t.tx, purchase, shipment)
+}
+
+func (t *marketPurchaseTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
+func (t *marketPurchaseTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 
 func scanMarketOffer(row rowScanner) (marketdomain.Offer, error) {
 	var record MarketOfferRecord
@@ -80,17 +91,16 @@ func marketOfferRecord(value marketdomain.Offer) MarketOfferRecord {
 }
 
 func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buyerHouseholdID string) (MarketPurchaseSnapshot, error) {
-	offer, err := scanMarketOffer(tx.QueryRow(ctx, `
-        SELECT id::text, world_id::text, seller_household_id::text, origin_location_id::text,
-               resource_code, quantity_remaining_milli, price_per_unit_milli,
-               created_tick, expires_tick, status
-        FROM market_offers
-        WHERE id = $1::uuid
-        FOR UPDATE
-    `, offerID))
+	offerUUID, err := uuidParam(offerID)
 	if err != nil {
 		return MarketPurchaseSnapshot{}, err
 	}
+	locked, err := sqlcdb.New(tx).LockMarketOffer(ctx, offerUUID)
+	if err != nil {
+		return MarketPurchaseSnapshot{}, err
+	}
+	offer := marketOfferFromSQLC(locked.ID, locked.WorldID, locked.SellerHouseholdID, locked.OriginLocationID,
+		locked.ResourceCode, locked.QuantityRemainingMilli, locked.PricePerUnitMilli, locked.CreatedTick, locked.ExpiresTick, locked.Status)
 
 	var currentTick int64
 	if err := tx.QueryRow(ctx, `
@@ -140,6 +150,32 @@ func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buye
 	if err != nil {
 		return MarketPurchaseSnapshot{}, err
 	}
+	worldUUID, err := uuidParam(string(offer.WorldID))
+	if err != nil {
+		return MarketPurchaseSnapshot{}, err
+	}
+	originUUID, err := uuidParam(string(offer.OriginLocationID))
+	if err != nil {
+		return MarketPurchaseSnapshot{}, err
+	}
+	destinationUUID, err := uuidParam(buyer.locationID)
+	if err != nil {
+		return MarketPurchaseSnapshot{}, err
+	}
+	distanceValue, err := sqlcdb.New(tx).GetMarketRouteDistance(ctx, sqlcdb.GetMarketRouteDistanceParams{
+		Column1: worldUUID, Column2: originUUID, Column3: destinationUUID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return MarketPurchaseSnapshot{}, marketdomain.ErrRouteUnavailable
+		}
+		return MarketPurchaseSnapshot{}, err
+	}
+	distanceClass := marketdomain.DistanceClass(distanceValue)
+	route, err := marketdomain.RouteForDistance(offer.WorldID, offer.OriginLocationID, marketdomain.LocationID(buyer.locationID), distanceClass)
+	if err != nil {
+		return MarketPurchaseSnapshot{}, err
+	}
 
 	return MarketPurchaseSnapshot{
 		Offer: offer,
@@ -147,6 +183,7 @@ func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buye
 			HouseholdID: marketdomain.HouseholdID(buyer.id), WorldID: marketdomain.WorldID(buyer.worldID),
 			LocationID: marketdomain.LocationID(buyer.locationID), SilverMilli: marketdomain.MoneyMilli(buyerSilver),
 		},
+		Route:            route,
 		SellerStockMilli: marketdomain.QuantityMilli(sellerStock),
 		CurrentTick:      currentTick,
 	}, nil
@@ -193,7 +230,7 @@ func (s *Store) PersistMarketPurchase(
         UPDATE resource_stocks
         SET quantity_milli = quantity_milli - $2, updated_at = now()
         WHERE household_id = $1::uuid AND resource_code = 'silver' AND quantity_milli >= $2
-    `, purchase.Buyer.HouseholdID, purchase.CostMilli)
+	`, purchase.Buyer.HouseholdID, purchase.TotalCostMilli)
 	if err != nil {
 		return MarketOfferRecord{}, ShipmentRecord{}, err
 	}
@@ -219,25 +256,27 @@ func (s *Store) PersistMarketPurchase(
         ON CONFLICT (household_id, resource_code)
         DO UPDATE SET quantity_milli = resource_stocks.quantity_milli + EXCLUDED.quantity_milli,
                       updated_at = now()
-    `, purchase.Offer.SellerHouseholdID, purchase.CostMilli); err != nil {
+	`, purchase.Offer.SellerHouseholdID, purchase.GoodsCostMilli); err != nil {
 		return MarketOfferRecord{}, ShipmentRecord{}, err
 	}
 
 	previousQuantity := purchase.Offer.QuantityRemainingMilli + purchase.QuantityMilli
-	updatedOffer, err := scanMarketOffer(tx.QueryRow(ctx, `
-        UPDATE market_offers
-        SET quantity_remaining_milli = $2, status = $3, updated_at = now()
-        WHERE id = $1::uuid AND status = 'active' AND quantity_remaining_milli = $4
-        RETURNING id::text, world_id::text, seller_household_id::text, origin_location_id::text,
-                  resource_code, quantity_remaining_milli, price_per_unit_milli,
-                  created_tick, expires_tick, status
-    `, purchase.Offer.ID, purchase.Offer.QuantityRemainingMilli, purchase.Offer.Status, previousQuantity))
+	offerUUID, err := uuidParam(string(purchase.Offer.ID))
+	if err != nil {
+		return MarketOfferRecord{}, ShipmentRecord{}, err
+	}
+	updated, err := sqlcdb.New(tx).UpdateMarketOfferAfterPurchase(ctx, sqlcdb.UpdateMarketOfferAfterPurchaseParams{
+		Column1: offerUUID, QuantityRemainingMilli: int64(purchase.Offer.QuantityRemainingMilli),
+		Status: string(purchase.Offer.Status), QuantityRemainingMilli_2: int64(previousQuantity),
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MarketOfferRecord{}, ShipmentRecord{}, ErrMarketStateChanged
 	}
 	if err != nil {
 		return MarketOfferRecord{}, ShipmentRecord{}, err
 	}
+	updatedOffer := marketOfferFromSQLC(updated.ID, updated.WorldID, updated.SellerHouseholdID, updated.OriginLocationID,
+		updated.ResourceCode, updated.QuantityRemainingMilli, updated.PricePerUnitMilli, updated.CreatedTick, updated.ExpiresTick, updated.Status)
 
 	createdShipment, err := s.insertShipment(ctx, tx, shipment)
 	if err != nil {
@@ -266,11 +305,14 @@ func insertMarketChronicleFacts(ctx context.Context, tx pgx.Tx, purchase marketd
                     'offer_id', $6::text,
                     'resource_type', $7::text,
                     'quantity_milli', $8::bigint,
-                    'cost_milli', $9::bigint
+					'goods_cost_milli', $9::bigint,
+					'transport_cost_milli', $10::bigint,
+					'total_cost_milli', $11::bigint
                 )
             )
         `, fact.householdID, purchase.CurrentTick, fact.entryType, fact.relatedID, shipment.ID,
-			purchase.Offer.ID, purchase.Offer.ResourceType, purchase.QuantityMilli, purchase.CostMilli); err != nil {
+			purchase.Offer.ID, purchase.Offer.ResourceType, purchase.QuantityMilli,
+			purchase.GoodsCostMilli, purchase.TransportCostMilli, purchase.TotalCostMilli); err != nil {
 			return fmt.Errorf("insert %s chronicle fact: %w", fact.entryType, err)
 		}
 	}
@@ -278,28 +320,33 @@ func insertMarketChronicleFacts(ctx context.Context, tx pgx.Tx, purchase marketd
 }
 
 func (s *Store) ListActiveMarketOffers(ctx context.Context, worldID string) ([]MarketOfferRecord, error) {
-	rows, err := s.Pool.Query(ctx, `
-        SELECT o.id::text, o.world_id::text, o.seller_household_id::text, o.origin_location_id::text,
-               o.resource_code, o.quantity_remaining_milli, o.price_per_unit_milli,
-               o.created_tick, o.expires_tick, o.status
-        FROM market_offers o
-        JOIN worlds w ON w.id = o.world_id
-        WHERE o.world_id = $1::uuid
-          AND o.status = 'active'
-          AND (o.expires_tick IS NULL OR o.expires_tick >= w.current_tick)
-        ORDER BY o.created_tick, o.id
-    `, worldID)
+	id, err := uuidParam(worldID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	offers := make([]MarketOfferRecord, 0)
-	for rows.Next() {
-		offer, err := scanMarketOffer(rows)
-		if err != nil {
-			return nil, err
-		}
+	rows, err := sqlcdb.New(s.Pool).ListActiveMarketOffers(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	offers := make([]MarketOfferRecord, 0, len(rows))
+	for _, row := range rows {
+		offer := marketOfferFromSQLC(row.ID, row.WorldID, row.SellerHouseholdID, row.OriginLocationID,
+			row.ResourceCode, row.QuantityRemainingMilli, row.PricePerUnitMilli, row.CreatedTick, row.ExpiresTick, row.Status)
 		offers = append(offers, marketOfferRecord(offer))
 	}
-	return offers, rows.Err()
+	return offers, nil
+}
+
+func marketOfferFromSQLC(id, worldID, sellerID, originID, resource string, quantity, price, created int64, expiresValue pgtype.Int8, status string) marketdomain.Offer {
+	var expires *marketdomain.Tick
+	if expiresValue.Valid {
+		value := marketdomain.Tick(expiresValue.Int64)
+		expires = &value
+	}
+	return marketdomain.Offer{
+		ID: marketdomain.OfferID(id), WorldID: marketdomain.WorldID(worldID), SellerHouseholdID: marketdomain.HouseholdID(sellerID),
+		OriginLocationID: marketdomain.LocationID(originID), ResourceType: marketdomain.ResourceType(resource),
+		QuantityRemainingMilli: marketdomain.QuantityMilli(quantity), PricePerUnitMilli: marketdomain.MoneyMilli(price),
+		CreatedTick: marketdomain.Tick(created), ExpiresTick: expires, Status: marketdomain.OfferStatus(status),
+	}
 }

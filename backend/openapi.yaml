@@ -182,10 +182,12 @@ components:
         message: { type: string }
     Character:
       type: object
-      required: [id, name, labor_permille, fatigue]
+      required: [id, name, birth_date, age, labor_permille, fatigue]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+        birth_date: { type: string, format: date }
+        age: { type: integer, minimum: 0 }
         labor_permille: { type: integer, format: int64 }
         fatigue: { type: integer }
         specialization: { type: string }
@@ -291,8 +293,10 @@ components:
         quantity_milli: { type: integer, format: int64, minimum: 1 }
     PurchaseResult:
       type: object
-      required: [cost_milli, offer, shipment]
+      required: [cost_milli, goods_cost_milli, transport_cost_milli, offer, shipment]
       properties:
         cost_milli: { type: integer, format: int64 }
+        goods_cost_milli: { type: integer, format: int64 }
+        transport_cost_milli: { type: integer, format: int64 }
         offer: { $ref: '#/components/schemas/MarketOffer' }
         shipment: { $ref: '#/components/schemas/Shipment' }

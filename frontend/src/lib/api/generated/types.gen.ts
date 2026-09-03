@@ -18,6 +18,8 @@ export type Alert = {
 export type Character = {
 	id: string;
 	name: string;
+	birth_date: string;
+	age: number;
 	labor_permille: number;
 	fatigue: number;
 	specialization?: string;
@@ -109,6 +111,8 @@ export type PurchaseOfferIntent = {
 
 export type PurchaseResult = {
 	cost_milli: number;
+	goods_cost_milli: number;
+	transport_cost_milli: number;
 	offer: MarketOffer;
 	shipment: Shipment;
 };

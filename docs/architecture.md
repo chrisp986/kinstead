@@ -23,6 +23,12 @@ Domain/simulation must not depend on HTTP, PostgreSQL, pgx/sqlc, JSON,
 or frontend code. PostgreSQL is authoritative; clients submit intent
 only.
 
+Application services depend on narrow ports for report reads, shipment
+storage, market-purchase transactions, chronicle reads, and world-tick
+transactions. PostgreSQL adapters implement those ports; transaction ordering
+and game decisions remain in the application/domain layers. Stable locking and
+projection queries are generated with `sqlc`.
+
 Production and balancing simulator must share the same gameplay
 mechanics.
 
@@ -37,6 +43,14 @@ Each world tick is sequential and transactional:
 
 Idempotency key: `(world_id, tick)`. A retry must not duplicate effects.
 Process missed ticks one-by-one.
+
+Tick 0 is the historical start-date snapshot. Processing tick N advances the
+world through the interval ending at
+`floor(N × historical_days_per_tick_num / historical_days_per_tick_den)` days
+after that date. Production season is derived from the resulting historical
+date (March--May spring, June--August summer, September--November autumn,
+December--February winter). Wall-clock scheduling, production ticks,
+historical dates, and the synthetic v0.3 48-tick calendar are separate.
 
 Use PostgreSQL row locking/`FOR UPDATE SKIP LOCKED` for worker
 coordination. Avoid long-lived in-memory authoritative state.
@@ -65,6 +79,12 @@ from it.
 
 Market purchases and transfers are atomic. Lock the offer, validate
 quantity/funds, update balances/offer, create shipment, then commit.
+
+Directed location routes are authoritative geography for the vertical slice.
+Their distance class determines travel ticks and the server-calculated fixed
+transport charge; clients cannot submit either value.
+Long-distance travel is outside the vertical slice and remains unavailable for
+market purchases until its transport price is explicitly designed.
 
 Shipment arrival credits the destination exactly once inside tick
 processing.

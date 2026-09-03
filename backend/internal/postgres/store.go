@@ -6,12 +6,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	shipmentdomain "game/backend/internal/domain/shipment"
+	"game/backend/internal/port"
+	sqlcdb "game/backend/internal/postgres/db"
 	"game/backend/internal/simulation"
 )
 
@@ -33,42 +35,81 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 
 func (s *Store) Close() { s.Pool.Close() }
 
-type WorldClaim struct {
-	ID                  string
-	CurrentTick         int64
-	TickDurationSeconds int32
-	NextTickAt          time.Time
+func uuidParam(value string) (pgtype.UUID, error) {
+	var id pgtype.UUID
+	if err := id.Scan(value); err != nil {
+		return pgtype.UUID{}, err
+	}
+	return id, nil
 }
+
+type WorldClaim = port.WorldClaim
+
+type worldTickTx struct {
+	store *Store
+	tx    pgx.Tx
+}
+
+func (s *Store) BeginWorldTick(ctx context.Context) (port.WorldTickTransaction, error) {
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &worldTickTx{store: s, tx: tx}, nil
+}
+
+func (t *worldTickTx) ClaimDueWorld(ctx context.Context) (port.WorldClaim, bool, error) {
+	return t.store.ClaimDueWorld(ctx, t.tx)
+}
+func (t *worldTickTx) IsTickProcessed(ctx context.Context, worldID string, tick int64) (bool, error) {
+	return t.store.IsTickProcessed(ctx, t.tx, worldID, tick)
+}
+func (t *worldTickTx) LoadDueShipments(ctx context.Context, worldID string, tick int64) ([]shipmentdomain.Shipment, error) {
+	return t.store.LoadDueShipments(ctx, t.tx, worldID, tick)
+}
+func (t *worldTickTx) PersistShipmentArrival(ctx context.Context, value shipmentdomain.Shipment) (bool, error) {
+	return t.store.PersistShipmentArrival(ctx, t.tx, value)
+}
+func (t *worldTickTx) ListHouseholdIDs(ctx context.Context, worldID string) ([]string, error) {
+	return t.store.ListHouseholdIDs(ctx, t.tx, worldID)
+}
+func (t *worldTickTx) LoadHouseholdForTick(ctx context.Context, householdID string, tick int64) (port.HouseholdSnapshot, []simulation.Assignment, error) {
+	return t.store.LoadHouseholdForTick(ctx, t.tx, householdID, tick)
+}
+func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string, result simulation.TickResult) error {
+	return t.store.SaveHouseholdTick(ctx, t.tx, householdID, result)
+}
+func (t *worldTickTx) FinishWorldTick(ctx context.Context, world port.WorldClaim, tick int64) error {
+	return t.store.FinishWorldTick(ctx, t.tx, world, tick)
+}
+func (t *worldTickTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
+func (t *worldTickTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 
 func (s *Store) Begin(ctx context.Context) (pgx.Tx, error) {
 	return s.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 }
 
 func (s *Store) ClaimDueWorld(ctx context.Context, tx pgx.Tx) (WorldClaim, bool, error) {
-	var w WorldClaim
-	err := tx.QueryRow(ctx, `
-        SELECT id::text, current_tick, tick_duration_seconds, next_tick_at
-        FROM worlds
-        WHERE next_tick_at <= now()
-        ORDER BY next_tick_at
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1
-    `).Scan(&w.ID, &w.CurrentTick, &w.TickDurationSeconds, &w.NextTickAt)
+	row, err := sqlcdb.New(tx).ClaimDueWorld(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return WorldClaim{}, false, nil
 	}
-	return w, err == nil, err
+	if err != nil {
+		return WorldClaim{}, false, err
+	}
+	if !row.NextTickAt.Valid {
+		return WorldClaim{}, false, fmt.Errorf("world %s has invalid next_tick_at", row.ID)
+	}
+	w := WorldClaim{ID: row.ID, CurrentTick: row.CurrentTick, TickDurationSeconds: row.TickDurationSeconds, NextTickAt: row.NextTickAt.Time}
+	return w, true, nil
 }
 
 func (s *Store) IsTickProcessed(ctx context.Context, tx pgx.Tx, worldID string, tick int64) (bool, error) {
-	var exists bool
-	err := tx.QueryRow(ctx, `
-        SELECT EXISTS(
-            SELECT 1 FROM processed_world_ticks
-            WHERE world_id = $1::uuid AND tick = $2
-        )
-    `, worldID, tick).Scan(&exists)
-	return exists, err
+	id, err := uuidParam(worldID)
+	if err != nil {
+		return false, err
+	}
+	return sqlcdb.New(tx).IsWorldTickProcessed(ctx, sqlcdb.IsWorldTickProcessedParams{Column1: id, Tick: tick})
 }
 
 func (s *Store) ListHouseholdIDs(ctx context.Context, tx pgx.Tx, worldID string) ([]string, error) {
@@ -93,36 +134,25 @@ func (s *Store) ListHouseholdIDs(ctx context.Context, tx pgx.Tx, worldID string)
 }
 
 func (s *Store) LoadDueShipments(ctx context.Context, tx pgx.Tx, worldID string, tick int64) ([]shipmentdomain.Shipment, error) {
-	rows, err := tx.Query(ctx, `
-        SELECT id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
-               origin_location_id::text, destination_location_id::text, resource_code,
-               quantity_milli, departure_tick, expected_arrival_tick,
-               actual_arrival_tick, transport_cost_milli, status
-        FROM shipments
-        WHERE world_id = $1::uuid
-          AND status = 'in_transit'
-          AND actual_arrival_tick IS NULL
-          AND expected_arrival_tick <= $2
-        ORDER BY expected_arrival_tick, id
-        FOR UPDATE
-    `, worldID, tick)
+	id, err := uuidParam(worldID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	shipments := make([]shipmentdomain.Shipment, 0)
-	for rows.Next() {
-		value, err := scanShipment(rows)
-		if err != nil {
-			return nil, err
-		}
+	rows, err := sqlcdb.New(tx).LoadShipmentsDueForArrival(ctx, sqlcdb.LoadShipmentsDueForArrivalParams{Column1: id, ExpectedArrivalTick: tick})
+	if err != nil {
+		return nil, err
+	}
+	shipments := make([]shipmentdomain.Shipment, 0, len(rows))
+	for _, row := range rows {
+		value := shipmentFromSQLC(row.ID, row.WorldID, row.SenderHouseholdID, row.ReceiverHouseholdID,
+			row.OriginLocationID, row.DestinationLocationID, row.ResourceCode, row.QuantityMilli,
+			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick, row.TransportCostMilli, row.Status)
 		if err := value.Validate(); err != nil {
 			return nil, fmt.Errorf("shipment %s: %w", value.ID, err)
 		}
 		shipments = append(shipments, value)
 	}
-	return shipments, rows.Err()
+	return shipments, nil
 }
 
 // PersistShipmentArrival credits inventory, marks the shipment arrived, and records
@@ -135,20 +165,22 @@ func (s *Store) PersistShipmentArrival(ctx context.Context, tx pgx.Tx, value shi
 		return false, shipmentdomain.ErrInvalidTransition
 	}
 
-	tag, err := tx.Exec(ctx, `
-        UPDATE shipments
-        SET status = 'arrived', actual_arrival_tick = $2
-        WHERE id = $1::uuid
-          AND world_id = $3::uuid
-          AND status = 'in_transit'
-          AND actual_arrival_tick IS NULL
-          AND expected_arrival_tick <= $2
-    `, value.ID, *value.ActualArrivalTick, value.WorldID)
+	shipmentID, err := uuidParam(string(value.ID))
 	if err != nil {
 		return false, err
 	}
-	if tag.RowsAffected() == 0 {
+	worldID, err := uuidParam(string(value.WorldID))
+	if err != nil {
+		return false, err
+	}
+	_, err = sqlcdb.New(tx).MarkShipmentArrived(ctx, sqlcdb.MarkShipmentArrivedParams{
+		Column1: shipmentID, ActualArrivalTick: pgtype.Int8{Int64: int64(*value.ActualArrivalTick), Valid: true}, Column3: worldID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
+	}
+	if err != nil {
+		return false, err
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -266,65 +298,27 @@ func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) 
 		return nil, pgx.ErrNoRows
 	}
 
-	rows, err := s.Pool.Query(ctx, `
-        SELECT id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
-               origin_location_id::text, destination_location_id::text, resource_code,
-               quantity_milli, departure_tick, expected_arrival_tick,
-               actual_arrival_tick, transport_cost_milli, status
-        FROM shipments
-        WHERE sender_household_id = $1::uuid OR receiver_household_id = $1::uuid
-        ORDER BY departure_tick DESC, id
-    `, householdID)
+	id, err := uuidParam(householdID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	records := make([]ShipmentRecord, 0)
-	for rows.Next() {
-		value, err := scanShipment(rows)
-		if err != nil {
-			return nil, err
-		}
+	rows, err := sqlcdb.New(s.Pool).ListShipmentsByHousehold(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]ShipmentRecord, 0, len(rows))
+	for _, row := range rows {
+		value := shipmentFromSQLC(row.ID, row.WorldID, row.SenderHouseholdID, row.ReceiverHouseholdID,
+			row.OriginLocationID, row.DestinationLocationID, row.ResourceCode, row.QuantityMilli,
+			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick, row.TransportCostMilli, row.Status)
 		records = append(records, shipmentRecord(value))
 	}
-	return records, rows.Err()
+	return records, nil
 }
 
-type CharacterRecord struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	LaborPermille  int64  `json:"labor_permille"`
-	Fatigue        int    `json:"fatigue"`
-	Specialization string `json:"specialization,omitempty"`
-}
-
-type AssignmentRecord struct {
-	ID          string `json:"id"`
-	CharacterID string `json:"character_id"`
-	Character   string `json:"character"`
-	Activity    string `json:"activity"`
-	Intensity   string `json:"intensity"`
-	StartsTick  int64  `json:"starts_tick"`
-	EndsTick    int64  `json:"ends_tick"`
-	Status      string `json:"status"`
-}
-
-type ShipmentRecord struct {
-	ID                    string `json:"id"`
-	WorldID               string `json:"world_id"`
-	SenderHouseholdID     string `json:"sender_household_id"`
-	ReceiverHouseholdID   string `json:"receiver_household_id"`
-	OriginLocationID      string `json:"origin_location_id"`
-	DestinationLocationID string `json:"destination_location_id"`
-	ResourceType          string `json:"resource_type"`
-	QuantityMilli         int64  `json:"quantity_milli"`
-	DepartureTick         int64  `json:"departure_tick"`
-	ExpectedArrivalTick   int64  `json:"expected_arrival_tick"`
-	ActualArrivalTick     *int64 `json:"actual_arrival_tick,omitempty"`
-	TransportCostMilli    int64  `json:"transport_cost_milli"`
-	Status                string `json:"status"`
-}
+type CharacterRecord = port.CharacterRecord
+type AssignmentRecord = port.AssignmentRecord
+type ShipmentRecord = port.ShipmentRecord
 
 var (
 	ErrInvalidShipmentReferences = errors.New("invalid shipment references")
@@ -366,6 +360,24 @@ func scanShipment(row rowScanner) (shipmentdomain.Shipment, error) {
 	}, nil
 }
 
+func shipmentFromSQLC(id, worldID, senderID, receiverID, originID, destinationID, resource string,
+	quantity, departure, expected int64, actualValue pgtype.Int8, transport int64, status string,
+) shipmentdomain.Shipment {
+	var actual *shipmentdomain.Tick
+	if actualValue.Valid {
+		value := shipmentdomain.Tick(actualValue.Int64)
+		actual = &value
+	}
+	return shipmentdomain.Shipment{
+		ID: shipmentdomain.ID(id), WorldID: shipmentdomain.WorldID(worldID),
+		SenderHouseholdID: shipmentdomain.HouseholdID(senderID), ReceiverHouseholdID: shipmentdomain.HouseholdID(receiverID),
+		OriginLocationID: shipmentdomain.LocationID(originID), DestinationLocationID: shipmentdomain.LocationID(destinationID),
+		ResourceType: shipmentdomain.ResourceType(resource), QuantityMilli: shipmentdomain.QuantityMilli(quantity),
+		DepartureTick: shipmentdomain.Tick(departure), ExpectedArrivalTick: shipmentdomain.Tick(expected),
+		ActualArrivalTick: actual, TransportCostMilli: shipmentdomain.MoneyMilli(transport), Status: shipmentdomain.Status(status),
+	}
+}
+
 func shipmentRecord(value shipmentdomain.Shipment) ShipmentRecord {
 	var actual *int64
 	if value.ActualArrivalTick != nil {
@@ -382,20 +394,7 @@ func shipmentRecord(value shipmentdomain.Shipment) ShipmentRecord {
 	}
 }
 
-type HouseholdSnapshot struct {
-	HouseholdID              string
-	HouseholdName            string
-	WorldID                  string
-	WorldName                string
-	CurrentTick              int64
-	HistoricalStart          time.Time
-	HistoricalDaysPerTickNum int32
-	HistoricalDaysPerTickDen int32
-	Specialization           string
-	State                    simulation.HouseholdState
-	Characters               []CharacterRecord
-	Assignments              []AssignmentRecord
-}
+type HouseholdSnapshot = port.HouseholdSnapshot
 
 func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID string, tick int64) (HouseholdSnapshot, []simulation.Assignment, error) {
 	var snap HouseholdSnapshot
@@ -439,7 +438,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 	}
 
 	charRows, err := tx.Query(ctx, `
-        SELECT c.id::text, c.name, c.labor_capacity_milli, c.fatigue,
+		SELECT c.id::text, c.name, c.birth_date::text, c.labor_capacity_milli, c.fatigue,
                COALESCE((
                    SELECT cs.skill_code FROM character_skills cs
                    WHERE cs.character_id = c.id AND cs.level > 0
@@ -457,7 +456,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 	var chars []simulation.Character
 	for charRows.Next() {
 		var cr CharacterRecord
-		if err := charRows.Scan(&cr.ID, &cr.Name, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
+		if err := charRows.Scan(&cr.ID, &cr.Name, &cr.BirthDate, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
 			charRows.Close()
 			return snap, nil, err
 		}
@@ -593,11 +592,11 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
 }
 
 func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim, tick int64) error {
-	if _, err := tx.Exec(ctx, `
-        INSERT INTO processed_world_ticks(world_id, tick)
-        VALUES ($1::uuid, $2)
-        ON CONFLICT DO NOTHING
-    `, world.ID, tick); err != nil {
+	worldID, err := uuidParam(world.ID)
+	if err != nil {
+		return err
+	}
+	if err := sqlcdb.New(tx).MarkWorldTickProcessed(ctx, sqlcdb.MarkWorldTickProcessedParams{Column1: worldID, Tick: tick}); err != nil {
 		return err
 	}
 
@@ -617,7 +616,7 @@ func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim
 	return nil
 }
 
-func (s *Store) GetHouseholdReport(ctx context.Context, householdID string, cfg simulation.BalanceConfig) (HouseholdSnapshot, error) {
+func (s *Store) GetHouseholdReport(ctx context.Context, householdID string) (HouseholdSnapshot, error) {
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return HouseholdSnapshot{}, err
@@ -674,7 +673,7 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	}
 
 	rows, err = tx.Query(ctx, `
-        SELECT c.id::text,c.name,c.labor_capacity_milli,c.fatigue,
+		SELECT c.id::text,c.name,c.birth_date::text,c.labor_capacity_milli,c.fatigue,
         COALESCE((SELECT cs.skill_code FROM character_skills cs WHERE cs.character_id=c.id AND cs.level>0 ORDER BY cs.level DESC,cs.skill_code LIMIT 1),'')
         FROM characters c WHERE c.household_id=$1::uuid AND c.status='active' ORDER BY c.created_at,c.id
     `, householdID)
@@ -684,7 +683,7 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	var chars []simulation.Character
 	for rows.Next() {
 		var cr CharacterRecord
-		if err := rows.Scan(&cr.ID, &cr.Name, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
+		if err := rows.Scan(&cr.ID, &cr.Name, &cr.BirthDate, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
 			rows.Close()
 			return snap, nil, err
 		}

@@ -19,20 +19,28 @@ func fundedBuyer() Buyer {
 	return Buyer{HouseholdID: "buyer-1", WorldID: "world-1", LocationID: "buyer-location", SilverMilli: 100_000}
 }
 
+func localRoute() Route {
+	route, err := RouteForDistance("world-1", "origin-1", "buyer-location", DistanceLocal)
+	if err != nil {
+		panic(err)
+	}
+	return route
+}
+
 func TestEvaluatePartialAndFullPurchase(t *testing.T) {
-	partial, err := EvaluatePurchase(activeOffer(), fundedBuyer(), 60_000, 20_000, 1)
+	partial, err := EvaluatePurchase(activeOffer(), fundedBuyer(), localRoute(), 60_000, 20_000, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if partial.CostMilli != 30_000 || partial.Offer.QuantityRemainingMilli != 40_000 || partial.Offer.Status != OfferActive {
+	if partial.GoodsCostMilli != 30_000 || partial.TransportCostMilli != 1_000 || partial.TotalCostMilli != 31_000 || partial.Offer.QuantityRemainingMilli != 40_000 || partial.Offer.Status != OfferActive {
 		t.Fatalf("partial purchase = %+v", partial)
 	}
 
-	full, err := EvaluatePurchase(activeOffer(), fundedBuyer(), 60_000, 60_000, 1)
+	full, err := EvaluatePurchase(activeOffer(), fundedBuyer(), localRoute(), 60_000, 60_000, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.CostMilli != 90_000 || full.Offer.QuantityRemainingMilli != 0 || full.Offer.Status != OfferFilled {
+	if full.TotalCostMilli != 91_000 || full.Offer.QuantityRemainingMilli != 0 || full.Offer.Status != OfferFilled {
 		t.Fatalf("full purchase = %+v", full)
 	}
 }
@@ -81,11 +89,34 @@ func TestPurchaseValidationFailures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := EvaluatePurchase(tt.offer, tt.buyer, tt.stock, tt.quantity, tt.currentTick)
+			route, routeErr := RouteForDistance(tt.offer.WorldID, tt.offer.OriginLocationID, tt.buyer.LocationID, DistanceLocal)
+			if routeErr != nil && tt.want != ErrOwnOffer {
+				t.Fatal(routeErr)
+			}
+			_, err := EvaluatePurchase(tt.offer, tt.buyer, route, tt.stock, tt.quantity, tt.currentTick)
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestRouteForDistanceDerivesTravelAndTransport(t *testing.T) {
+	cases := map[DistanceClass]struct {
+		ticks Tick
+		cost  MoneyMilli
+	}{
+		DistanceNeighbor: {1, 0}, DistanceLocal: {2, 1_000}, DistanceNearRegional: {3, 2_000},
+		DistanceRegional: {5, 3_000}, DistanceFarRegional: {8, 5_000},
+	}
+	for distance, want := range cases {
+		route, err := RouteForDistance("world", "from", "to", distance)
+		if err != nil || route.TravelTicks != want.ticks || route.TransportCostMilli != want.cost {
+			t.Fatalf("%s route = %+v, %v", distance, route, err)
+		}
+	}
+	if _, err := RouteForDistance("world", "from", "to", DistanceLong); !errors.Is(err, ErrRouteUnavailable) {
+		t.Fatalf("long-distance route error = %v, want undefined transport price", err)
 	}
 }
 

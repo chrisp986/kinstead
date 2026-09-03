@@ -107,8 +107,8 @@ func createChronicleFixture(t *testing.T, ctx context.Context, store *Store) (st
 		t.Fatal(err)
 	}
 	if err := tx.QueryRow(ctx, `
-        INSERT INTO characters(household_id, name, birth_tick, labor_capacity_milli)
-        VALUES ($1::uuid, 'Chronicle worker', -1000, 1000) RETURNING id::text
+		INSERT INTO characters(household_id, name, birth_date, labor_capacity_milli)
+		VALUES ($1::uuid, 'Chronicle worker', DATE '0970-01-01', 1000) RETURNING id::text
     `, householdID).Scan(&characterID); err != nil {
 		t.Fatal(err)
 	}

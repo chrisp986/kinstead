@@ -1,6 +1,9 @@
 package simulation
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type Season string
 
@@ -77,21 +80,23 @@ type TickContext struct {
 	FishingModifierPermille     int64
 }
 
-func SeasonForTick(tick int64) Season {
-	if tick <= 0 {
+// SeasonForDate is the production calendar convention for the northern
+// hemisphere. Synthetic balancing calendars provide their own TickContext.
+func SeasonForDate(date time.Time) Season {
+	switch date.Month() {
+	case time.March, time.April, time.May:
 		return Spring
-	}
-	day := ((tick - 1) % 48) + 1
-	switch {
-	case day <= 12:
-		return Spring
-	case day <= 24:
+	case time.June, time.July, time.August:
 		return Summer
-	case day <= 36:
+	case time.September, time.October, time.November:
 		return Autumn
 	default:
 		return Winter
 	}
+}
+
+func NeutralTickContext(season Season) TickContext {
+	return TickContext{Season: season, AgricultureModifierPermille: 1000, FishingModifierPermille: 1000}
 }
 
 func (s HouseholdState) CharacterIndex(name string) (int, error) {

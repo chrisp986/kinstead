@@ -11,7 +11,10 @@ func fatigueProductionPermille(fatigue int) int64 {
 	}
 }
 
-func productionFor(c Character, a Assignment, farmSpecialization Activity, ctx TickContext, cfg BalanceConfig) int64 {
+// EstimateProduction exposes the shared deterministic production mechanic to
+// production orchestration and balancing scenarios. Calendar/event selection
+// remains outside the generic engine.
+func EstimateProduction(c Character, a Assignment, farmSpecialization Activity, ctx TickContext, cfg BalanceConfig) int64 {
 	if c.LaborPermille <= 0 {
 		return 0
 	}

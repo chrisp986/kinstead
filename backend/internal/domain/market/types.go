@@ -14,6 +14,16 @@ type QuantityMilli int64
 type MoneyMilli int64
 type Tick int64
 type OfferStatus string
+type DistanceClass string
+
+const (
+	DistanceNeighbor     DistanceClass = "neighbor"
+	DistanceLocal        DistanceClass = "local"
+	DistanceNearRegional DistanceClass = "near_regional"
+	DistanceRegional     DistanceClass = "regional"
+	DistanceFarRegional  DistanceClass = "far_regional"
+	DistanceLong         DistanceClass = "long_distance"
+)
 
 const (
 	OfferActive    OfferStatus = "active"
@@ -32,8 +42,44 @@ var (
 	ErrInsufficientStock  = errors.New("seller has insufficient stock")
 	ErrOwnOffer           = errors.New("household cannot buy its own offer")
 	ErrInvalidTravelTime  = errors.New("travel time must be positive")
+	ErrRouteUnavailable   = errors.New("no route exists between market locations")
 	ErrArithmeticOverflow = errors.New("market arithmetic overflow")
 )
+
+type Route struct {
+	WorldID               WorldID
+	OriginLocationID      LocationID
+	DestinationLocationID LocationID
+	DistanceClass         DistanceClass
+	TravelTicks           Tick
+	TransportCostMilli    MoneyMilli
+}
+
+func RouteForDistance(worldID WorldID, origin, destination LocationID, distance DistanceClass) (Route, error) {
+	route := Route{WorldID: worldID, OriginLocationID: origin, DestinationLocationID: destination, DistanceClass: distance}
+	switch distance {
+	case DistanceNeighbor:
+		route.TravelTicks, route.TransportCostMilli = 1, 0
+	case DistanceLocal:
+		route.TravelTicks, route.TransportCostMilli = 2, 1_000
+	case DistanceNearRegional:
+		route.TravelTicks, route.TransportCostMilli = 3, 2_000
+	case DistanceRegional:
+		route.TravelTicks, route.TransportCostMilli = 5, 3_000
+	case DistanceFarRegional:
+		route.TravelTicks, route.TransportCostMilli = 8, 5_000
+	case DistanceLong:
+		// The frozen reference defines a 12-tick duration but no transport
+		// price. Do not invent an authoritative economy value.
+		return Route{}, ErrRouteUnavailable
+	default:
+		return Route{}, ErrRouteUnavailable
+	}
+	if worldID == "" || origin == "" || destination == "" || origin == destination {
+		return Route{}, ErrRouteUnavailable
+	}
+	return route, nil
+}
 
 type Offer struct {
 	ID                     OfferID
@@ -56,11 +102,13 @@ type Buyer struct {
 }
 
 type Purchase struct {
-	Offer         Offer
-	Buyer         Buyer
-	QuantityMilli QuantityMilli
-	CostMilli     MoneyMilli
-	CurrentTick   Tick
+	Offer              Offer
+	Buyer              Buyer
+	QuantityMilli      QuantityMilli
+	GoodsCostMilli     MoneyMilli
+	TransportCostMilli MoneyMilli
+	TotalCostMilli     MoneyMilli
+	CurrentTick        Tick
 }
 
 func (o Offer) Validate() error {
@@ -106,7 +154,7 @@ func CostMilli(quantity QuantityMilli, pricePerUnit MoneyMilli) (MoneyMilli, err
 	return MoneyMilli(cost), nil
 }
 
-func EvaluatePurchase(offer Offer, buyer Buyer, sellerStock QuantityMilli, quantity QuantityMilli, currentTick Tick) (Purchase, error) {
+func EvaluatePurchase(offer Offer, buyer Buyer, route Route, sellerStock QuantityMilli, quantity QuantityMilli, currentTick Tick) (Purchase, error) {
 	if err := offer.Validate(); err != nil {
 		return Purchase{}, err
 	}
@@ -125,6 +173,9 @@ func EvaluatePurchase(offer Offer, buyer Buyer, sellerStock QuantityMilli, quant
 	if buyer.HouseholdID == offer.SellerHouseholdID {
 		return Purchase{}, ErrOwnOffer
 	}
+	if route.WorldID != offer.WorldID || route.OriginLocationID != offer.OriginLocationID || route.DestinationLocationID != buyer.LocationID || route.TravelTicks <= 0 || route.TransportCostMilli < 0 {
+		return Purchase{}, ErrRouteUnavailable
+	}
 	if quantity > offer.QuantityRemainingMilli {
 		return Purchase{}, ErrInsufficientOffer
 	}
@@ -135,7 +186,11 @@ func EvaluatePurchase(offer Offer, buyer Buyer, sellerStock QuantityMilli, quant
 	if err != nil {
 		return Purchase{}, err
 	}
-	if buyer.SilverMilli < cost {
+	if int64(cost) > math.MaxInt64-int64(route.TransportCostMilli) {
+		return Purchase{}, ErrArithmeticOverflow
+	}
+	total := cost + route.TransportCostMilli
+	if buyer.SilverMilli < total {
 		return Purchase{}, ErrInsufficientFunds
 	}
 
@@ -144,7 +199,7 @@ func EvaluatePurchase(offer Offer, buyer Buyer, sellerStock QuantityMilli, quant
 	if updated.QuantityRemainingMilli == 0 {
 		updated.Status = OfferFilled
 	}
-	return Purchase{Offer: updated, Buyer: buyer, QuantityMilli: quantity, CostMilli: cost, CurrentTick: currentTick}, nil
+	return Purchase{Offer: updated, Buyer: buyer, QuantityMilli: quantity, GoodsCostMilli: cost, TransportCostMilli: route.TransportCostMilli, TotalCostMilli: total, CurrentTick: currentTick}, nil
 }
 
 func ArrivalTick(departure, travelTicks Tick) (Tick, error) {

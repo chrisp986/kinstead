@@ -7,22 +7,13 @@ import (
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
+
+	"game/backend/internal/port"
 )
 
 const householdChronicleLimit = 50
 
-type ChronicleEntryRecord struct {
-	ID                   string         `json:"id"`
-	OccurredTick         int64          `json:"occurred_tick"`
-	EntryType            string         `json:"entry_type"`
-	SubjectCharacterID   *string        `json:"subject_character_id,omitempty"`
-	SubjectCharacterName *string        `json:"subject_character_name,omitempty"`
-	RelatedHouseholdID   *string        `json:"related_household_id,omitempty"`
-	RelatedHouseholdName *string        `json:"related_household_name,omitempty"`
-	RelatedShipmentID    *string        `json:"related_shipment_id,omitempty"`
-	RelatedAssignmentID  *string        `json:"related_assignment_id,omitempty"`
-	Data                 map[string]any `json:"data"`
-}
+type ChronicleEntryRecord = port.ChronicleEntryRecord
 
 // ListHouseholdChronicle returns the newest structured household facts first.
 // Text rendering intentionally remains a client concern so facts can be localized.

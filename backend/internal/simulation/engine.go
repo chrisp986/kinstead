@@ -8,11 +8,13 @@ type TickResult struct {
 	ProducedWoodMilli       int64
 }
 
-func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, cfg BalanceConfig) (TickResult, error) {
+func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx TickContext, cfg BalanceConfig) (TickResult, error) {
 	if tick != state.Tick+1 {
 		return TickResult{}, fmt.Errorf("non-sequential tick: got %d, expected %d", tick, state.Tick+1)
 	}
-	ctx := contextForTick(tick)
+	if ctx.Season == "" || ctx.AgricultureModifierPermille <= 0 || ctx.FishingModifierPermille <= 0 {
+		return TickResult{}, fmt.Errorf("invalid tick context")
+	}
 	assigned := make(map[string]Assignment, len(assignments))
 	for _, a := range assignments {
 		if _, exists := assigned[a.Character]; exists {
@@ -31,7 +33,7 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, cfg
 		if !ok {
 			a = Assignment{Character: c.Name, Activity: Rest, Intensity: Normal}
 		}
-		produced := productionFor(*c, a, state.FarmSpecialization, ctx, cfg)
+		produced := EstimateProduction(*c, a, state.FarmSpecialization, ctx, cfg)
 		switch a.Activity {
 		case Agriculture, Fishing:
 			food += produced

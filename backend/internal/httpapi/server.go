@@ -14,7 +14,6 @@ import (
 	"game/backend/internal/application"
 	marketdomain "game/backend/internal/domain/market"
 	"game/backend/internal/postgres"
-	"game/backend/internal/simulation"
 )
 
 type Server struct {
@@ -112,7 +111,7 @@ func (s *Server) farmReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) assignments(w http.ResponseWriter, r *http.Request) {
-	snap, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"), simulation.DefaultBalanceConfig())
+	snap, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -138,7 +137,7 @@ func (s *Server) createAssignment(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_assignment", "message": "activity/intensity/duration is invalid"})
 		return
 	}
-	snap, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"), simulation.DefaultBalanceConfig())
+	snap, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -182,6 +181,10 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, marketdomain.ErrInvalidQuantity) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_purchase", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, marketdomain.ErrRouteUnavailable) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "route_unavailable", "message": err.Error()})
 		return
 	}
 	if errors.Is(err, marketdomain.ErrOfferUnavailable) ||

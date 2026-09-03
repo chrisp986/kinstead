@@ -1,20 +1,13 @@
-//go:build postgres
-
 package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
-
-	"github.com/jackc/pgx/v5"
 
 	marketdomain "game/backend/internal/domain/market"
 	shipmentdomain "game/backend/internal/domain/shipment"
-	"game/backend/internal/postgres"
+	"game/backend/internal/port"
 )
-
-const defaultMarketTravelTicks marketdomain.Tick = 2
 
 type PurchaseOfferCommand struct {
 	OfferID          string
@@ -23,37 +16,39 @@ type PurchaseOfferCommand struct {
 }
 
 type PurchaseOfferResult struct {
-	CostMilli int64                      `json:"cost_milli"`
-	Offer     postgres.MarketOfferRecord `json:"offer"`
-	Shipment  postgres.ShipmentRecord    `json:"shipment"`
+	CostMilli          int64                  `json:"cost_milli"`
+	GoodsCostMilli     int64                  `json:"goods_cost_milli"`
+	TransportCostMilli int64                  `json:"transport_cost_milli"`
+	Offer              port.MarketOfferRecord `json:"offer"`
+	Shipment           port.ShipmentRecord    `json:"shipment"`
 }
 
 type MarketService struct {
-	Store       *postgres.Store
-	TravelTicks marketdomain.Tick
+	Store port.MarketRepository
 }
 
-func NewMarketService(store *postgres.Store) *MarketService {
-	return &MarketService{Store: store, TravelTicks: defaultMarketTravelTicks}
+func NewMarketService(store port.MarketRepository) *MarketService {
+	return &MarketService{Store: store}
 }
 
 func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferCommand) (PurchaseOfferResult, error) {
 	if cmd.QuantityMilli <= 0 {
 		return PurchaseOfferResult{}, marketdomain.ErrInvalidQuantity
 	}
-	tx, err := s.Store.Begin(ctx)
+	tx, err := s.Store.BeginMarketPurchase(ctx)
 	if err != nil {
 		return PurchaseOfferResult{}, err
 	}
 	defer tx.Rollback(ctx)
 
-	snapshot, err := s.Store.LoadMarketPurchase(ctx, tx, cmd.OfferID, cmd.BuyerHouseholdID)
+	snapshot, err := tx.Load(ctx, cmd.OfferID, cmd.BuyerHouseholdID)
 	if err != nil {
 		return PurchaseOfferResult{}, err
 	}
 	purchase, err := marketdomain.EvaluatePurchase(
 		snapshot.Offer,
 		snapshot.Buyer,
+		snapshot.Route,
 		snapshot.SellerStockMilli,
 		marketdomain.QuantityMilli(cmd.QuantityMilli),
 		marketdomain.Tick(snapshot.CurrentTick),
@@ -61,7 +56,7 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 	if err != nil {
 		return PurchaseOfferResult{}, err
 	}
-	arrivalTick, err := marketdomain.ArrivalTick(purchase.CurrentTick, s.TravelTicks)
+	arrivalTick, err := marketdomain.ArrivalTick(purchase.CurrentTick, snapshot.Route.TravelTicks)
 	if err != nil {
 		return PurchaseOfferResult{}, err
 	}
@@ -76,6 +71,7 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 		QuantityMilli:         shipmentdomain.QuantityMilli(purchase.QuantityMilli),
 		DepartureTick:         shipmentdomain.Tick(purchase.CurrentTick),
 		ExpectedArrivalTick:   shipmentdomain.Tick(arrivalTick),
+		TransportCostMilli:    shipmentdomain.MoneyMilli(purchase.TransportCostMilli),
 		Status:                shipmentdomain.StatusPrepared,
 	}
 	if err := prepared.Validate(); err != nil {
@@ -86,19 +82,16 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 		return PurchaseOfferResult{}, err
 	}
 
-	offerRecord, shipmentRecord, err := s.Store.PersistMarketPurchase(ctx, tx, purchase, shipment)
+	offerRecord, shipmentRecord, err := tx.Persist(ctx, purchase, shipment)
 	if err != nil {
 		return PurchaseOfferResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		if errors.Is(err, pgx.ErrTxCommitRollback) {
-			return PurchaseOfferResult{}, fmt.Errorf("serializable market conflict: %w", err)
-		}
-		return PurchaseOfferResult{}, err
+		return PurchaseOfferResult{}, fmt.Errorf("commit market purchase: %w", err)
 	}
-	return PurchaseOfferResult{CostMilli: int64(purchase.CostMilli), Offer: offerRecord, Shipment: shipmentRecord}, nil
+	return PurchaseOfferResult{CostMilli: int64(purchase.TotalCostMilli), GoodsCostMilli: int64(purchase.GoodsCostMilli), TransportCostMilli: int64(purchase.TransportCostMilli), Offer: offerRecord, Shipment: shipmentRecord}, nil
 }
 
-func (s *MarketService) ListActiveOffers(ctx context.Context, worldID string) ([]postgres.MarketOfferRecord, error) {
+func (s *MarketService) ListActiveOffers(ctx context.Context, worldID string) ([]port.MarketOfferRecord, error) {
 	return s.Store.ListActiveMarketOffers(ctx, worldID)
 }
