@@ -12,6 +12,11 @@ test('manages work and purchases a shipment from the household dashboard', async
 	await expect(page.getByText('Due tick 20 · arrived tick 21', { exact: true })).toBeVisible();
 	await expect(page.getByText('-8 trust', { exact: true })).toBeVisible();
 	await expect(page.getByText('Bjorn completed agriculture.')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Jarl demands' })).toBeVisible();
+	await expect(page.getByText(/18\s+wood → \+10 standing/)).toBeVisible();
+	await expect(page.getByText(/6\s+silver → \+10 standing/)).toBeVisible();
+	await expect(page.getByText(/13\s+wood → \+7 standing/)).toBeVisible();
+	await expect(page.getByText('Serve for 6 ticks · +7 standing')).toBeVisible();
 
 	await page.getByRole('button', { name: 'Accept promise' }).click();
 	await expect(page.getByRole('status')).toContainText('Contract accepted');

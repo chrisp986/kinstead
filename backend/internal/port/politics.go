@@ -35,20 +35,25 @@ type PoliticalOption struct {
 	ServiceTicks      int64  `json:"service_ticks,omitempty"`
 	RequiresCharacter bool   `json:"requires_character,omitempty"`
 }
+type PoliticalServiceCandidate struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	LaborPermille int64  `json:"labor_permille"`
+}
 type PoliticalDecisionProjection struct {
-	ID                 string            `json:"id"`
-	DemandType         string            `json:"demand_type"`
-	Status             string            `json:"status"`
-	ActorID            string            `json:"actor_id"`
-	ActorName          string            `json:"actor_name"`
-	ActorType          string            `json:"actor_type"`
-	AvailableFromTick  int64             `json:"available_from_tick"`
-	ExpiresTick        int64             `json:"expires_tick"`
-	SelectedOption     *string           `json:"selected_option,omitempty"`
-	StandingDelta      *int              `json:"standing_delta,omitempty"`
-	Parameters         map[string]any    `json:"parameters"`
-	Options            []PoliticalOption `json:"options"`
-	EligibleCharacters []CharacterRecord `json:"eligible_characters,omitempty"`
+	ID                 string                      `json:"id"`
+	DemandType         string                      `json:"demand_type"`
+	Status             string                      `json:"status"`
+	ActorID            string                      `json:"actor_id"`
+	ActorName          string                      `json:"actor_name"`
+	ActorType          string                      `json:"actor_type"`
+	AvailableFromTick  int64                       `json:"available_from_tick"`
+	ExpiresTick        int64                       `json:"expires_tick"`
+	SelectedOption     *string                     `json:"selected_option,omitempty"`
+	StandingDelta      *int                        `json:"standing_delta,omitempty"`
+	Parameters         map[string]any              `json:"parameters"`
+	Options            []PoliticalOption           `json:"options"`
+	EligibleCharacters []PoliticalServiceCandidate `json:"eligible_characters,omitempty"`
 }
 type HouseholdPoliticsProjection struct {
 	Relationships []PoliticalRelationshipRecord `json:"relationships"`

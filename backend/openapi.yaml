@@ -496,7 +496,14 @@ components:
           items: { $ref: '#/components/schemas/PoliticalOption' }
         eligible_characters:
           type: array
-          items: { $ref: '#/components/schemas/Character' }
+          items: { $ref: '#/components/schemas/PoliticalServiceCandidate' }
+    PoliticalServiceCandidate:
+      type: object
+      required: [id, name, labor_permille]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        labor_permille: { type: integer, format: int64 }
     PoliticalOption:
       type: object
       required: [code, standing_delta]

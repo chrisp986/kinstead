@@ -328,7 +328,11 @@ func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (p
 				return port.HouseholdPoliticsProjection{}, ee
 			}
 			for _, c := range eligible {
-				projection.EligibleCharacters = append(projection.EligibleCharacters, port.CharacterRecord{ID: c.ID, Name: c.Name, BirthDate: c.BirthDate, LaborPermille: int64(c.LaborCapacityMilli)})
+				projection.EligibleCharacters = append(projection.EligibleCharacters, port.PoliticalServiceCandidate{
+					ID:            c.ID,
+					Name:          c.Name,
+					LaborPermille: int64(c.LaborCapacityMilli),
+				})
 			}
 		}
 		out.Decisions = append(out.Decisions, projection)

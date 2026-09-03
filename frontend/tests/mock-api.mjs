@@ -151,7 +151,71 @@ createServer(async (request, response) => {
 		return send(response, 200, { relationships });
 	}
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/politics`) {
-		return send(response, 200, { relationships: [], decisions: [] });
+		return send(response, 200, {
+			relationships: [],
+			decisions: [
+				{
+					id: '00000000-0000-0000-0000-000000000801',
+					demand_type: 'political_levy',
+					status: 'pending',
+					actor_id: '00000000-0000-0000-0000-000000000901',
+					actor_name: 'Jarl Eirik',
+					actor_type: 'jarl',
+					available_from_tick: 1,
+					expires_tick: 5,
+					parameters: {},
+					options: [
+						{ code: 'pay_wood', resource_code: 'wood', resource_milli: 18000, standing_delta: 10 },
+						{
+							code: 'pay_silver',
+							resource_code: 'silver',
+							resource_milli: 6000,
+							standing_delta: 10
+						},
+						{ code: 'refuse', standing_delta: -5 }
+					]
+				},
+				{
+					id: '00000000-0000-0000-0000-000000000802',
+					demand_type: 'political_levy',
+					status: 'pending',
+					actor_id: '00000000-0000-0000-0000-000000000901',
+					actor_name: 'Jarl Eirik',
+					actor_type: 'jarl',
+					available_from_tick: 1,
+					expires_tick: 5,
+					parameters: {},
+					options: [
+						{ code: 'pay_wood', resource_code: 'wood', resource_milli: 13000, standing_delta: 7 },
+						{
+							code: 'pay_silver',
+							resource_code: 'silver',
+							resource_milli: 4000,
+							standing_delta: 7
+						},
+						{ code: 'refuse', standing_delta: -3 }
+					]
+				},
+				{
+					id: '00000000-0000-0000-0000-000000000803',
+					demand_type: 'political_labor_service',
+					status: 'pending',
+					actor_id: '00000000-0000-0000-0000-000000000901',
+					actor_name: 'Jarl Eirik',
+					actor_type: 'jarl',
+					available_from_tick: 1,
+					expires_tick: 5,
+					parameters: {},
+					eligible_characters: [
+						{ id: characters[0].id, name: characters[0].name, labor_permille: 1000 }
+					],
+					options: [
+						{ code: 'serve', service_ticks: 6, standing_delta: 7, requires_character: true },
+						{ code: 'refuse', standing_delta: -3 }
+					]
+				}
+			]
+		});
 	}
 	if (request.method === 'GET' && url.pathname === '/api/market/offers') {
 		const offers =

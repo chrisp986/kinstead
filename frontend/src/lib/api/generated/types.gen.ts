@@ -137,7 +137,13 @@ export type PoliticalDecision = {
 		[key: string]: unknown;
 	};
 	options: Array<PoliticalOption>;
-	eligible_characters?: Array<Character>;
+	eligible_characters?: Array<PoliticalServiceCandidate>;
+};
+
+export type PoliticalServiceCandidate = {
+	id: string;
+	name: string;
+	labor_permille: number;
 };
 
 export type PoliticalOption = {

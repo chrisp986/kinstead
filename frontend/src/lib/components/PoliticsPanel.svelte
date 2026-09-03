@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PoliticalDecision, PoliticsOverview } from '$lib/api/generated';
+	import { formatMilli } from '$lib/domain/format';
 	type Feedback = { action?: string; message?: string };
 	let { politics, feedback } = $props<{
 		politics: PoliticsOverview;
@@ -10,6 +11,7 @@
 		d.demand_type === 'political_labor_service' ? 'Labor service' : 'Levy';
 	const option = (d: PoliticalDecision, code: string) =>
 		d.options.find((value) => value.code === code);
+	const formatStandingDelta = (value: number) => `${value >= 0 ? '+' : ''}${value}`;
 </script>
 
 <section class="panel" aria-labelledby="politics-heading">
@@ -36,7 +38,9 @@
 						{#if demand.demand_type === 'political_labor_service'}
 							{@const serve = option(demand, 'serve')}
 							<p>
-								Serve for {serve?.service_ticks ?? 0} ticks · {serve?.standing_delta ?? 0} standing
+								Serve for {serve?.service_ticks ?? 0} ticks · {formatStandingDelta(
+									serve?.standing_delta ?? 0
+								)} standing
 							</p>
 							<select name="character_id" required aria-label="Service character"
 								><option value="">Choose a full-capacity member</option
@@ -50,11 +54,12 @@
 							{@const silver = option(demand, 'pay_silver')}
 							{@const refuse = option(demand, 'refuse')}
 							<p>
-								{wood?.resource_milli ?? 0}
-								{wood?.resource_code ?? 'wood'} → {wood?.standing_delta ?? 0} · {silver?.resource_milli ??
-									0}
-								{silver?.resource_code ?? 'silver'} → {silver?.standing_delta ?? 0} · Refuse → {refuse?.standing_delta ??
-									0}
+								{formatMilli(wood?.resource_milli ?? 0)}
+								{wood?.resource_code ?? 'wood'} → {formatStandingDelta(wood?.standing_delta ?? 0)} standing
+								· {formatMilli(silver?.resource_milli ?? 0)}
+								{silver?.resource_code ?? 'silver'} → {formatStandingDelta(
+									silver?.standing_delta ?? 0
+								)} standing · Refuse → {formatStandingDelta(refuse?.standing_delta ?? 0)} standing
 							</p>
 							<button name="option" value="pay_wood">Pay wood</button><button
 								name="option"
@@ -62,7 +67,7 @@
 							>
 						{/if}
 						<button name="option" value="refuse" class="secondary"
-							>Refuse ({option(demand, 'refuse')?.standing_delta ?? 0})</button
+							>Refuse ({formatStandingDelta(option(demand, 'refuse')?.standing_delta ?? 0)})</button
 						>
 					</form>
 				{/if}
