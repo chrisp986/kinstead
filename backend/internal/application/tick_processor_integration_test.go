@@ -32,7 +32,7 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 		t.Fatalf("process tick 1 = %v, %v", processed, err)
 	}
 	assertTickShipment(t, ctx, store, worldID, receiverID, shipmentID, 1, 5_100, "in_transit", nil)
-	assertTickContract(t, ctx, store, contractID, "dispatched", "pending", "dispatched", nil)
+	assertTickContract(t, ctx, store, contractID, "dispatched", "pending", "dispatched", nil, 0)
 
 	if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at = now() - interval '1 day' WHERE id = $1::uuid`, worldID); err != nil {
 		t.Fatal(err)
@@ -44,12 +44,13 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 	arrivalTick := int64(2)
 	// 10,000 - 4,900 + 30,000 - 4,900: arrival is credited before tick-2 consumption.
 	assertTickShipment(t, ctx, store, worldID, receiverID, shipmentID, 2, 30_200, "arrived", &arrivalTick)
-	assertTickContract(t, ctx, store, contractID, "fulfilled", "pending", "dispatched", nil)
+	assertTickContract(t, ctx, store, contractID, "fulfilled", "pending", "dispatched", nil, 1)
 
 	for _, expectation := range []struct {
-		tick   int64
-		status string
-	}{{3, "late"}, {4, "late"}, {5, "broken"}} {
+		tick       int64
+		status     string
+		eventCount int
+	}{{3, "late", 1}, {4, "late", 1}, {5, "broken", 3}} {
 		if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at = now() - interval '1 day' WHERE id = $1::uuid`, worldID); err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +58,7 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 		if err != nil || !processed {
 			t.Fatalf("process tick %d = %v, %v", expectation.tick, processed, err)
 		}
-		assertTickContract(t, ctx, store, contractID, "fulfilled", expectation.status, expectation.status, nil)
+		assertTickContract(t, ctx, store, contractID, "fulfilled", expectation.status, expectation.status, nil, expectation.eventCount)
 	}
 	if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at = now() - interval '1 day' WHERE id = $1::uuid`, worldID); err != nil {
 		t.Fatal(err)
@@ -67,7 +68,7 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 		t.Fatalf("process tick 6 = %v, %v", processed, err)
 	}
 	delayedArrivalTick := int64(6)
-	assertTickContract(t, ctx, store, contractID, "fulfilled", "broken", "broken", &delayedArrivalTick)
+	assertTickContract(t, ctx, store, contractID, "fulfilled", "broken", "broken", &delayedArrivalTick, 3)
 }
 
 func processDueWorldWithRetry(ctx context.Context, processor *TickProcessor) (bool, error) {
@@ -194,6 +195,7 @@ func assertTickContract(
 	store *postgres.Store,
 	contractID, wantLinkedStatus, wantUnlinkedStatus, wantDelayedStatus string,
 	wantDelayedFulfilled *int64,
+	wantRelationshipEvents int,
 ) {
 	t.Helper()
 	wantContractStatus := "active"
@@ -253,6 +255,50 @@ func assertTickContract(
 	if wantDelayedFulfilled != nil && (delayed.fulfilled == nil || *delayed.fulfilled != *wantDelayedFulfilled) {
 		t.Fatalf("delayed obligation fulfillment = %v, want %d", delayed.fulfilled, *wantDelayedFulfilled)
 	}
+	var eventCount int
+	if err := store.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM relationship_events WHERE related_contract_id = $1::uuid
+	`, contractID).Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != wantRelationshipEvents {
+		t.Fatalf("relationship events = %d, want %d", eventCount, wantRelationshipEvents)
+	}
+	var relationshipCount int
+	if err := store.Pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM relationships r
+		JOIN contracts c
+		  ON c.id = $1::uuid
+		 AND r.source_household_id = c.party_b_household_id
+		 AND r.target_household_id = c.party_a_household_id
+	`, contractID).Scan(&relationshipCount); err != nil {
+		t.Fatal(err)
+	}
+	wantRelationships := 0
+	if wantRelationshipEvents > 0 {
+		wantRelationships = 1
+	}
+	if relationshipCount != wantRelationships {
+		t.Fatalf("relationship projections = %d, want %d", relationshipCount, wantRelationships)
+	}
+	if relationshipCount == 1 {
+		var trust int
+		var firstTick int64
+		if err := store.Pool.QueryRow(ctx, `
+			SELECT r.trust, r.first_interaction_tick
+			FROM relationships r
+			JOIN contracts c
+			  ON c.id = $1::uuid
+			 AND r.source_household_id = c.party_b_household_id
+			 AND r.target_household_id = c.party_a_household_id
+		`, contractID).Scan(&trust, &firstTick); err != nil {
+			t.Fatal(err)
+		}
+		if trust != 0 || firstTick != 2 {
+			t.Fatalf("relationship trust/first tick = %d/%d, want 0/2", trust, firstTick)
+		}
+	}
 }
 
 func assertTickShipment(
@@ -297,6 +343,8 @@ func removeTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
 	t.Helper()
 	for _, statement := range []string{
 		`DELETE FROM chronicle_entries WHERE household_id IN (SELECT id FROM households WHERE world_id = $1::uuid)`,
+		`DELETE FROM relationship_events WHERE world_id = $1::uuid`,
+		`DELETE FROM relationships WHERE world_id = $1::uuid`,
 		`DELETE FROM contract_obligations WHERE contract_id IN (SELECT id FROM contracts WHERE world_id = $1::uuid)`,
 		`DELETE FROM contracts WHERE world_id = $1::uuid`,
 		`DELETE FROM shipments WHERE world_id = $1::uuid`,

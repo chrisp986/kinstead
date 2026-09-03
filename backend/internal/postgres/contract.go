@@ -12,6 +12,7 @@ import (
 
 	contractdomain "game/backend/internal/domain/contract"
 	"game/backend/internal/domain/geography"
+	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
@@ -308,7 +309,7 @@ func (s *Store) LoadContractObligationsForTick(ctx context.Context, tx pgx.Tx, w
 		if err := value.Validate(); err != nil {
 			return nil, fmt.Errorf("contract obligation %s: %w", value.ID, err)
 		}
-		assessment := port.ContractObligationAssessment{Obligation: value}
+		assessment := port.ContractObligationAssessment{WorldID: contractdomain.WorldID(row.WorldID), Obligation: value}
 		if row.ActualArrivalTick.Valid {
 			arrival := shipmentdomain.Tick(row.ActualArrivalTick.Int64)
 			assessment.ActualArrivalTick = &arrival
@@ -318,7 +319,7 @@ func (s *Store) LoadContractObligationsForTick(ctx context.Context, tx pgx.Tx, w
 	return values, nil
 }
 
-func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.Tx, before, after contractdomain.Obligation) (bool, error) {
+func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.Tx, before, after contractdomain.Obligation, event *relationshipdomain.Event) (bool, error) {
 	if err := before.Validate(); err != nil {
 		return false, err
 	}
@@ -342,7 +343,56 @@ func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.
 		OldStatus:        string(before.Status),
 		OldFulfilledTick: nullableContractTick(before.FulfilledTick),
 	})
-	return rows == 1, err
+	if err != nil || rows != 1 {
+		return rows == 1, err
+	}
+	if event != nil {
+		if err := persistRelationshipEvent(ctx, tx, *event); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func persistRelationshipEvent(ctx context.Context, tx pgx.Tx, event relationshipdomain.Event) error {
+	if err := event.Validate(); err != nil {
+		return err
+	}
+	worldID, err := uuidParam(string(event.WorldID))
+	if err != nil {
+		return err
+	}
+	sourceID, err := uuidParam(string(event.SourceHouseholdID))
+	if err != nil {
+		return err
+	}
+	targetID, err := uuidParam(string(event.TargetHouseholdID))
+	if err != nil {
+		return err
+	}
+	contractID, err := uuidParam(string(event.ContractID))
+	if err != nil {
+		return err
+	}
+	obligationID, err := uuidParam(string(event.ObligationID))
+	if err != nil {
+		return err
+	}
+	queries := sqlcdb.New(tx)
+	rows, err := queries.InsertRelationshipEvent(ctx, sqlcdb.InsertRelationshipEventParams{
+		WorldID: worldID, SourceHouseholdID: sourceID, TargetHouseholdID: targetID,
+		EventType: string(event.Type), TrustDelta: int32(event.TrustDelta), OccurredTick: int64(event.OccurredTick),
+		ContractID: contractID, ShipmentID: string(event.ShipmentID), ObligationID: obligationID,
+		ResourceType: string(event.ResourceType), QuantityMilli: int64(event.QuantityMilli), DueArrivalTick: int64(event.DueArrivalTick),
+		ActualFulfillmentTick: nullableContractTick(event.ActualFulfillmentTick),
+	})
+	if err != nil || rows == 0 {
+		return err
+	}
+	return queries.ApplyRelationshipDelta(ctx, sqlcdb.ApplyRelationshipDeltaParams{
+		WorldID: worldID, SourceHouseholdID: sourceID, TargetHouseholdID: targetID,
+		TrustDelta: int32(event.TrustDelta), OccurredTick: pgtype.Int8{Int64: int64(event.OccurredTick), Valid: true},
+	})
 }
 
 func (s *Store) LoadActiveContractsForRollup(ctx context.Context, tx pgx.Tx, worldID string) ([]port.ContractRollupSnapshot, error) {

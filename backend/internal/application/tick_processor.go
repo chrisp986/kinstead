@@ -7,6 +7,7 @@ import (
 	"game/backend/internal/balance"
 	"game/backend/internal/calendar"
 	contractdomain "game/backend/internal/domain/contract"
+	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	"game/backend/internal/simulation"
@@ -105,7 +106,11 @@ func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.
 		if updated.Status == assessment.Obligation.Status && equalContractTick(updated.FulfilledTick, assessment.Obligation.FulfilledTick) {
 			continue
 		}
-		persisted, err := tx.PersistContractObligationAssessment(ctx, assessment.Obligation, updated)
+		event, err := relationshipdomain.ContractOutcome(assessment.WorldID, assessment.Obligation, updated, contractdomain.Tick(tick))
+		if err != nil {
+			return fmt.Errorf("derive relationship outcome for obligation %s: %w", assessment.Obligation.ID, err)
+		}
+		persisted, err := tx.PersistContractObligationAssessment(ctx, assessment.Obligation, updated, event)
 		if err != nil {
 			return fmt.Errorf("persist contract obligation %s: %w", assessment.Obligation.ID, err)
 		}

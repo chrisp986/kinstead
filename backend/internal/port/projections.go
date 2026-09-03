@@ -6,6 +6,7 @@ import (
 
 	contractdomain "game/backend/internal/domain/contract"
 	marketdomain "game/backend/internal/domain/market"
+	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/simulation"
 )
@@ -134,6 +135,7 @@ type WorldClaim struct {
 }
 
 type ContractObligationAssessment struct {
+	WorldID           contractdomain.WorldID
 	Obligation        contractdomain.Obligation
 	ActualArrivalTick *shipmentdomain.Tick
 }
@@ -151,7 +153,7 @@ type WorldTickTransaction interface {
 	LoadDueShipments(context.Context, string, int64) ([]shipmentdomain.Shipment, error)
 	PersistShipmentArrival(context.Context, shipmentdomain.Shipment) (bool, error)
 	LoadContractObligationsForTick(context.Context, string, int64) ([]ContractObligationAssessment, error)
-	PersistContractObligationAssessment(context.Context, contractdomain.Obligation, contractdomain.Obligation) (bool, error)
+	PersistContractObligationAssessment(context.Context, contractdomain.Obligation, contractdomain.Obligation, *relationshipdomain.Event) (bool, error)
 	LoadActiveContractsForRollup(context.Context, string) ([]ContractRollupSnapshot, error)
 	PersistContractRollup(context.Context, contractdomain.Contract, contractdomain.Contract) (bool, error)
 	ListHouseholdIDs(context.Context, string) ([]string, error)

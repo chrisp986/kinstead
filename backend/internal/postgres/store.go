@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	contractdomain "game/backend/internal/domain/contract"
+	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
@@ -74,8 +75,8 @@ func (t *worldTickTx) PersistShipmentArrival(ctx context.Context, value shipment
 func (t *worldTickTx) LoadContractObligationsForTick(ctx context.Context, worldID string, tick int64) ([]port.ContractObligationAssessment, error) {
 	return t.store.LoadContractObligationsForTick(ctx, t.tx, worldID, tick)
 }
-func (t *worldTickTx) PersistContractObligationAssessment(ctx context.Context, before, after contractdomain.Obligation) (bool, error) {
-	return t.store.PersistContractObligationAssessment(ctx, t.tx, before, after)
+func (t *worldTickTx) PersistContractObligationAssessment(ctx context.Context, before, after contractdomain.Obligation, event *relationshipdomain.Event) (bool, error) {
+	return t.store.PersistContractObligationAssessment(ctx, t.tx, before, after, event)
 }
 func (t *worldTickTx) LoadActiveContractsForRollup(ctx context.Context, worldID string) ([]port.ContractRollupSnapshot, error) {
 	return t.store.LoadActiveContractsForRollup(ctx, t.tx, worldID)

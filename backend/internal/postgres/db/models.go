@@ -205,16 +205,17 @@ type Relationship struct {
 }
 
 type RelationshipEvent struct {
-	ID                pgtype.UUID
-	WorldID           pgtype.UUID
-	SourceHouseholdID pgtype.UUID
-	TargetHouseholdID pgtype.UUID
-	EventType         string
-	TrustDelta        int32
-	OccurredTick      int64
-	RelatedContractID pgtype.UUID
-	RelatedShipmentID pgtype.UUID
-	Data              []byte
+	ID                  pgtype.UUID
+	WorldID             pgtype.UUID
+	SourceHouseholdID   pgtype.UUID
+	TargetHouseholdID   pgtype.UUID
+	EventType           string
+	TrustDelta          int32
+	OccurredTick        int64
+	RelatedContractID   pgtype.UUID
+	RelatedShipmentID   pgtype.UUID
+	Data                []byte
+	RelatedObligationID pgtype.UUID
 }
 
 type ResourceStock struct {

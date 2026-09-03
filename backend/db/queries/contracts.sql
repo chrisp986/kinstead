@@ -75,7 +75,8 @@ WHERE contract_id = $1::uuid
 ORDER BY due_arrival_tick, debtor_household_id, creditor_household_id, resource_code;
 
 -- name: LoadContractObligationsForTick :many
-SELECT o.id::text AS id, o.contract_id::text AS contract_id,
+SELECT c.world_id::text AS world_id,
+       o.id::text AS id, o.contract_id::text AS contract_id,
        o.debtor_household_id::text AS debtor_household_id,
        o.creditor_household_id::text AS creditor_household_id,
        o.resource_code, o.quantity_milli, o.due_arrival_tick,

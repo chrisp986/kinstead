@@ -102,6 +102,11 @@ Contract dispatch reserves the exact obligated goods, derives travel time and
 transport cost from directed geography, creates the physical shipment, and
 links it to the obligation in one transaction.
 
+Final contract-obligation outcomes append directed relationship events in the
+same tick transaction. The current relationship row is an exactly-once
+projection of those event deltas; contract outcome deltas remain neutral until
+their gameplay balance is explicitly specified.
+
 Prefer DB transactions/constraints to application mutexes.
 
 ## Infrastructure policy

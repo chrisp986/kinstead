@@ -74,7 +74,11 @@ obligation states. Debtors can atomically reserve the promised goods and
 dispatch a geography-derived shipment linked to an obligation. Active contract
 status now rolls up deterministically from the complete obligation schedule:
 any broken obligation breaks the contract; otherwise all obligations must be
-settled before completion. Next: relationship history/projections.
+settled before completion. Final obligation outcomes now append idempotent,
+directed relationship history and initialize the current relationship
+projection. Contract outcome deltas remain neutral pending an explicit trust
+balance decision. Next: relationship read projections, then contract REST and
+frontend integration.
 
 ### 5. Politics
 

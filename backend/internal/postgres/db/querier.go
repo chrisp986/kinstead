@@ -11,12 +11,14 @@ import (
 )
 
 type Querier interface {
+	ApplyRelationshipDelta(ctx context.Context, arg ApplyRelationshipDeltaParams) error
 	ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error)
 	CreateContract(ctx context.Context, arg CreateContractParams) (CreateContractRow, error)
 	CreateContractObligation(ctx context.Context, arg CreateContractObligationParams) error
 	CreateContractTerm(ctx context.Context, arg CreateContractTermParams) error
 	GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetContractRow, error)
 	GetRouteDistance(ctx context.Context, arg GetRouteDistanceParams) (string, error)
+	InsertRelationshipEvent(ctx context.Context, arg InsertRelationshipEventParams) (int64, error)
 	IsWorldTickProcessed(ctx context.Context, arg IsWorldTickProcessedParams) (bool, error)
 	LinkContractObligationShipment(ctx context.Context, arg LinkContractObligationShipmentParams) (int64, error)
 	ListActiveContractsForRollup(ctx context.Context, dollar_1 pgtype.UUID) ([]ListActiveContractsForRollupRow, error)
