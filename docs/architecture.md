@@ -24,9 +24,10 @@ or frontend code. PostgreSQL is authoritative; clients submit intent
 only.
 
 Application services depend on narrow ports for report reads, shipment
-storage, market-purchase transactions, chronicle reads, and world-tick
-transactions. PostgreSQL adapters implement those ports; transaction ordering
-and game decisions remain in the application/domain layers. Stable locking and
+storage, market-purchase transactions, contract proposal/response/dispatch
+transactions, chronicle reads, and world-tick transactions. PostgreSQL adapters
+implement those ports; transaction ordering and game decisions remain in the
+application/domain layers. Stable locking and
 projection queries are generated with `sqlc`.
 
 Production and balancing simulator must share the same gameplay
@@ -96,6 +97,10 @@ excluded because reversing a completed sale requires a separate explicit
 market workflow.
 
 Contract fulfillment is determined by shipment arrival.
+
+Contract dispatch reserves the exact obligated goods, derives travel time and
+transport cost from directed geography, creates the physical shipment, and
+links it to the obligation in one transaction.
 
 Prefer DB transactions/constraints to application mutexes.
 

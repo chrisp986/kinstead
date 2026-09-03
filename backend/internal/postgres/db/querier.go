@@ -16,8 +16,9 @@ type Querier interface {
 	CreateContractObligation(ctx context.Context, arg CreateContractObligationParams) error
 	CreateContractTerm(ctx context.Context, arg CreateContractTermParams) error
 	GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetContractRow, error)
-	GetMarketRouteDistance(ctx context.Context, arg GetMarketRouteDistanceParams) (string, error)
+	GetRouteDistance(ctx context.Context, arg GetRouteDistanceParams) (string, error)
 	IsWorldTickProcessed(ctx context.Context, arg IsWorldTickProcessedParams) (bool, error)
+	LinkContractObligationShipment(ctx context.Context, arg LinkContractObligationShipmentParams) (int64, error)
 	ListActiveMarketOffers(ctx context.Context, dollar_1 pgtype.UUID) ([]ListActiveMarketOffersRow, error)
 	ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error)
 	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)
@@ -27,6 +28,7 @@ type Querier interface {
 	LoadContractObligationsForTick(ctx context.Context, arg LoadContractObligationsForTickParams) ([]LoadContractObligationsForTickRow, error)
 	LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipmentsDueForArrivalParams) ([]LoadShipmentsDueForArrivalRow, error)
 	LockContractForResponse(ctx context.Context, dollar_1 pgtype.UUID) (LockContractForResponseRow, error)
+	LockContractObligationForDispatch(ctx context.Context, dollar_1 pgtype.UUID) (LockContractObligationForDispatchRow, error)
 	LockMarketOffer(ctx context.Context, dollar_1 pgtype.UUID) (LockMarketOfferRow, error)
 	MarkShipmentArrived(ctx context.Context, arg MarkShipmentArrivedParams) (string, error)
 	MarkWorldTickProcessed(ctx context.Context, arg MarkWorldTickProcessedParams) error

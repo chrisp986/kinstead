@@ -4,6 +4,8 @@ import (
 	"context"
 
 	contractdomain "game/backend/internal/domain/contract"
+	"game/backend/internal/domain/geography"
+	shipmentdomain "game/backend/internal/domain/shipment"
 )
 
 type ContractPartiesSnapshot struct {
@@ -31,9 +33,29 @@ type ContractResponseTransaction interface {
 	Rollback(context.Context) error
 }
 
+type ContractDispatchSnapshot struct {
+	Obligation            contractdomain.Obligation
+	WorldID               contractdomain.WorldID
+	ContractStatus        contractdomain.Status
+	OriginLocationID      shipmentdomain.LocationID
+	DestinationLocationID shipmentdomain.LocationID
+	Route                 geography.Route
+	CurrentTick           contractdomain.Tick
+	ProposedShipmentID    shipmentdomain.ID
+	ExistingShipment      *shipmentdomain.Shipment
+}
+
+type ContractDispatchTransaction interface {
+	LoadForDispatch(context.Context, contractdomain.ObligationID, contractdomain.HouseholdID) (ContractDispatchSnapshot, error)
+	PersistDispatch(context.Context, contractdomain.Obligation, contractdomain.Obligation, shipmentdomain.Shipment) (shipmentdomain.Shipment, error)
+	Commit(context.Context) error
+	Rollback(context.Context) error
+}
+
 type ContractRepository interface {
 	BeginContractProposal(context.Context) (ContractProposalTransaction, error)
 	BeginContractResponse(context.Context) (ContractResponseTransaction, error)
+	BeginContractDispatch(context.Context) (ContractDispatchTransaction, error)
 	GetContract(context.Context, contractdomain.ID) (contractdomain.Contract, error)
 	ListContractsForHousehold(context.Context, contractdomain.HouseholdID) ([]contractdomain.Contract, error)
 	ListContractObligations(context.Context, contractdomain.ID) ([]contractdomain.Obligation, error)

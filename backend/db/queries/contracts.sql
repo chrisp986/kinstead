@@ -100,3 +100,29 @@ SET status = sqlc.arg(new_status),
 WHERE id = sqlc.arg(id)::uuid
   AND status = sqlc.arg(old_status)
   AND fulfilled_tick IS NOT DISTINCT FROM sqlc.narg(old_fulfilled_tick)::bigint;
+
+-- name: LockContractObligationForDispatch :one
+SELECT o.id::text AS id, o.contract_id::text AS contract_id,
+       o.debtor_household_id::text AS debtor_household_id,
+       o.creditor_household_id::text AS creditor_household_id,
+       o.resource_code, o.quantity_milli, o.due_arrival_tick,
+       COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
+       o.status, o.fulfilled_tick,
+       c.world_id::text AS world_id, c.status AS contract_status,
+       debtor.location_id::text AS origin_location_id,
+       creditor.location_id::text AS destination_location_id,
+       w.current_tick, gen_random_uuid()::text AS proposed_shipment_id
+FROM contract_obligations o
+JOIN contracts c ON c.id = o.contract_id
+JOIN worlds w ON w.id = c.world_id
+JOIN households debtor
+  ON debtor.id = o.debtor_household_id AND debtor.world_id = c.world_id
+JOIN households creditor
+  ON creditor.id = o.creditor_household_id AND creditor.world_id = c.world_id
+WHERE o.id = $1::uuid
+FOR UPDATE OF o, c, w, debtor, creditor;
+
+-- name: LinkContractObligationShipment :execrows
+UPDATE contract_obligations
+SET shipment_id = $2::uuid, status = $3, updated_at = now()
+WHERE id = $1::uuid AND shipment_id IS NULL AND status = $4;

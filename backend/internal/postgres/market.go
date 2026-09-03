@@ -162,7 +162,7 @@ func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buye
 	if err != nil {
 		return MarketPurchaseSnapshot{}, err
 	}
-	distanceValue, err := sqlcdb.New(tx).GetMarketRouteDistance(ctx, sqlcdb.GetMarketRouteDistanceParams{
+	distanceValue, err := sqlcdb.New(tx).GetRouteDistance(ctx, sqlcdb.GetRouteDistanceParams{
 		Column1: worldUUID, Column2: originUUID, Column3: destinationUUID,
 	})
 	if err != nil {

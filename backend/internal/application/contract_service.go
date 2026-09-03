@@ -6,11 +6,14 @@ import (
 	"fmt"
 
 	contractdomain "game/backend/internal/domain/contract"
+	"game/backend/internal/domain/geography"
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 )
 
 var ErrContractStartsInPast = errors.New("contract must start after the current tick")
 var ErrContractResponseForbidden = errors.New("only the proposed counterparty may respond to a contract")
+var ErrContractDispatchForbidden = errors.New("only the obligation debtor may dispatch its shipment")
 
 type ContractTermIntent struct {
 	DebtorHouseholdID   string
@@ -32,6 +35,16 @@ type RespondContractCommand struct {
 	ContractID              string
 	CounterpartyHouseholdID string
 	Accept                  bool
+}
+
+type DispatchContractObligationCommand struct {
+	ObligationID      string
+	DebtorHouseholdID string
+}
+
+type DispatchContractObligationResult struct {
+	Obligation contractdomain.Obligation
+	Shipment   shipmentdomain.Shipment
 }
 
 type ContractService struct {
@@ -144,4 +157,64 @@ func (s *ContractService) Respond(ctx context.Context, cmd RespondContractComman
 		return contractdomain.Contract{}, fmt.Errorf("commit contract response: %w", err)
 	}
 	return updated, nil
+}
+
+// DispatchObligation reserves the promised goods, creates their physical
+// shipment using authoritative geography, and links it to the obligation in a
+// single transaction. The obligation itself is the idempotency key.
+func (s *ContractService) DispatchObligation(ctx context.Context, cmd DispatchContractObligationCommand) (DispatchContractObligationResult, error) {
+	tx, err := s.Store.BeginContractDispatch(ctx)
+	if err != nil {
+		return DispatchContractObligationResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	snapshot, err := tx.LoadForDispatch(ctx, contractdomain.ObligationID(cmd.ObligationID), contractdomain.HouseholdID(cmd.DebtorHouseholdID))
+	if err != nil {
+		return DispatchContractObligationResult{}, err
+	}
+	if snapshot.Obligation.DebtorHouseholdID != contractdomain.HouseholdID(cmd.DebtorHouseholdID) {
+		return DispatchContractObligationResult{}, ErrContractDispatchForbidden
+	}
+	if snapshot.ExistingShipment != nil {
+		return DispatchContractObligationResult{Obligation: snapshot.Obligation, Shipment: *snapshot.ExistingShipment}, nil
+	}
+	if snapshot.ContractStatus != contractdomain.StatusActive {
+		return DispatchContractObligationResult{}, contractdomain.ErrInvalidTransition
+	}
+	arrival, err := geography.ArrivalTick(geography.Tick(snapshot.CurrentTick), snapshot.Route.TravelTicks)
+	if err != nil {
+		return DispatchContractObligationResult{}, err
+	}
+	prepared := shipmentdomain.Shipment{
+		ID:                    snapshot.ProposedShipmentID,
+		WorldID:               shipmentdomain.WorldID(snapshot.WorldID),
+		SenderHouseholdID:     shipmentdomain.HouseholdID(snapshot.Obligation.DebtorHouseholdID),
+		ReceiverHouseholdID:   shipmentdomain.HouseholdID(snapshot.Obligation.CreditorHouseholdID),
+		OriginLocationID:      snapshot.OriginLocationID,
+		DestinationLocationID: snapshot.DestinationLocationID,
+		ResourceType:          shipmentdomain.ResourceType(snapshot.Obligation.ResourceType),
+		QuantityMilli:         shipmentdomain.QuantityMilli(snapshot.Obligation.QuantityMilli),
+		DepartureTick:         shipmentdomain.Tick(snapshot.CurrentTick),
+		ExpectedArrivalTick:   shipmentdomain.Tick(arrival),
+		TransportCostMilli:    shipmentdomain.MoneyMilli(snapshot.Route.TransportCostMilli),
+		Status:                shipmentdomain.StatusPrepared,
+	}
+	shipment, err := prepared.Transition(shipmentdomain.StatusInTransit)
+	if err != nil {
+		return DispatchContractObligationResult{}, err
+	}
+	updated, err := snapshot.Obligation.Dispatch(shipment)
+	if err != nil {
+		return DispatchContractObligationResult{}, err
+	}
+	created, err := tx.PersistDispatch(ctx, snapshot.Obligation, updated, shipment)
+	if err != nil {
+		return DispatchContractObligationResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return DispatchContractObligationResult{}, fmt.Errorf("commit contract dispatch: %w", err)
+	}
+	updated.ShipmentID = created.ID
+	return DispatchContractObligationResult{Obligation: updated, Shipment: created}, nil
 }

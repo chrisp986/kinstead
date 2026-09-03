@@ -6,12 +6,15 @@ import (
 	"testing"
 
 	contractdomain "game/backend/internal/domain/contract"
+	"game/backend/internal/domain/geography"
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 )
 
 type contractRepositoryStub struct {
 	tx         *contractProposalTxStub
 	responseTx *contractResponseTxStub
+	dispatchTx *contractDispatchTxStub
 }
 
 func (s contractRepositoryStub) BeginContractProposal(context.Context) (port.ContractProposalTransaction, error) {
@@ -19,6 +22,9 @@ func (s contractRepositoryStub) BeginContractProposal(context.Context) (port.Con
 }
 func (s contractRepositoryStub) BeginContractResponse(context.Context) (port.ContractResponseTransaction, error) {
 	return s.responseTx, nil
+}
+func (s contractRepositoryStub) BeginContractDispatch(context.Context) (port.ContractDispatchTransaction, error) {
+	return s.dispatchTx, nil
 }
 func (contractRepositoryStub) GetContract(context.Context, contractdomain.ID) (contractdomain.Contract, error) {
 	return contractdomain.Contract{}, nil
@@ -43,6 +49,25 @@ type contractResponseTxStub struct {
 	committed    bool
 	createErr    error
 }
+
+type contractDispatchTxStub struct {
+	snapshot  port.ContractDispatchSnapshot
+	persisted bool
+	committed bool
+}
+
+func (s *contractDispatchTxStub) LoadForDispatch(context.Context, contractdomain.ObligationID, contractdomain.HouseholdID) (port.ContractDispatchSnapshot, error) {
+	return s.snapshot, nil
+}
+func (s *contractDispatchTxStub) PersistDispatch(_ context.Context, _, after contractdomain.Obligation, shipment shipmentdomain.Shipment) (shipmentdomain.Shipment, error) {
+	s.persisted = true
+	if after.ShipmentID != shipment.ID {
+		return shipmentdomain.Shipment{}, errors.New("shipment was not linked")
+	}
+	return shipment, nil
+}
+func (s *contractDispatchTxStub) Commit(context.Context) error   { s.committed = true; return nil }
+func (s *contractDispatchTxStub) Rollback(context.Context) error { return nil }
 
 func (s *contractResponseTxStub) LoadForResponse(context.Context, contractdomain.ID) (port.ContractResponseSnapshot, error) {
 	return s.snapshot, nil
@@ -180,5 +205,57 @@ func TestRespondContractDoesNotCommitPartialActivation(t *testing.T) {
 	})
 	if !errors.Is(err, wantErr) || tx.statusWrites != 1 || tx.committed {
 		t.Fatalf("error=%v writes=%d committed=%v", err, tx.statusWrites, tx.committed)
+	}
+}
+
+func dispatchSnapshot() port.ContractDispatchSnapshot {
+	return port.ContractDispatchSnapshot{
+		Obligation: contractdomain.Obligation{
+			ID: "obligation", ContractID: "contract", DebtorHouseholdID: "a", CreditorHouseholdID: "b",
+			ResourceType: "provisions", QuantityMilli: 10_000, DueArrivalTick: 8, Status: contractdomain.ObligationPending,
+		},
+		WorldID: "world", ContractStatus: contractdomain.StatusActive,
+		OriginLocationID: "origin", DestinationLocationID: "destination",
+		Route: geography.Route{
+			WorldID: "world", OriginLocationID: "origin", DestinationLocationID: "destination",
+			DistanceClass: geography.DistanceLocal, TravelTicks: 2, TransportCostMilli: 1_000,
+		},
+		CurrentTick: 5, ProposedShipmentID: "shipment",
+	}
+}
+
+func TestDispatchContractObligationUsesAuthoritativeRoute(t *testing.T) {
+	tx := &contractDispatchTxStub{snapshot: dispatchSnapshot()}
+	service := NewContractService(contractRepositoryStub{dispatchTx: tx})
+	result, err := service.DispatchObligation(context.Background(), DispatchContractObligationCommand{
+		ObligationID: "obligation", DebtorHouseholdID: "a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Obligation.Status != contractdomain.ObligationDispatched || result.Shipment.ExpectedArrivalTick != 7 ||
+		result.Shipment.TransportCostMilli != 1_000 || !tx.persisted || !tx.committed {
+		t.Fatalf("result=%+v persisted=%v committed=%v", result, tx.persisted, tx.committed)
+	}
+}
+
+func TestDispatchContractObligationIsIdempotent(t *testing.T) {
+	snapshot := dispatchSnapshot()
+	snapshot.Obligation.Status = contractdomain.ObligationDispatched
+	snapshot.Obligation.ShipmentID = "shipment"
+	existing := shipmentdomain.Shipment{
+		ID: "shipment", WorldID: "world", SenderHouseholdID: "a", ReceiverHouseholdID: "b",
+		OriginLocationID: "origin", DestinationLocationID: "destination", ResourceType: "provisions",
+		QuantityMilli: 10_000, DepartureTick: 5, ExpectedArrivalTick: 7, TransportCostMilli: 1_000,
+		Status: shipmentdomain.StatusInTransit,
+	}
+	snapshot.ExistingShipment = &existing
+	tx := &contractDispatchTxStub{snapshot: snapshot}
+	service := NewContractService(contractRepositoryStub{dispatchTx: tx})
+	result, err := service.DispatchObligation(context.Background(), DispatchContractObligationCommand{
+		ObligationID: "obligation", DebtorHouseholdID: "a",
+	})
+	if err != nil || result.Shipment.ID != "shipment" || tx.persisted || tx.committed {
+		t.Fatalf("result=%+v error=%v persisted=%v committed=%v", result, err, tx.persisted, tx.committed)
 	}
 }

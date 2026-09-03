@@ -11,12 +11,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	contractdomain "game/backend/internal/domain/contract"
+	"game/backend/internal/domain/geography"
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
 )
 
 var ErrInvalidContractParticipants = errors.New("contract participants must be distinct households in one world")
+var ErrContractDispatchStateChanged = errors.New("contract obligation changed during dispatch")
 
 type contractProposalTx struct {
 	store    *Store
@@ -28,6 +30,11 @@ type contractProposalTx struct {
 
 type contractResponseTx struct {
 	tx pgx.Tx
+}
+
+type contractDispatchTx struct {
+	store *Store
+	tx    pgx.Tx
 }
 
 func (s *Store) BeginContractProposal(ctx context.Context) (port.ContractProposalTransaction, error) {
@@ -46,10 +53,20 @@ func (s *Store) BeginContractResponse(ctx context.Context) (port.ContractRespons
 	return &contractResponseTx{tx: tx}, nil
 }
 
+func (s *Store) BeginContractDispatch(ctx context.Context) (port.ContractDispatchTransaction, error) {
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &contractDispatchTx{store: s, tx: tx}, nil
+}
+
 func (t *contractProposalTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
 func (t *contractProposalTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 func (t *contractResponseTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
 func (t *contractResponseTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
+func (t *contractDispatchTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
+func (t *contractDispatchTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 
 func (t *contractProposalTx) LoadParties(ctx context.Context, partyA, partyB contractdomain.HouseholdID) (port.ContractPartiesSnapshot, error) {
 	if partyA == "" || partyB == "" || partyA == partyB {
@@ -322,6 +339,159 @@ func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.
 		OldFulfilledTick: nullableContractTick(before.FulfilledTick),
 	})
 	return rows == 1, err
+}
+
+func (t *contractDispatchTx) LoadForDispatch(ctx context.Context, obligationID contractdomain.ObligationID, _ contractdomain.HouseholdID) (port.ContractDispatchSnapshot, error) {
+	id, err := uuidParam(string(obligationID))
+	if err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	queries := sqlcdb.New(t.tx)
+	row, err := queries.LockContractObligationForDispatch(ctx, id)
+	if err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	obligation := contractdomain.Obligation{
+		ID: contractdomain.ObligationID(row.ID), ContractID: contractdomain.ID(row.ContractID),
+		DebtorHouseholdID: contractdomain.HouseholdID(row.DebtorHouseholdID), CreditorHouseholdID: contractdomain.HouseholdID(row.CreditorHouseholdID),
+		ResourceType: contractdomain.ResourceType(row.ResourceCode), QuantityMilli: contractdomain.QuantityMilli(row.QuantityMilli),
+		DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), ShipmentID: shipmentdomain.ID(row.ShipmentID),
+		Status: contractdomain.ObligationStatus(row.Status),
+	}
+	if row.FulfilledTick.Valid {
+		fulfilled := contractdomain.Tick(row.FulfilledTick.Int64)
+		obligation.FulfilledTick = &fulfilled
+	}
+	if err := obligation.Validate(); err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	snapshot := port.ContractDispatchSnapshot{
+		Obligation: obligation, WorldID: contractdomain.WorldID(row.WorldID), ContractStatus: contractdomain.Status(row.ContractStatus),
+		OriginLocationID: shipmentdomain.LocationID(row.OriginLocationID), DestinationLocationID: shipmentdomain.LocationID(row.DestinationLocationID),
+		CurrentTick: contractdomain.Tick(row.CurrentTick), ProposedShipmentID: shipmentdomain.ID(row.ProposedShipmentID),
+	}
+	if obligation.ShipmentID != "" {
+		shipment, err := scanShipment(t.tx.QueryRow(ctx, `
+			SELECT id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
+			       origin_location_id::text, destination_location_id::text, resource_code,
+			       quantity_milli, departure_tick, expected_arrival_tick,
+			       actual_arrival_tick, transport_cost_milli, status
+			FROM shipments WHERE id = $1::uuid
+		`, obligation.ShipmentID))
+		if err != nil {
+			return port.ContractDispatchSnapshot{}, err
+		}
+		snapshot.ExistingShipment = &shipment
+		return snapshot, nil
+	}
+	worldID, err := uuidParam(row.WorldID)
+	if err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	originID, err := uuidParam(row.OriginLocationID)
+	if err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	destinationID, err := uuidParam(row.DestinationLocationID)
+	if err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	distance, err := queries.GetRouteDistance(ctx, sqlcdb.GetRouteDistanceParams{
+		Column1: worldID, Column2: originID, Column3: destinationID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return port.ContractDispatchSnapshot{}, geography.ErrRouteUnavailable
+	}
+	if err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	route, err := geography.RouteForDistance(
+		geography.WorldID(row.WorldID), geography.LocationID(row.OriginLocationID),
+		geography.LocationID(row.DestinationLocationID), geography.DistanceClass(distance),
+	)
+	if err != nil {
+		return port.ContractDispatchSnapshot{}, err
+	}
+	snapshot.Route = route
+	return snapshot, nil
+}
+
+func (t *contractDispatchTx) PersistDispatch(ctx context.Context, before, after contractdomain.Obligation, shipment shipmentdomain.Shipment) (shipmentdomain.Shipment, error) {
+	if err := before.Validate(); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if err := after.Validate(); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if err := shipment.Validate(); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if before.ID == "" || before.ID != after.ID || before.ContractID != after.ContractID ||
+		before.DebtorHouseholdID != after.DebtorHouseholdID || before.CreditorHouseholdID != after.CreditorHouseholdID ||
+		before.ResourceType != after.ResourceType || before.QuantityMilli != after.QuantityMilli ||
+		before.DueArrivalTick != after.DueArrivalTick || before.FulfilledTick != nil || after.FulfilledTick != nil || before.ShipmentID != "" ||
+		after.ShipmentID != shipment.ID || shipment.Status != shipmentdomain.StatusInTransit ||
+		shipment.SenderHouseholdID != shipmentdomain.HouseholdID(before.DebtorHouseholdID) ||
+		shipment.ReceiverHouseholdID != shipmentdomain.HouseholdID(before.CreditorHouseholdID) ||
+		shipment.ResourceType != shipmentdomain.ResourceType(before.ResourceType) ||
+		shipment.QuantityMilli != shipmentdomain.QuantityMilli(before.QuantityMilli) {
+		return shipmentdomain.Shipment{}, ErrContractDispatchStateChanged
+	}
+	stockTag, err := t.tx.Exec(ctx, `
+		UPDATE resource_stocks
+		SET quantity_milli = quantity_milli - $3, updated_at = now()
+		WHERE household_id = $1::uuid AND resource_code = $2 AND quantity_milli >= $3
+	`, before.DebtorHouseholdID, before.ResourceType, before.QuantityMilli)
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if stockTag.RowsAffected() != 1 {
+		return shipmentdomain.Shipment{}, ErrInsufficientResources
+	}
+	created, err := t.store.insertShipment(ctx, t.tx, shipment)
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	id, err := uuidParam(string(before.ID))
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	shipmentID, err := uuidParam(string(created.ID))
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	rows, err := sqlcdb.New(t.tx).LinkContractObligationShipment(ctx, sqlcdb.LinkContractObligationShipmentParams{
+		Column1: id, Column2: shipmentID, Status: string(after.Status), Status_2: string(before.Status),
+	})
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if rows != 1 {
+		return shipmentdomain.Shipment{}, ErrContractDispatchStateChanged
+	}
+	for _, fact := range []struct {
+		household contractdomain.HouseholdID
+		related   contractdomain.HouseholdID
+	}{
+		{before.DebtorHouseholdID, before.CreditorHouseholdID},
+		{before.CreditorHouseholdID, before.DebtorHouseholdID},
+	} {
+		if _, err := t.tx.Exec(ctx, `
+			INSERT INTO chronicle_entries(
+				household_id, occurred_tick, entry_type, related_household_id,
+				related_contract_id, related_shipment_id, data
+			) VALUES (
+				$1::uuid, $2, 'contract_shipment_dispatched', $3::uuid,
+				$4::uuid, $5::uuid,
+				jsonb_build_object('resource_type', $6::text, 'quantity_milli', $7::bigint,
+				                   'due_arrival_tick', $8::bigint, 'expected_arrival_tick', $9::bigint)
+			)
+		`, fact.household, shipment.DepartureTick, fact.related, before.ContractID, created.ID,
+			before.ResourceType, before.QuantityMilli, before.DueArrivalTick, shipment.ExpectedArrivalTick); err != nil {
+			return shipmentdomain.Shipment{}, err
+		}
+	}
+	return created, nil
 }
 
 func nullableContractTick(value *contractdomain.Tick) pgtype.Int8 {

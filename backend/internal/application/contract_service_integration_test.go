@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -12,9 +13,11 @@ import (
 )
 
 type contractFixture struct {
-	worldID string
-	partyA  string
-	partyB  string
+	worldID   string
+	partyA    string
+	partyB    string
+	locationA string
+	locationB string
 }
 
 func TestContractProposalPersistenceAndRollback(t *testing.T) {
@@ -93,6 +96,11 @@ func TestContractProposalPersistenceAndRollback(t *testing.T) {
 	if len(obligations) != 3 || obligations[0].DueArrivalTick != 7 || obligations[1].DueArrivalTick != 10 || obligations[2].DueArrivalTick != 13 {
 		t.Fatalf("obligations = %+v", obligations)
 	}
+	if _, err := service.DispatchObligation(ctx, DispatchContractObligationCommand{
+		ObligationID: string(obligations[0].ID), DebtorHouseholdID: fixture.partyB,
+	}); err != ErrContractDispatchForbidden {
+		t.Fatalf("unauthorized dispatch error = %v", err)
+	}
 	if _, err := service.Respond(ctx, RespondContractCommand{
 		ContractID: string(created.ID), CounterpartyHouseholdID: fixture.partyB, Accept: true,
 	}); err != nil {
@@ -101,6 +109,47 @@ func TestContractProposalPersistenceAndRollback(t *testing.T) {
 	replayed, err := service.ListObligations(ctx, string(created.ID))
 	if err != nil || len(replayed) != len(obligations) {
 		t.Fatalf("obligations after retry = %+v, %v", replayed, err)
+	}
+	dispatchResults := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := service.DispatchObligation(ctx, DispatchContractObligationCommand{
+				ObligationID: string(obligations[0].ID), DebtorHouseholdID: fixture.partyA,
+			})
+			dispatchResults <- err
+		}()
+	}
+	var dispatchErrors []error
+	for range 2 {
+		if err := <-dispatchResults; err != nil {
+			dispatchErrors = append(dispatchErrors, err)
+		}
+	}
+	for _, dispatchErr := range dispatchErrors {
+		if _, err := service.DispatchObligation(ctx, DispatchContractObligationCommand{
+			ObligationID: string(obligations[0].ID), DebtorHouseholdID: fixture.partyA,
+		}); err != nil {
+			t.Fatalf("retry after concurrent dispatch error %v: %v", dispatchErr, err)
+		}
+	}
+	assertContractDispatch(t, ctx, store, obligations[0], fixture)
+	if _, err := store.Pool.Exec(ctx, `
+		UPDATE resource_stocks SET quantity_milli = 0
+		WHERE household_id = $1::uuid AND resource_code = 'provisions'
+	`, fixture.partyA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.DispatchObligation(ctx, DispatchContractObligationCommand{
+		ObligationID: string(obligations[1].ID), DebtorHouseholdID: fixture.partyA,
+	}); !errors.Is(err, postgres.ErrInsufficientResources) {
+		t.Fatalf("insufficient-stock dispatch error = %v", err)
+	}
+	var failedShipmentID *string
+	if err := store.Pool.QueryRow(ctx, `SELECT shipment_id::text FROM contract_obligations WHERE id = $1::uuid`, obligations[1].ID).Scan(&failedShipmentID); err != nil {
+		t.Fatal(err)
+	}
+	if failedShipmentID != nil {
+		t.Fatalf("failed dispatch linked shipment %s", *failedShipmentID)
 	}
 	listed, err := service.ListForHousehold(ctx, fixture.partyB)
 	if err != nil || len(listed) != 1 || listed[0].ID != created.ID {
@@ -130,27 +179,74 @@ func createContractFixture(t *testing.T, ctx context.Context, store *postgres.St
 	`).Scan(&fixture.worldID); err != nil {
 		t.Fatal(err)
 	}
-	var locationA, locationB string
-	if err := store.Pool.QueryRow(ctx, `INSERT INTO locations(world_id, name, location_type) VALUES ($1::uuid, 'contract a', 'farm') RETURNING id::text`, fixture.worldID).Scan(&locationA); err != nil {
+	if err := store.Pool.QueryRow(ctx, `INSERT INTO locations(world_id, name, location_type) VALUES ($1::uuid, 'contract a', 'farm') RETURNING id::text`, fixture.worldID).Scan(&fixture.locationA); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Pool.QueryRow(ctx, `INSERT INTO locations(world_id, name, location_type) VALUES ($1::uuid, 'contract b', 'farm') RETURNING id::text`, fixture.worldID).Scan(&locationB); err != nil {
+	if err := store.Pool.QueryRow(ctx, `INSERT INTO locations(world_id, name, location_type) VALUES ($1::uuid, 'contract b', 'farm') RETURNING id::text`, fixture.worldID).Scan(&fixture.locationB); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Pool.QueryRow(ctx, `INSERT INTO households(world_id, location_id, name, created_tick) VALUES ($1::uuid, $2::uuid, 'contract party a', 0) RETURNING id::text`, fixture.worldID, locationA).Scan(&fixture.partyA); err != nil {
+	if err := store.Pool.QueryRow(ctx, `INSERT INTO households(world_id, location_id, name, created_tick) VALUES ($1::uuid, $2::uuid, 'contract party a', 0) RETURNING id::text`, fixture.worldID, fixture.locationA).Scan(&fixture.partyA); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Pool.QueryRow(ctx, `INSERT INTO households(world_id, location_id, name, created_tick) VALUES ($1::uuid, $2::uuid, 'contract party b', 0) RETURNING id::text`, fixture.worldID, locationB).Scan(&fixture.partyB); err != nil {
+	if err := store.Pool.QueryRow(ctx, `INSERT INTO households(world_id, location_id, name, created_tick) VALUES ($1::uuid, $2::uuid, 'contract party b', 0) RETURNING id::text`, fixture.worldID, fixture.locationB).Scan(&fixture.partyB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `
+		INSERT INTO location_routes(world_id, origin_location_id, destination_location_id, distance_class)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, 'local')
+	`, fixture.worldID, fixture.locationA, fixture.locationB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `
+		INSERT INTO resource_stocks(household_id, resource_code, quantity_milli)
+		VALUES ($1::uuid, 'provisions', 30000)
+	`, fixture.partyA); err != nil {
 		t.Fatal(err)
 	}
 	return fixture
 }
 
+func assertContractDispatch(t *testing.T, ctx context.Context, store *postgres.Store, obligation contractdomain.Obligation, fixture contractFixture) {
+	t.Helper()
+	var shipmentCount, chronicleCount int
+	var stock, departureTick, arrivalTick, transportCost int64
+	var shipmentID, status string
+	if err := store.Pool.QueryRow(ctx, `
+		SELECT count(*) OVER(), id::text, departure_tick, expected_arrival_tick, transport_cost_milli
+		FROM shipments WHERE world_id = $1::uuid
+	`, fixture.worldID).Scan(&shipmentCount, &shipmentID, &departureTick, &arrivalTick, &transportCost); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `
+		SELECT status FROM contract_obligations WHERE id = $1::uuid AND shipment_id = $2::uuid
+	`, obligation.ID, shipmentID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `
+		SELECT quantity_milli FROM resource_stocks WHERE household_id = $1::uuid AND resource_code = 'provisions'
+	`, fixture.partyA).Scan(&stock); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM chronicle_entries
+		WHERE related_contract_id = $1::uuid AND related_shipment_id = $2::uuid
+	`, obligation.ContractID, shipmentID).Scan(&chronicleCount); err != nil {
+		t.Fatal(err)
+	}
+	if shipmentCount != 1 || departureTick != 5 || arrivalTick != 7 || transportCost != 1_000 ||
+		status != "dispatched" || stock != 20_000 || chronicleCount != 2 {
+		t.Fatalf("dispatch count/departure/arrival/cost/status/stock/chronicle = %d/%d/%d/%d/%s/%d/%d",
+			shipmentCount, departureTick, arrivalTick, transportCost, status, stock, chronicleCount)
+	}
+}
+
 func removeContractFixture(t *testing.T, ctx context.Context, store *postgres.Store, worldID string) {
 	t.Helper()
 	for _, statement := range []string{
+		`DELETE FROM chronicle_entries WHERE household_id IN (SELECT id FROM households WHERE world_id = $1::uuid)`,
 		`DELETE FROM contract_obligations WHERE contract_id IN (SELECT id FROM contracts WHERE world_id = $1::uuid)`,
 		`DELETE FROM contracts WHERE world_id = $1::uuid`,
+		`DELETE FROM shipments WHERE world_id = $1::uuid`,
 		`DELETE FROM households WHERE world_id = $1::uuid`,
 		`DELETE FROM locations WHERE world_id = $1::uuid`,
 		`DELETE FROM worlds WHERE id = $1::uuid`,

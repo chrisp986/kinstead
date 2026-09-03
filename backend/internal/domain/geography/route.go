@@ -1,6 +1,9 @@
 package geography
 
-import "errors"
+import (
+	"errors"
+	"math"
+)
 
 type WorldID string
 type LocationID string
@@ -17,7 +20,11 @@ const (
 	DistanceLong         DistanceClass = "long_distance"
 )
 
-var ErrRouteUnavailable = errors.New("no route exists between locations")
+var (
+	ErrRouteUnavailable   = errors.New("no route exists between locations")
+	ErrInvalidTravelTime  = errors.New("travel time must be positive")
+	ErrArithmeticOverflow = errors.New("geography arithmetic overflow")
+)
 
 type Route struct {
 	WorldID               WorldID
@@ -53,4 +60,14 @@ func RouteForDistance(worldID WorldID, origin, destination LocationID, distance 
 		return Route{}, ErrRouteUnavailable
 	}
 	return route, nil
+}
+
+func ArrivalTick(departure, travelTicks Tick) (Tick, error) {
+	if travelTicks <= 0 {
+		return 0, ErrInvalidTravelTime
+	}
+	if int64(departure) > math.MaxInt64-int64(travelTicks) {
+		return 0, ErrArithmeticOverflow
+	}
+	return departure + travelTicks, nil
 }

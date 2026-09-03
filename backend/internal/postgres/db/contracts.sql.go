@@ -161,6 +161,32 @@ func (q *Queries) GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetCon
 	return i, err
 }
 
+const linkContractObligationShipment = `-- name: LinkContractObligationShipment :execrows
+UPDATE contract_obligations
+SET shipment_id = $2::uuid, status = $3, updated_at = now()
+WHERE id = $1::uuid AND shipment_id IS NULL AND status = $4
+`
+
+type LinkContractObligationShipmentParams struct {
+	Column1  pgtype.UUID
+	Column2  pgtype.UUID
+	Status   string
+	Status_2 string
+}
+
+func (q *Queries) LinkContractObligationShipment(ctx context.Context, arg LinkContractObligationShipmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, linkContractObligationShipment,
+		arg.Column1,
+		arg.Column2,
+		arg.Status,
+		arg.Status_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listContractObligations = `-- name: ListContractObligations :many
 SELECT id::text AS id, contract_id::text AS contract_id,
        debtor_household_id::text AS debtor_household_id,
@@ -415,6 +441,71 @@ func (q *Queries) LockContractForResponse(ctx context.Context, dollar_1 pgtype.U
 		&i.IntervalTicks,
 		&i.Status,
 		&i.CurrentTick,
+	)
+	return i, err
+}
+
+const lockContractObligationForDispatch = `-- name: LockContractObligationForDispatch :one
+SELECT o.id::text AS id, o.contract_id::text AS contract_id,
+       o.debtor_household_id::text AS debtor_household_id,
+       o.creditor_household_id::text AS creditor_household_id,
+       o.resource_code, o.quantity_milli, o.due_arrival_tick,
+       COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
+       o.status, o.fulfilled_tick,
+       c.world_id::text AS world_id, c.status AS contract_status,
+       debtor.location_id::text AS origin_location_id,
+       creditor.location_id::text AS destination_location_id,
+       w.current_tick, gen_random_uuid()::text AS proposed_shipment_id
+FROM contract_obligations o
+JOIN contracts c ON c.id = o.contract_id
+JOIN worlds w ON w.id = c.world_id
+JOIN households debtor
+  ON debtor.id = o.debtor_household_id AND debtor.world_id = c.world_id
+JOIN households creditor
+  ON creditor.id = o.creditor_household_id AND creditor.world_id = c.world_id
+WHERE o.id = $1::uuid
+FOR UPDATE OF o, c, w, debtor, creditor
+`
+
+type LockContractObligationForDispatchRow struct {
+	ID                    string
+	ContractID            string
+	DebtorHouseholdID     string
+	CreditorHouseholdID   string
+	ResourceCode          string
+	QuantityMilli         int64
+	DueArrivalTick        int64
+	ShipmentID            string
+	Status                string
+	FulfilledTick         pgtype.Int8
+	WorldID               string
+	ContractStatus        string
+	OriginLocationID      string
+	DestinationLocationID string
+	CurrentTick           int64
+	ProposedShipmentID    string
+}
+
+func (q *Queries) LockContractObligationForDispatch(ctx context.Context, dollar_1 pgtype.UUID) (LockContractObligationForDispatchRow, error) {
+	row := q.db.QueryRow(ctx, lockContractObligationForDispatch, dollar_1)
+	var i LockContractObligationForDispatchRow
+	err := row.Scan(
+		&i.ID,
+		&i.ContractID,
+		&i.DebtorHouseholdID,
+		&i.CreditorHouseholdID,
+		&i.ResourceCode,
+		&i.QuantityMilli,
+		&i.DueArrivalTick,
+		&i.ShipmentID,
+		&i.Status,
+		&i.FulfilledTick,
+		&i.WorldID,
+		&i.ContractStatus,
+		&i.OriginLocationID,
+		&i.DestinationLocationID,
+		&i.CurrentTick,
+		&i.ProposedShipmentID,
 	)
 	return i, err
 }

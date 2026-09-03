@@ -31,7 +31,7 @@ WHERE o.world_id = $1::uuid
   AND (o.expires_tick IS NULL OR o.expires_tick >= w.current_tick)
 ORDER BY o.created_tick, o.id;
 
--- name: GetMarketRouteDistance :one
+-- name: GetRouteDistance :one
 SELECT distance_class
 FROM location_routes
 WHERE world_id = $1::uuid

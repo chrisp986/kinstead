@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getMarketRouteDistance = `-- name: GetMarketRouteDistance :one
+const getRouteDistance = `-- name: GetRouteDistance :one
 SELECT distance_class
 FROM location_routes
 WHERE world_id = $1::uuid
@@ -19,14 +19,14 @@ WHERE world_id = $1::uuid
   AND destination_location_id = $3::uuid
 `
 
-type GetMarketRouteDistanceParams struct {
+type GetRouteDistanceParams struct {
 	Column1 pgtype.UUID
 	Column2 pgtype.UUID
 	Column3 pgtype.UUID
 }
 
-func (q *Queries) GetMarketRouteDistance(ctx context.Context, arg GetMarketRouteDistanceParams) (string, error) {
-	row := q.db.QueryRow(ctx, getMarketRouteDistance, arg.Column1, arg.Column2, arg.Column3)
+func (q *Queries) GetRouteDistance(ctx context.Context, arg GetRouteDistanceParams) (string, error) {
+	row := q.db.QueryRow(ctx, getRouteDistance, arg.Column1, arg.Column2, arg.Column3)
 	var distance_class string
 	err := row.Scan(&distance_class)
 	return distance_class, err

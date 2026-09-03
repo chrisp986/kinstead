@@ -193,11 +193,12 @@ func EvaluatePurchase(offer Offer, buyer Buyer, route Route, sellerStock Quantit
 }
 
 func ArrivalTick(departure, travelTicks Tick) (Tick, error) {
-	if travelTicks <= 0 {
+	value, err := geography.ArrivalTick(geography.Tick(departure), geography.Tick(travelTicks))
+	if errors.Is(err, geography.ErrInvalidTravelTime) {
 		return 0, ErrInvalidTravelTime
 	}
-	if int64(departure) > math.MaxInt64-int64(travelTicks) {
+	if err != nil {
 		return 0, ErrArithmeticOverflow
 	}
-	return departure + travelTicks, nil
+	return Tick(value), nil
 }

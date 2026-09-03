@@ -70,7 +70,9 @@ Progress: contract/obligation domain rules, atomic proposal persistence, and
 counterparty acceptance/rejection with retry-safe recurring-obligation
 generation are complete. Contract evaluation now runs at canonical tick step 2
 after shipment arrivals, with arrival-based fulfilled, late, and broken
-obligation states. Next: contract shipment linkage and lifecycle rollups.
+obligation states. Debtors can atomically reserve the promised goods and
+dispatch a geography-derived shipment linked to an obligation. Next: contract
+lifecycle rollups and relationship history/projections.
 
 ### 5. Politics
 
