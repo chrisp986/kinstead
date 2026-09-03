@@ -103,9 +103,12 @@ transport cost from directed geography, creates the physical shipment, and
 links it to the obligation in one transaction.
 
 Final contract-obligation outcomes append directed relationship events in the
-same tick transaction. The current relationship row is an exactly-once
-projection of those event deltas; contract outcome deltas remain neutral until
-their gameplay balance is explicitly specified.
+same tick transaction. Fulfilled obligations on time or early apply +2 trust;
+one tick late applies -1; two ticks late applies -2; and broken or 3+ ticks
+late applies -8. The event source is the creditor and the target is the debtor.
+The current relationship row is an exactly-once projection of those event
+deltas, clamped to -100..100. Temporary overdue states produce no event, and
+each obligation produces at most one final consequence.
 
 Prefer DB transactions/constraints to application mutexes.
 

@@ -58,7 +58,7 @@ future explicit reversal workflow and cannot use direct cancellation.
 Implemented, including concurrent purchase coverage and geography-derived
 travel/transport values.
 
-### 4. Contracts + relationships --- next major milestone
+### 4. Contracts + relationships --- complete
 
 -   recurring obligations
 -   fulfillment by arrival
@@ -66,27 +66,16 @@ travel/transport values.
 -   trust/history events
 -   contract API
 
-Progress: contract/obligation domain rules, atomic proposal persistence, and
-counterparty acceptance/rejection with retry-safe recurring-obligation
-generation are complete. Contract evaluation now runs at canonical tick step 2
-after shipment arrivals, with arrival-based fulfilled, late, and broken
-obligation states. Debtors can atomically reserve the promised goods and
-dispatch a geography-derived shipment linked to an obligation. Active contract
-status now rolls up deterministically from the complete obligation schedule:
-any broken obligation breaks the contract; otherwise all obligations must be
-settled before completion. Final obligation outcomes now append idempotent,
-directed relationship history and initialize the current relationship
-projection. Contract outcome deltas remain neutral pending an explicit trust
-balance decision. A relationship read projection exposes the specified
-standing bands and newest-first structured history through REST/OpenAPI.
-Contract proposal, response, obligation dispatch, and household contract
-projections are exposed as REST/OpenAPI commands with generated frontend types.
-The household dashboard now supports contract proposal, received-proposal
-response, obligation dispatch, contract status/history, and directed
-relationship history. Remaining in this milestone: choose and apply explicit
-trust deltas for fulfilled, late, and broken outcomes.
+Complete: recurring obligations, atomic proposal persistence, counterparty
+acceptance/rejection, arrival-based fulfillment, late/broken outcomes,
+shipment-linked dispatch, deterministic contract rollups, relationship history,
+explicit directional trust deltas, exactly-once trust application with clamps,
+REST/OpenAPI projections, generated frontend types, and the household
+contract/relationship UI. Trust outcomes are +2 on time/early, -1 one tick
+late, -2 two ticks late, and -8 broken/3+ ticks late; the creditor's trust in
+the debtor changes and no reverse relationship is modified automatically.
 
-### 5. Politics
+### 5. Politics --- next major milestone
 
 -   Jarl demands
 -   decision expiry/defaults

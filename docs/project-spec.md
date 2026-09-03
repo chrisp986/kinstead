@@ -106,6 +106,18 @@ Contracts generate obligations. Fulfillment is based on **arrival**, not
 dispatch. 1--2 ticks late = late; 3+ = broken/unfulfilled. Relationship
 history is the main consequence, not a generic money penalty.
 
+Contract trust consequences:
+
+- fulfilled on time or early: +2
+- fulfilled 1 tick late: -1
+- fulfilled 2 ticks late: -2
+- broken / 3+ ticks late: -8
+
+A contract obligation affects the creditor's trust in the debtor. Each
+obligation produces at most one final trust consequence. Trust is clamped to
+-100..100. Contract trust currently does not scale by quantity, value,
+resource type, distance, or contract duration.
+
 ## Relationships, politics, chronicle
 
 Relationships combine a current score/state with readable event history:
