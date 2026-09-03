@@ -13,6 +13,9 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
 - Assignment lifecycle: `planned -> active -> completed`.
 - First-class shipments that reserve sender goods and arrive before household simulation.
 - Idempotent, atomic arrival credits with structured `shipment_arrived` chronicle facts.
+- Sender-authorized direct-shipment cancellation before the due tick, with an
+  atomic exactly-once refund and `shipment_cancelled` fact. Completed market
+  purchases cannot use this direct-transfer reversal.
 - Atomic market purchases with authoritative prices, stock checks, silver transfer,
   partial/full offer fills, and shipment creation.
 - Household chronicle projection for purchases, sales, arrivals, and assignment lifecycle facts.
@@ -23,6 +26,7 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
   - `GET /api/households/{id}/assignments`
   - `POST /api/households/{id}/assignments`
   - `GET /api/households/{id}/shipments`
+  - `POST /api/shipments/{id}/cancel`
   - `GET /api/households/{id}/chronicle`
   - `GET /api/market/offers?world_id={id}`
   - `POST /api/market/offers/{id}/purchase`

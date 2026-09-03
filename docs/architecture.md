@@ -89,6 +89,12 @@ market purchases until its transport price is explicitly designed.
 Shipment arrival credits the destination exactly once inside tick
 processing.
 
+Direct shipments may be cancelled by their sender before the due tick. The
+same transaction marks them cancelled, refunds the reserved goods once, and
+records a chronicle fact; retries are idempotent. Market-created shipments are
+excluded because reversing a completed sale requires a separate explicit
+market workflow.
+
 Contract fulfillment is determined by shipment arrival.
 
 Prefer DB transactions/constraints to application mutexes.

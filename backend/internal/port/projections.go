@@ -95,6 +95,7 @@ type ReportReader interface {
 
 type ShipmentRepository interface {
 	CreateShipment(context.Context, shipmentdomain.Shipment) (shipmentdomain.Shipment, error)
+	CancelShipment(context.Context, shipmentdomain.ID, shipmentdomain.HouseholdID) (shipmentdomain.Shipment, error)
 	ListHouseholdShipments(context.Context, string) ([]ShipmentRecord, error)
 }
 

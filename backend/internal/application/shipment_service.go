@@ -21,8 +21,31 @@ type CreateShipmentCommand struct {
 	TransportCostMilli    shipmentdomain.MoneyMilli
 }
 
+type CancelShipmentCommand struct {
+	ShipmentID        shipmentdomain.ID
+	SenderHouseholdID shipmentdomain.HouseholdID
+}
+
 type ShipmentService struct {
 	Store port.ShipmentRepository
+}
+
+func (s *ShipmentService) Cancel(ctx context.Context, cmd CancelShipmentCommand) (port.ShipmentRecord, error) {
+	if cmd.ShipmentID == "" || cmd.SenderHouseholdID == "" {
+		return port.ShipmentRecord{}, shipmentdomain.ErrCancellationForbidden
+	}
+	value, err := s.Store.CancelShipment(ctx, cmd.ShipmentID, cmd.SenderHouseholdID)
+	if err != nil {
+		return port.ShipmentRecord{}, err
+	}
+	return port.ShipmentRecord{
+		ID: string(value.ID), WorldID: string(value.WorldID),
+		SenderHouseholdID: string(value.SenderHouseholdID), ReceiverHouseholdID: string(value.ReceiverHouseholdID),
+		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
+		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
+		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
+		TransportCostMilli: int64(value.TransportCostMilli), Status: string(value.Status),
+	}, nil
 }
 
 func NewShipmentService(store port.ShipmentRepository) *ShipmentService {

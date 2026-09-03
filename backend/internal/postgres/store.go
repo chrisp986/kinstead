@@ -316,6 +316,97 @@ func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) 
 	return records, nil
 }
 
+// CancelShipment refunds a reserved direct transfer exactly once. Market
+// shipments are final sale settlements and require a future explicit reversal
+// workflow rather than this direct-shipment command.
+func (s *Store) CancelShipment(ctx context.Context, shipmentID shipmentdomain.ID, senderID shipmentdomain.HouseholdID) (shipmentdomain.Shipment, error) {
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var currentTick int64
+	value, err := scanShipment(tx.QueryRow(ctx, `
+		SELECT s.id::text, s.world_id::text, s.sender_household_id::text, s.receiver_household_id::text,
+		       s.origin_location_id::text, s.destination_location_id::text, s.resource_code,
+		       s.quantity_milli, s.departure_tick, s.expected_arrival_tick,
+		       s.actual_arrival_tick, s.transport_cost_milli, s.status
+		FROM shipments s
+		JOIN worlds w ON w.id = s.world_id
+		WHERE s.id = $1::uuid
+		FOR UPDATE OF s, w
+	`, shipmentID))
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if err := tx.QueryRow(ctx, `SELECT current_tick FROM worlds WHERE id = $1::uuid`, value.WorldID).Scan(&currentTick); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if value.SenderHouseholdID != senderID {
+		return shipmentdomain.Shipment{}, shipmentdomain.ErrCancellationForbidden
+	}
+	var marketCreated bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM chronicle_entries
+			WHERE related_shipment_id = $1::uuid
+			  AND entry_type IN ('market_purchase', 'market_sale')
+		)
+	`, shipmentID).Scan(&marketCreated); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if marketCreated {
+		return shipmentdomain.Shipment{}, shipmentdomain.ErrCancellationForbidden
+	}
+	if value.Status == shipmentdomain.StatusCancelled {
+		// A retry after a committed cancellation is a successful no-op. The
+		// guarded mutation below remains the only path that refunds inventory.
+		return value, nil
+	}
+	if value.Status != shipmentdomain.StatusInTransit {
+		return shipmentdomain.Shipment{}, shipmentdomain.ErrCancellationClosed
+	}
+	cancelled, err := value.CancelAt(shipmentdomain.Tick(currentTick))
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE shipments SET status = 'cancelled'
+		WHERE id = $1::uuid AND status = 'in_transit'
+	`, shipmentID)
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return shipmentdomain.Shipment{}, shipmentdomain.ErrCancellationClosed
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO resource_stocks(household_id, resource_code, quantity_milli, updated_at)
+		VALUES ($1::uuid, $2, $3, now())
+		ON CONFLICT (household_id, resource_code)
+		DO UPDATE SET quantity_milli = resource_stocks.quantity_milli + EXCLUDED.quantity_milli,
+		              updated_at = now()
+	`, cancelled.SenderHouseholdID, cancelled.ResourceType, cancelled.QuantityMilli); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO chronicle_entries(
+			household_id, occurred_tick, entry_type, related_household_id, related_shipment_id, data
+		) VALUES (
+			$1::uuid, $2, 'shipment_cancelled', $3::uuid, $4::uuid,
+			jsonb_build_object('resource_type', $5::text, 'quantity_milli', $6::bigint)
+		)
+	`, cancelled.SenderHouseholdID, currentTick, cancelled.ReceiverHouseholdID,
+		cancelled.ID, cancelled.ResourceType, cancelled.QuantityMilli); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return shipmentdomain.Shipment{}, err
+	}
+	return cancelled, nil
+}
+
 type CharacterRecord = port.CharacterRecord
 type AssignmentRecord = port.AssignmentRecord
 type ShipmentRecord = port.ShipmentRecord

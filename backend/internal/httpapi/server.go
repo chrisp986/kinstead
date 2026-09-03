@@ -13,6 +13,7 @@ import (
 
 	"game/backend/internal/application"
 	marketdomain "game/backend/internal/domain/market"
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/postgres"
 )
 
@@ -38,6 +39,7 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
 	mux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
 	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
+	mux.HandleFunc("POST /api/shipments/{id}/cancel", s.cancelShipment)
 	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
 	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
 	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
@@ -95,6 +97,26 @@ func (s *Server) householdShipments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"shipments": shipments})
+}
+
+type cancelShipmentRequest struct {
+	SenderHouseholdID string `json:"sender_household_id"`
+}
+
+func (s *Server) cancelShipment(w http.ResponseWriter, r *http.Request) {
+	var req cancelShipmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	shipment, err := s.shipments.Cancel(r.Context(), application.CancelShipmentCommand{
+		ShipmentID: shipmentdomain.ID(r.PathValue("id")), SenderHouseholdID: shipmentdomain.HouseholdID(req.SenderHouseholdID),
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, shipment)
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -185,6 +207,14 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, marketdomain.ErrRouteUnavailable) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "route_unavailable", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, shipmentdomain.ErrCancellationForbidden) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "shipment_cancellation_forbidden", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, shipmentdomain.ErrCancellationClosed) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "shipment_cancellation_closed", "message": err.Error()})
 		return
 	}
 	if errors.Is(err, marketdomain.ErrOfferUnavailable) ||

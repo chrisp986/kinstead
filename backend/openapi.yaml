@@ -101,6 +101,28 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/ChronicleEntry' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/shipments/{shipmentId}/cancel:
+    post:
+      operationId: cancelShipment
+      parameters:
+        - name: shipmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelShipmentIntent' }
+      responses:
+        '200':
+          description: Direct shipment cancelled and reserved goods returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/market/offers:
     get:
       operationId: listMarketOffers
@@ -163,6 +185,11 @@ components:
           schema: { $ref: '#/components/schemas/ApiError' }
     NotFound:
       description: Projection not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Forbidden:
+      description: Intent is not authorized for this resource
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
@@ -291,6 +318,11 @@ components:
       properties:
         buyer_household_id: { type: string, format: uuid }
         quantity_milli: { type: integer, format: int64, minimum: 1 }
+    CancelShipmentIntent:
+      type: object
+      required: [sender_household_id]
+      properties:
+        sender_household_id: { type: string, format: uuid }
     PurchaseResult:
       type: object
       required: [cost_milli, goods_cost_milli, transport_cost_milli, offer, shipment]

@@ -48,7 +48,7 @@ func TestShipmentArrivesExactlyWhenDue(t *testing.T) {
 
 func TestCancelledShipmentDoesNotDeliver(t *testing.T) {
 	s := testShipment()
-	cancelled, err := s.Transition(StatusCancelled)
+	cancelled, err := s.CancelAt(2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +57,16 @@ func TestCancelledShipmentDoesNotDeliver(t *testing.T) {
 	}
 	if _, err := cancelled.Arrive(3); !errors.Is(err, ErrNotDue) {
 		t.Fatalf("Arrive() error = %v, want ErrNotDue", err)
+	}
+}
+
+func TestShipmentCannotBeCancelledOnceDue(t *testing.T) {
+	s := testShipment()
+	if _, err := s.CancelAt(3); !errors.Is(err, ErrCancellationClosed) {
+		t.Fatalf("CancelAt() error = %v, want ErrCancellationClosed", err)
+	}
+	if _, err := s.Transition(StatusCancelled); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("context-free cancellation error = %v, want ErrInvalidTransition", err)
 	}
 }
 

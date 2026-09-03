@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	marketdomain "game/backend/internal/domain/market"
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/postgres"
 )
 
@@ -47,6 +48,11 @@ func TestMarketPurchaseCreatesShipmentAtomically(t *testing.T) {
 	assertMarketStock(t, ctx, store, fixture.sellerID, "provisions", 80_000)
 	assertMarketStock(t, ctx, store, fixture.sellerID, "silver", 30_000)
 	assertMarketCounts(t, ctx, store, fixture.worldID, 1, 2)
+	if _, err := store.CancelShipment(ctx, shipmentdomain.ID(result.Shipment.ID), shipmentdomain.HouseholdID(fixture.sellerID)); !errors.Is(err, shipmentdomain.ErrCancellationForbidden) {
+		t.Fatalf("market shipment cancellation error = %v", err)
+	}
+	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "silver", 69_000)
+	assertMarketStock(t, ctx, store, fixture.sellerID, "provisions", 80_000)
 
 	result, err = purchaseOfferWithRetry(ctx, service, PurchaseOfferCommand{
 		OfferID: fixture.offerID, BuyerHouseholdID: fixture.buyerIDs[0], QuantityMilli: 40_000,

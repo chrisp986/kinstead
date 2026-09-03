@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -151,6 +152,69 @@ func TestShipmentArrivalPersistence(t *testing.T) {
 	}
 	if facts != 2 {
 		t.Fatalf("shipment arrival facts = %d, want 2", facts)
+	}
+}
+
+func TestCancelDirectShipmentRefundsReservationExactlyOnce(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	store, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	fixture := createShipmentFixture(t, ctx, store)
+	t.Cleanup(func() { removeShipmentFixture(t, ctx, store, fixture) })
+
+	prepared := shipmentdomain.Shipment{
+		WorldID: shipmentdomain.WorldID(fixture.worldID), SenderHouseholdID: shipmentdomain.HouseholdID(fixture.senderID),
+		ReceiverHouseholdID: shipmentdomain.HouseholdID(fixture.receiverID), OriginLocationID: shipmentdomain.LocationID(fixture.originID),
+		DestinationLocationID: shipmentdomain.LocationID(fixture.destinationID), ResourceType: "provisions", QuantityMilli: 10_000,
+		DepartureTick: 1, ExpectedArrivalTick: 3, Status: shipmentdomain.StatusPrepared,
+	}
+	dispatched, err := prepared.Transition(shipmentdomain.StatusInTransit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.CreateShipment(ctx, dispatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStock(t, ctx, store.Pool, fixture.senderID, 40_000)
+
+	if _, err := store.CancelShipment(ctx, created.ID, shipmentdomain.HouseholdID(fixture.receiverID)); !errors.Is(err, shipmentdomain.ErrCancellationForbidden) {
+		t.Fatalf("other household cancellation error = %v", err)
+	}
+	assertStock(t, ctx, store.Pool, fixture.senderID, 40_000)
+
+	cancelled, err := store.CancelShipment(ctx, created.ID, shipmentdomain.HouseholdID(fixture.senderID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != shipmentdomain.StatusCancelled {
+		t.Fatalf("cancelled status = %s", cancelled.Status)
+	}
+	assertStock(t, ctx, store.Pool, fixture.senderID, 50_000)
+	assertShipmentState(t, ctx, store.Pool, string(created.ID), "cancelled", 0)
+
+	replayed, err := store.CancelShipment(ctx, created.ID, shipmentdomain.HouseholdID(fixture.senderID))
+	if err != nil || replayed.Status != shipmentdomain.StatusCancelled {
+		t.Fatalf("duplicate cancellation = %+v, %v", replayed, err)
+	}
+	assertStock(t, ctx, store.Pool, fixture.senderID, 50_000)
+
+	var facts int
+	if err := store.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM chronicle_entries
+		WHERE related_shipment_id = $1::uuid AND entry_type = 'shipment_cancelled'
+	`, created.ID).Scan(&facts); err != nil {
+		t.Fatal(err)
+	}
+	if facts != 1 {
+		t.Fatalf("cancellation facts = %d, want 1", facts)
 	}
 }
 

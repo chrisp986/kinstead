@@ -3,6 +3,9 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
 import type {
+	CancelShipmentData,
+	CancelShipmentErrors,
+	CancelShipmentResponses,
 	CreateHouseholdAssignmentData,
 	CreateHouseholdAssignmentErrors,
 	CreateHouseholdAssignmentResponses,
@@ -105,6 +108,18 @@ export const listHouseholdChronicle = <ThrowOnError extends boolean = false>(
 		ListHouseholdChronicleErrors,
 		ThrowOnError
 	>({ url: '/api/households/{householdId}/chronicle', ...options });
+
+export const cancelShipment = <ThrowOnError extends boolean = false>(
+	options: Options<CancelShipmentData, ThrowOnError>
+): RequestResult<CancelShipmentResponses, CancelShipmentErrors, ThrowOnError> =>
+	(options.client ?? client).post<CancelShipmentResponses, CancelShipmentErrors, ThrowOnError>({
+		url: '/api/shipments/{shipmentId}/cancel',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
 
 export const listMarketOffers = <ThrowOnError extends boolean = false>(
 	options: Options<ListMarketOffersData, ThrowOnError>

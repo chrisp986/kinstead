@@ -19,8 +19,7 @@ relationships** under asynchronous time.
 -   existing world/market/shipment SQL migrated toward generated `sqlc` queries
 -   CI added for backend, PostgreSQL integration, frontend, and Playwright
 
-Next: finish the remaining shipment cancellation command, then begin contracts
-and relationships in the incremental order below.
+Next: begin contracts and relationships in the incremental order below.
 
 ## Implementation order
 
@@ -34,7 +33,7 @@ and relationships in the incremental order below.
 -   fatigue
 -   PostgreSQL transactional tick path
 
-### 2. Shipments --- established; cancellation remains
+### 2. Shipments --- complete
 
 Implement first-class shipments in the real transactional tick path: -
 domain lifecycle - persistence/sqlc - due arrival processing as tick
@@ -42,8 +41,10 @@ step 1 - exactly-once inventory credit - cancellation - tests for
 timing, idempotency, rollback - minimal read API/dev scenario
 
 Implemented: domain lifecycle, transactional persistence, due arrivals at tick
-step 1, exactly-once credit, timing/idempotency/rollback tests, read API, and
-development scenario. Remaining: expose and test safe cancellation semantics.
+step 1, exactly-once credit, timing/idempotency/rollback tests, read API,
+development scenario, and sender-authorized direct-shipment cancellation with
+an exactly-once stock refund. Market-created shipments deliberately require a
+future explicit reversal workflow and cannot use direct cancellation.
 
 ### 3. Market --- established
 

@@ -109,6 +109,10 @@ export type PurchaseOfferIntent = {
 	quantity_milli: number;
 };
 
+export type CancelShipmentIntent = {
+	sender_household_id: string;
+};
+
 export type PurchaseResult = {
 	cost_milli: number;
 	goods_cost_milli: number;
@@ -271,6 +275,41 @@ export type ListHouseholdChronicleResponses = {
 
 export type ListHouseholdChronicleResponse =
 	ListHouseholdChronicleResponses[keyof ListHouseholdChronicleResponses];
+
+export type CancelShipmentData = {
+	body: CancelShipmentIntent;
+	path: {
+		shipmentId: string;
+	};
+	query?: never;
+	url: '/api/shipments/{shipmentId}/cancel';
+};
+
+export type CancelShipmentErrors = {
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Intent conflicts with current state
+	 */
+	409: ApiError;
+};
+
+export type CancelShipmentError = CancelShipmentErrors[keyof CancelShipmentErrors];
+
+export type CancelShipmentResponses = {
+	/**
+	 * Direct shipment cancelled and reserved goods returned
+	 */
+	200: Shipment;
+};
+
+export type CancelShipmentResponse = CancelShipmentResponses[keyof CancelShipmentResponses];
 
 export type ListMarketOffersData = {
 	body?: never;

@@ -20,9 +20,11 @@ const (
 )
 
 var (
-	ErrInvalidShipment   = errors.New("invalid shipment")
-	ErrInvalidTransition = errors.New("invalid shipment status transition")
-	ErrNotDue            = errors.New("shipment is not due")
+	ErrInvalidShipment       = errors.New("invalid shipment")
+	ErrInvalidTransition     = errors.New("invalid shipment status transition")
+	ErrNotDue                = errors.New("shipment is not due")
+	ErrCancellationClosed    = errors.New("shipment can no longer be cancelled")
+	ErrCancellationForbidden = errors.New("shipment cancellation is forbidden")
 )
 
 type Shipment struct {
@@ -74,12 +76,28 @@ func (s Shipment) Transition(to Status) (Shipment, error) {
 	case StatusPrepared:
 		valid = to == StatusInTransit || to == StatusCancelled
 	case StatusInTransit:
-		valid = to == StatusArrived || to == StatusCancelled
+		valid = to == StatusArrived
 	}
 	if !valid {
 		return Shipment{}, ErrInvalidTransition
 	}
 	s.Status = to
+	return s, nil
+}
+
+// CancelAt cancels a direct transfer before it becomes due. Persistence is
+// responsible for authorizing the sender and refunding reserved goods.
+func (s Shipment) CancelAt(tick Tick) (Shipment, error) {
+	if tick < 0 {
+		return Shipment{}, ErrCancellationClosed
+	}
+	if s.Status == StatusPrepared {
+		return s.Transition(StatusCancelled)
+	}
+	if s.Status != StatusInTransit || tick >= s.ExpectedArrivalTick {
+		return Shipment{}, ErrCancellationClosed
+	}
+	s.Status = StatusCancelled
 	return s, nil
 }
 
