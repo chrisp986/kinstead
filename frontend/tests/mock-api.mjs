@@ -39,6 +39,40 @@ const contracts = [
 		obligations: []
 	}
 ];
+const relationships = [
+	{
+		world_id: worldId,
+		source_household_id: sellerId,
+		source_household_name: 'Hrafnstead',
+		target_household_id: householdId,
+		target_household_name: 'Bjornvik',
+		trust: -7,
+		standing: 'neutral',
+		events: [
+			{
+				id: '00000000-0000-0000-0000-000000000701',
+				event_type: 'contract_obligation_fulfilled',
+				trust_delta: 2,
+				occurred_tick: 10,
+				data: { due_arrival_tick: 10, actual_fulfillment_tick: 10 }
+			},
+			{
+				id: '00000000-0000-0000-0000-000000000702',
+				event_type: 'contract_obligation_late',
+				trust_delta: -1,
+				occurred_tick: 21,
+				data: { due_arrival_tick: 20, actual_fulfillment_tick: 21 }
+			},
+			{
+				id: '00000000-0000-0000-0000-000000000703',
+				event_type: 'contract_obligation_broken',
+				trust_delta: -8,
+				occurred_tick: 35,
+				data: { due_arrival_tick: 32 }
+			}
+		]
+	}
+];
 
 function shipment(id, quantity) {
 	return {
@@ -114,7 +148,7 @@ createServer(async (request, response) => {
 		return send(response, 200, { contracts });
 	}
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/relationships`) {
-		return send(response, 200, { relationships: [] });
+		return send(response, 200, { relationships });
 	}
 	if (request.method === 'GET' && url.pathname === '/api/market/offers') {
 		const offers =

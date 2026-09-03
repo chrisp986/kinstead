@@ -8,11 +8,14 @@ test('manages work and purchases a shipment from the household dashboard', async
 	await expect(page.getByRole('heading', { name: 'What happened' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Contracts' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Relationships' })).toBeVisible();
+	await expect(page.getByText('+2 trust', { exact: true })).toBeVisible();
+	await expect(page.getByText('Due tick 20 · arrived tick 21', { exact: true })).toBeVisible();
+	await expect(page.getByText('-8 trust', { exact: true })).toBeVisible();
 	await expect(page.getByText('Bjorn completed agriculture.')).toBeVisible();
 
 	await page.getByRole('button', { name: 'Accept promise' }).click();
 	await expect(page.getByRole('status')).toContainText('Contract accepted');
-	await expect(page.getByText('Due tick 2')).toBeVisible();
+	await expect(page.getByText('Due tick 2', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Dispatch goods' }).click();
 	await expect(page.getByRole('status')).toContainText('Shipment dispatched for arrival at tick 2');
 	await expect(page.getByText('Dispatched', { exact: true })).toBeVisible();

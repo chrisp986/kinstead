@@ -20,6 +20,23 @@
 	function direction(relationship: Relationship): string {
 		return relationship.source_household_id === householdId ? 'Your trust' : 'Their trust in you';
 	}
+
+	function trustEffect(delta: number): string {
+		return `${delta > 0 ? '+' : ''}${delta} trust`;
+	}
+
+	function tickValue(value: unknown): number | null {
+		return typeof value === 'number' && Number.isSafeInteger(value) ? value : null;
+	}
+
+	function outcomeDetail(event: Relationship['events'][number]): string | null {
+		const due = tickValue(event.data.due_arrival_tick);
+		const arrived = tickValue(event.data.actual_fulfillment_tick);
+		if (due === null) return null;
+		if (arrived !== null) return `Due tick ${due} · arrived tick ${arrived}`;
+		if (event.event_type === 'contract_obligation_broken') return `Due tick ${due} · unresolved`;
+		return null;
+	}
 </script>
 
 <section class="panel" aria-labelledby="relationships-heading">
@@ -49,9 +66,17 @@
 						<ul>
 							{#each relationship.events.slice(0, 4) as event (event.id)}
 								<li>
-									<span>Tick {event.occurred_tick}</span>{sentenceCase(
-										event.event_type.replace('contract_obligation_', '')
-									)}
+									<div class="event-copy">
+										<span>Tick {event.occurred_tick}</span>
+										<strong
+											>{sentenceCase(event.event_type.replace('contract_obligation_', ''))}</strong
+										>
+										{#if outcomeDetail(event)}<small>{outcomeDetail(event)}</small>{/if}
+									</div>
+									<strong
+										class:positive={event.trust_delta > 0}
+										class:negative={event.trust_delta < 0}>{trustEffect(event.trust_delta)}</strong
+									>
 								</li>
 							{/each}
 						</ul>
@@ -105,10 +130,29 @@
 	li {
 		display: flex;
 		justify-content: space-between;
+		align-items: start;
+		gap: 1rem;
 		color: var(--ink-soft);
 		font-size: 0.75rem;
 	}
-	li span {
+	.event-copy {
+		display: grid;
+		gap: 0.1rem;
+	}
+	.event-copy span {
 		color: var(--ink);
+	}
+	.event-copy small {
+		color: var(--ink-soft);
+		font-size: 0.7rem;
+	}
+	li > strong {
+		white-space: nowrap;
+	}
+	li > strong.positive {
+		color: var(--positive);
+	}
+	li > strong.negative {
+		color: var(--critical);
 	}
 </style>
