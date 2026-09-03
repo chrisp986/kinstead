@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -14,6 +15,35 @@ type reportReaderStub struct{ snapshot port.HouseholdSnapshot }
 
 func (s reportReaderStub) GetHouseholdReport(context.Context, string) (port.HouseholdSnapshot, error) {
 	return s.snapshot, nil
+}
+
+func TestFarmReportSerializesEmptyCollectionsAsArrays(t *testing.T) {
+	reader := reportReaderStub{snapshot: port.HouseholdSnapshot{
+		HouseholdID: "household", HouseholdName: "Empty household", WorldID: "world",
+		HistoricalStart:          time.Date(980, time.January, 1, 0, 0, 0, 0, time.UTC),
+		HistoricalDaysPerTickNum: 365, HistoricalDaysPerTickDen: 48,
+	}}
+	report, err := (&ReportService{Store: reader, Balance: balance.V03()}).FarmReport(context.Background(), "household")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Characters == nil || report.Assignments == nil {
+		t.Fatalf("empty report collections must be non-nil: characters=%v assignments=%v", report.Characters, report.Assignments)
+	}
+	payload, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Characters  []port.CharacterRecord  `json:"characters"`
+		Assignments []port.AssignmentRecord `json:"assignments"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Characters == nil || body.Assignments == nil {
+		t.Fatalf("serialized empty collections must be arrays: %s", payload)
+	}
 }
 
 func TestFarmReportDerivesHistoricalDateSeasonAndAge(t *testing.T) {

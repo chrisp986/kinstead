@@ -84,11 +84,15 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 	if assignments == nil {
 		assignments = make([]port.AssignmentRecord, 0)
 	}
+	characters := snap.Characters
+	if characters == nil {
+		characters = make([]port.CharacterRecord, 0)
+	}
 	return FarmReport{
 		HouseholdID: snap.HouseholdID, HouseholdName: snap.HouseholdName, WorldID: snap.WorldID,
 		Tick: snap.CurrentTick, HistoricalDate: historical.Format(time.DateOnly), Season: simulation.SeasonForDate(historical),
 		SupplyDays: supply,
 		Resources:  map[string]float64{"provisions": float64(snap.State.ProvisionsMilli) / 1000, "wood": float64(snap.State.WoodMilli) / 1000, "trade_goods": float64(snap.State.TradeGoodsMilli) / 1000, "silver": float64(snap.State.SilverMilli) / 1000},
-		Characters: snap.Characters, Assignments: assignments, Alerts: alerts,
+		Characters: characters, Assignments: assignments, Alerts: alerts,
 	}, nil
 }
