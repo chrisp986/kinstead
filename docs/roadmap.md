@@ -5,6 +5,23 @@
 Build a testable Vertical Slice proving **labor + supply +
 relationships** under asynchronous time.
 
+## Foundation correction --- complete
+
+-   pgx upgraded to the current supported v5 line
+-   production historical calendar separated from the synthetic v0.3 calendar
+-   character birth dates normalized and ages derived from historical dates
+-   v0.3 seed, strategies, events, and 48-tick calendar isolated under the
+    balancing scenario package
+-   frozen v0.3 design reference preserved; current Go-runner divergence is
+    explicitly documented and independently regression-tested
+-   market travel ticks and transport cost derived from directed geography
+-   narrow application ports added for stable persistence workflows
+-   existing world/market/shipment SQL migrated toward generated `sqlc` queries
+-   CI added for backend, PostgreSQL integration, frontend, and Playwright
+
+Next: finish the remaining shipment cancellation command, then begin contracts
+and relationships in the incremental order below.
+
 ## Implementation order
 
 ### 1. Core simulation --- established
@@ -17,14 +34,18 @@ relationships** under asynchronous time.
 -   fatigue
 -   PostgreSQL transactional tick path
 
-### 2. Shipments --- next
+### 2. Shipments --- established; cancellation remains
 
 Implement first-class shipments in the real transactional tick path: -
 domain lifecycle - persistence/sqlc - due arrival processing as tick
 step 1 - exactly-once inventory credit - cancellation - tests for
 timing, idempotency, rollback - minimal read API/dev scenario
 
-### 3. Market
+Implemented: domain lifecycle, transactional persistence, due arrivals at tick
+step 1, exactly-once credit, timing/idempotency/rollback tests, read API, and
+development scenario. Remaining: expose and test safe cancellation semantics.
+
+### 3. Market --- established
 
 -   offer queries
 -   atomic purchase command
@@ -33,7 +54,10 @@ timing, idempotency, rollback - minimal read API/dev scenario
 -   concurrency tests
 -   market API
 
-### 4. Contracts + relationships
+Implemented, including concurrent purchase coverage and geography-derived
+travel/transport values.
+
+### 4. Contracts + relationships --- next major milestone
 
 -   recurring obligations
 -   fulfillment by arrival
