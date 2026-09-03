@@ -113,3 +113,111 @@ func (q *Queries) InsertRelationshipEvent(ctx context.Context, arg InsertRelatio
 	}
 	return result.RowsAffected(), nil
 }
+
+const listRelationshipEventsBetween = `-- name: ListRelationshipEventsBetween :many
+SELECT id::text AS id, event_type, trust_delta, occurred_tick,
+       COALESCE(related_contract_id::text, ''::text)::text AS related_contract_id,
+       COALESCE(related_shipment_id::text, ''::text)::text AS related_shipment_id,
+       COALESCE(related_obligation_id::text, ''::text)::text AS related_obligation_id,
+       data
+FROM relationship_events
+WHERE source_household_id = $1::uuid AND target_household_id = $2::uuid
+ORDER BY occurred_tick DESC, id DESC
+`
+
+type ListRelationshipEventsBetweenParams struct {
+	Column1 pgtype.UUID
+	Column2 pgtype.UUID
+}
+
+type ListRelationshipEventsBetweenRow struct {
+	ID                  string
+	EventType           string
+	TrustDelta          int32
+	OccurredTick        int64
+	RelatedContractID   string
+	RelatedShipmentID   string
+	RelatedObligationID string
+	Data                []byte
+}
+
+func (q *Queries) ListRelationshipEventsBetween(ctx context.Context, arg ListRelationshipEventsBetweenParams) ([]ListRelationshipEventsBetweenRow, error) {
+	rows, err := q.db.Query(ctx, listRelationshipEventsBetween, arg.Column1, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRelationshipEventsBetweenRow{}
+	for rows.Next() {
+		var i ListRelationshipEventsBetweenRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventType,
+			&i.TrustDelta,
+			&i.OccurredTick,
+			&i.RelatedContractID,
+			&i.RelatedShipmentID,
+			&i.RelatedObligationID,
+			&i.Data,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRelationshipsForHousehold = `-- name: ListRelationshipsForHousehold :many
+SELECT r.world_id::text AS world_id,
+       r.source_household_id::text AS source_household_id,
+       source.name AS source_household_name,
+       r.target_household_id::text AS target_household_id,
+       target.name AS target_household_name,
+       r.trust, r.first_interaction_tick
+FROM relationships r
+JOIN households source ON source.id = r.source_household_id
+JOIN households target ON target.id = r.target_household_id
+WHERE r.source_household_id = $1::uuid OR r.target_household_id = $1::uuid
+ORDER BY source.name, target.name, r.source_household_id, r.target_household_id
+`
+
+type ListRelationshipsForHouseholdRow struct {
+	WorldID              string
+	SourceHouseholdID    string
+	SourceHouseholdName  string
+	TargetHouseholdID    string
+	TargetHouseholdName  string
+	Trust                int32
+	FirstInteractionTick pgtype.Int8
+}
+
+func (q *Queries) ListRelationshipsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListRelationshipsForHouseholdRow, error) {
+	rows, err := q.db.Query(ctx, listRelationshipsForHousehold, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRelationshipsForHouseholdRow{}
+	for rows.Next() {
+		var i ListRelationshipsForHouseholdRow
+		if err := rows.Scan(
+			&i.WorldID,
+			&i.SourceHouseholdID,
+			&i.SourceHouseholdName,
+			&i.TargetHouseholdID,
+			&i.TargetHouseholdName,
+			&i.Trust,
+			&i.FirstInteractionTick,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -101,6 +101,24 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/ChronicleEntry' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/households/{householdId}/relationships:
+    get:
+      operationId: listHouseholdRelationships
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+      responses:
+        '200':
+          description: Directed current relationship projections with newest-first event history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [relationships]
+                properties:
+                  relationships:
+                    type: array
+                    items: { $ref: '#/components/schemas/Relationship' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/shipments/{shipmentId}/cancel:
     post:
       operationId: cancelShipment
@@ -288,6 +306,38 @@ components:
         data:
           type: object
           additionalProperties: true
+    RelationshipEvent:
+      type: object
+      required: [id, event_type, trust_delta, occurred_tick, data]
+      properties:
+        id: { type: string, format: uuid }
+        event_type:
+          type: string
+          enum: [contract_obligation_fulfilled, contract_obligation_late, contract_obligation_broken]
+        trust_delta: { type: integer }
+        occurred_tick: { type: integer, format: int64 }
+        related_contract_id: { type: string, format: uuid }
+        related_shipment_id: { type: string, format: uuid }
+        related_obligation_id: { type: string, format: uuid }
+        data:
+          type: object
+          additionalProperties: true
+    Relationship:
+      type: object
+      required:
+        [world_id, source_household_id, source_household_name, target_household_id, target_household_name, trust, standing, events]
+      properties:
+        world_id: { type: string, format: uuid }
+        source_household_id: { type: string, format: uuid }
+        source_household_name: { type: string }
+        target_household_id: { type: string, format: uuid }
+        target_household_name: { type: string }
+        trust: { type: integer, minimum: -100, maximum: 100 }
+        standing: { type: string, enum: [disapproving, neutral, favorable, connected] }
+        first_interaction_tick: { type: integer, format: int64 }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/RelationshipEvent' }
     MarketOffer:
       type: object
       required:

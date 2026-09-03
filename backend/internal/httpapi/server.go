@@ -18,12 +18,13 @@ import (
 )
 
 type Server struct {
-	store     *postgres.Store
-	reports   *application.ReportService
-	shipments *application.ShipmentService
-	market    *application.MarketService
-	chronicle *application.ChronicleService
-	log       *slog.Logger
+	store         *postgres.Store
+	reports       *application.ReportService
+	shipments     *application.ShipmentService
+	market        *application.MarketService
+	chronicle     *application.ChronicleService
+	relationships *application.RelationshipService
+	log           *slog.Logger
 }
 
 func New(store *postgres.Store, log *slog.Logger) http.Handler {
@@ -31,7 +32,8 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 		store: store, reports: application.NewReportService(store),
 		shipments: application.NewShipmentService(store),
 		market:    application.NewMarketService(store), log: log,
-		chronicle: application.NewChronicleService(store),
+		chronicle:     application.NewChronicleService(store),
+		relationships: application.NewRelationshipService(store),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -41,9 +43,19 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
 	mux.HandleFunc("POST /api/shipments/{id}/cancel", s.cancelShipment)
 	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
+	mux.HandleFunc("GET /api/households/{id}/relationships", s.householdRelationships)
 	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
 	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
 	return cors(mux)
+}
+
+func (s *Server) householdRelationships(w http.ResponseWriter, r *http.Request) {
+	relationships, err := s.relationships.ListForHousehold(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"relationships": relationships})
 }
 
 func (s *Server) householdChronicle(w http.ResponseWriter, r *http.Request) {

@@ -1,11 +1,28 @@
 package relationship
 
 import (
+	"errors"
 	"testing"
 
 	contractdomain "game/backend/internal/domain/contract"
 	shipmentdomain "game/backend/internal/domain/shipment"
 )
+
+func TestStandingForTrustUsesSpecifiedBands(t *testing.T) {
+	tests := []struct {
+		trust int
+		want  Standing
+	}{{-100, StandingDisapproving}, {-31, StandingDisapproving}, {-30, StandingNeutral}, {29, StandingNeutral}, {30, StandingFavorable}, {69, StandingFavorable}, {70, StandingConnected}, {100, StandingConnected}}
+	for _, tt := range tests {
+		got, err := StandingForTrust(tt.trust)
+		if err != nil || got != tt.want {
+			t.Fatalf("standing(%d) = %s, %v; want %s", tt.trust, got, err, tt.want)
+		}
+	}
+	if _, err := StandingForTrust(101); !errors.Is(err, ErrInvalidTrust) {
+		t.Fatalf("out-of-range error = %v", err)
+	}
+}
 
 func relationshipObligation() contractdomain.Obligation {
 	return contractdomain.Obligation{

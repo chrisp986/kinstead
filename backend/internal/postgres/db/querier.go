@@ -26,6 +26,8 @@ type Querier interface {
 	ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error)
 	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)
 	ListContractsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractsForHouseholdRow, error)
+	ListRelationshipEventsBetween(ctx context.Context, arg ListRelationshipEventsBetweenParams) ([]ListRelationshipEventsBetweenRow, error)
+	ListRelationshipsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListRelationshipsForHouseholdRow, error)
 	ListShipmentsByHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByHouseholdRow, error)
 	ListShipmentsByWorld(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByWorldRow, error)
 	LoadContractObligationsForTick(ctx context.Context, arg LoadContractObligationsForTickParams) ([]LoadContractObligationsForTickRow, error)

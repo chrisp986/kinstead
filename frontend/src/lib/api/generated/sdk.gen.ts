@@ -19,6 +19,9 @@ import type {
 	ListHouseholdChronicleData,
 	ListHouseholdChronicleErrors,
 	ListHouseholdChronicleResponses,
+	ListHouseholdRelationshipsData,
+	ListHouseholdRelationshipsErrors,
+	ListHouseholdRelationshipsResponses,
 	ListHouseholdShipmentsData,
 	ListHouseholdShipmentsResponses,
 	ListMarketOffersData,
@@ -108,6 +111,19 @@ export const listHouseholdChronicle = <ThrowOnError extends boolean = false>(
 		ListHouseholdChronicleErrors,
 		ThrowOnError
 	>({ url: '/api/households/{householdId}/chronicle', ...options });
+
+export const listHouseholdRelationships = <ThrowOnError extends boolean = false>(
+	options: Options<ListHouseholdRelationshipsData, ThrowOnError>
+): RequestResult<
+	ListHouseholdRelationshipsResponses,
+	ListHouseholdRelationshipsErrors,
+	ThrowOnError
+> =>
+	(options.client ?? client).get<
+		ListHouseholdRelationshipsResponses,
+		ListHouseholdRelationshipsErrors,
+		ThrowOnError
+	>({ url: '/api/households/{householdId}/relationships', ...options });
 
 export const cancelShipment = <ThrowOnError extends boolean = false>(
 	options: Options<CancelShipmentData, ThrowOnError>

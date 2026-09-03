@@ -77,8 +77,9 @@ any broken obligation breaks the contract; otherwise all obligations must be
 settled before completion. Final obligation outcomes now append idempotent,
 directed relationship history and initialize the current relationship
 projection. Contract outcome deltas remain neutral pending an explicit trust
-balance decision. Next: relationship read projections, then contract REST and
-frontend integration.
+balance decision. A relationship read projection exposes the specified
+standing bands and newest-first structured history through REST/OpenAPI. Next:
+contract REST commands/projections and frontend integration.
 
 ### 5. Politics
 

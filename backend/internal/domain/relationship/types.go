@@ -8,6 +8,7 @@ import (
 )
 
 type EventType string
+type Standing string
 
 const (
 	EventContractFulfilled EventType = "contract_obligation_fulfilled"
@@ -15,7 +16,30 @@ const (
 	EventContractBroken    EventType = "contract_obligation_broken"
 )
 
+const (
+	StandingDisapproving Standing = "disapproving"
+	StandingNeutral      Standing = "neutral"
+	StandingFavorable    Standing = "favorable"
+	StandingConnected    Standing = "connected"
+)
+
 var ErrInvalidEvent = errors.New("invalid relationship event")
+var ErrInvalidTrust = errors.New("relationship trust must be between -100 and 100")
+
+func StandingForTrust(trust int) (Standing, error) {
+	switch {
+	case trust < -100 || trust > 100:
+		return "", ErrInvalidTrust
+	case trust <= -31:
+		return StandingDisapproving, nil
+	case trust <= 29:
+		return StandingNeutral, nil
+	case trust <= 69:
+		return StandingFavorable, nil
+	default:
+		return StandingConnected, nil
+	}
+}
 
 type Event struct {
 	WorldID               contractdomain.WorldID

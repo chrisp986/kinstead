@@ -7,6 +7,7 @@ export {
 	getHouseholdReport,
 	listHouseholdAssignments,
 	listHouseholdChronicle,
+	listHouseholdRelationships,
 	listHouseholdShipments,
 	listMarketOffers,
 	type Options,
@@ -49,6 +50,11 @@ export type {
 	ListHouseholdChronicleErrors,
 	ListHouseholdChronicleResponse,
 	ListHouseholdChronicleResponses,
+	ListHouseholdRelationshipsData,
+	ListHouseholdRelationshipsError,
+	ListHouseholdRelationshipsErrors,
+	ListHouseholdRelationshipsResponse,
+	ListHouseholdRelationshipsResponses,
 	ListHouseholdShipmentsData,
 	ListHouseholdShipmentsResponse,
 	ListHouseholdShipmentsResponses,
@@ -65,5 +71,7 @@ export type {
 	PurchaseMarketOfferResponses,
 	PurchaseOfferIntent,
 	PurchaseResult,
+	Relationship,
+	RelationshipEvent,
 	Shipment
 } from './types.gen';

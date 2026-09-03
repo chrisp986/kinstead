@@ -83,6 +83,32 @@ export type ChronicleEntry = {
 	};
 };
 
+export type RelationshipEvent = {
+	id: string;
+	event_type:
+		'contract_obligation_fulfilled' | 'contract_obligation_late' | 'contract_obligation_broken';
+	trust_delta: number;
+	occurred_tick: number;
+	related_contract_id?: string;
+	related_shipment_id?: string;
+	related_obligation_id?: string;
+	data: {
+		[key: string]: unknown;
+	};
+};
+
+export type Relationship = {
+	world_id: string;
+	source_household_id: string;
+	source_household_name: string;
+	target_household_id: string;
+	target_household_name: string;
+	trust: number;
+	standing: 'disapproving' | 'neutral' | 'favorable' | 'connected';
+	first_interaction_tick?: number;
+	events: Array<RelationshipEvent>;
+};
+
 export type MarketOffer = {
 	id: string;
 	world_id: string;
@@ -275,6 +301,37 @@ export type ListHouseholdChronicleResponses = {
 
 export type ListHouseholdChronicleResponse =
 	ListHouseholdChronicleResponses[keyof ListHouseholdChronicleResponses];
+
+export type ListHouseholdRelationshipsData = {
+	body?: never;
+	path: {
+		householdId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/relationships';
+};
+
+export type ListHouseholdRelationshipsErrors = {
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type ListHouseholdRelationshipsError =
+	ListHouseholdRelationshipsErrors[keyof ListHouseholdRelationshipsErrors];
+
+export type ListHouseholdRelationshipsResponses = {
+	/**
+	 * Directed current relationship projections with newest-first event history
+	 */
+	200: {
+		relationships: Array<Relationship>;
+	};
+};
+
+export type ListHouseholdRelationshipsResponse =
+	ListHouseholdRelationshipsResponses[keyof ListHouseholdRelationshipsResponses];
 
 export type CancelShipmentData = {
 	body: CancelShipmentIntent;

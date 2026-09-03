@@ -69,6 +69,10 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 	}
 	delayedArrivalTick := int64(6)
 	assertTickContract(t, ctx, store, contractID, "fulfilled", "broken", "broken", &delayedArrivalTick, 3)
+	relationships, err := NewRelationshipService(store).ListForHousehold(ctx, receiverID)
+	if err != nil || len(relationships) != 1 || relationships[0].Standing != "neutral" || len(relationships[0].Events) != 3 {
+		t.Fatalf("relationship projection = %+v, %v", relationships, err)
+	}
 }
 
 func processDueWorldWithRetry(ctx context.Context, processor *TickProcessor) (bool, error) {

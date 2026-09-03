@@ -41,3 +41,26 @@ DO UPDATE SET
     trust = GREATEST(-100, LEAST(100, relationships.trust + EXCLUDED.trust)),
     first_interaction_tick = LEAST(relationships.first_interaction_tick, EXCLUDED.first_interaction_tick),
     updated_at = now();
+
+-- name: ListRelationshipsForHousehold :many
+SELECT r.world_id::text AS world_id,
+       r.source_household_id::text AS source_household_id,
+       source.name AS source_household_name,
+       r.target_household_id::text AS target_household_id,
+       target.name AS target_household_name,
+       r.trust, r.first_interaction_tick
+FROM relationships r
+JOIN households source ON source.id = r.source_household_id
+JOIN households target ON target.id = r.target_household_id
+WHERE r.source_household_id = $1::uuid OR r.target_household_id = $1::uuid
+ORDER BY source.name, target.name, r.source_household_id, r.target_household_id;
+
+-- name: ListRelationshipEventsBetween :many
+SELECT id::text AS id, event_type, trust_delta, occurred_tick,
+       COALESCE(related_contract_id::text, ''::text)::text AS related_contract_id,
+       COALESCE(related_shipment_id::text, ''::text)::text AS related_shipment_id,
+       COALESCE(related_obligation_id::text, ''::text)::text AS related_obligation_id,
+       data
+FROM relationship_events
+WHERE source_household_id = $1::uuid AND target_household_id = $2::uuid
+ORDER BY occurred_tick DESC, id DESC;
