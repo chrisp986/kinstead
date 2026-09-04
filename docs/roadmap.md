@@ -98,11 +98,17 @@ one normal next-tick assignment for an otherwise-free full-capacity worker and
 records the action; future emergency work can be replaced transactionally by
 the player's plan.
 
-### 7. SvelteKit Vertical Slice --- next major milestone
+### 7. SvelteKit Vertical Slice --- complete
 
-Screens: - Farm Report - Farm - Work Planning - Trade - Chronicle
+Complete: nested household routes for Farm Report, Farm, Work Planning, Trade,
+and Chronicle; shared household shell with responsive navigation; mobile-first
+decision cards and route-linked actions; route-owned data loading/forms;
+responsive work, politics, market, contract, transit, relationship, and
+chronicle surfaces; accessible feedback and mobile workflow coverage.
 
 Generate API client/types from OpenAPI.
+
+The final Vertical Slice UI organization is now the next product-polish focus.
 
 ## First end-to-end economic scenario
 
