@@ -31,6 +31,8 @@ func (s *Store) ListHouseholdChronicle(ctx context.Context, householdID string) 
                e.subject_character_id::text, subject.name,
                e.related_household_id::text, related.name,
                e.related_shipment_id::text, e.related_assignment_id::text,
+               e.related_contract_id::text, e.related_obligation_id::text,
+               e.related_household_decision_id::text, e.related_political_actor_id::text,
                e.data
         FROM chronicle_entries e
         LEFT JOIN characters subject ON subject.id = e.subject_character_id
@@ -52,7 +54,9 @@ func (s *Store) ListHouseholdChronicle(ctx context.Context, householdID string) 
 			&entry.ID, &entry.OccurredTick, &entry.EntryType,
 			&entry.SubjectCharacterID, &entry.SubjectCharacterName,
 			&entry.RelatedHouseholdID, &entry.RelatedHouseholdName,
-			&entry.RelatedShipmentID, &entry.RelatedAssignmentID, &data,
+			&entry.RelatedShipmentID, &entry.RelatedAssignmentID,
+			&entry.RelatedContractID, &entry.RelatedObligationID,
+			&entry.RelatedHouseholdDecisionID, &entry.RelatedPoliticalActorID, &data,
 		); err != nil {
 			return nil, err
 		}

@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -357,8 +358,53 @@ func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.
 		if err := persistRelationshipEvent(ctx, tx, *event); err != nil {
 			return false, err
 		}
+		if err := persistContractOutcomeChronicle(ctx, tx, *event); err != nil {
+			return false, err
+		}
 	}
 	return true, nil
+}
+
+// persistContractOutcomeChronicle records the same final outcome observed by
+// the relationship projection for both affected households. The obligation
+// reference and unique index make retries idempotent.
+func persistContractOutcomeChronicle(ctx context.Context, tx pgx.Tx, event relationshipdomain.Event) error {
+	entryType := string(event.Type)
+	data := map[string]any{
+		"resource_type":    string(event.ResourceType),
+		"quantity_milli":   int64(event.QuantityMilli),
+		"due_arrival_tick": int64(event.DueArrivalTick),
+		"trust_delta":      event.TrustDelta,
+		"contract_id":      string(event.ContractID),
+		"obligation_id":    string(event.ObligationID),
+	}
+	if event.ActualFulfillmentTick != nil {
+		data["actual_arrival_tick"] = int64(*event.ActualFulfillmentTick)
+	}
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	for _, household := range []struct {
+		id      string
+		related string
+	}{
+		{string(event.SourceHouseholdID), string(event.TargetHouseholdID)},
+		{string(event.TargetHouseholdID), string(event.SourceHouseholdID)},
+	} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO chronicle_entries(
+				household_id, occurred_tick, entry_type, related_household_id,
+				related_contract_id, related_obligation_id, data
+			) VALUES ($1::uuid, $2, $3, $4::uuid, $5::uuid, $6::uuid, $7::jsonb)
+			ON CONFLICT (household_id, related_obligation_id, entry_type)
+			WHERE related_obligation_id IS NOT NULL DO NOTHING
+		`, household.id, event.OccurredTick, entryType, household.related,
+			string(event.ContractID), string(event.ObligationID), payload); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func persistRelationshipEvent(ctx context.Context, tx pgx.Tx, event relationshipdomain.Event) error {

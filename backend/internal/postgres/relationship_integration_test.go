@@ -201,6 +201,7 @@ func createRelationshipTrustFixture(t *testing.T, ctx context.Context, store *St
 func removeRelationshipTrustFixture(t *testing.T, ctx context.Context, store *Store, worldID string) {
 	t.Helper()
 	for _, statement := range []string{
+		`DELETE FROM chronicle_entries WHERE household_id IN (SELECT id FROM households WHERE world_id = $1::uuid)`,
 		`DELETE FROM relationship_events WHERE world_id = $1::uuid`,
 		`DELETE FROM relationships WHERE world_id = $1::uuid`,
 		`DELETE FROM contract_obligations WHERE contract_id IN (SELECT id FROM contracts WHERE world_id = $1::uuid)`,
