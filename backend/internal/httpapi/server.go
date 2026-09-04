@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,7 @@ type Server struct {
 	relationships *application.RelationshipService
 	contracts     *application.ContractService
 	politics      *application.PoliticsService
+	calendar      *application.CalendarService
 	log           *slog.Logger
 }
 
@@ -42,10 +44,12 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 		relationships: application.NewRelationshipService(store),
 		contracts:     application.NewContractService(store),
 		politics:      application.NewPoliticsService(store, store),
+		calendar:      application.NewCalendarService(store),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/households/{id}/report", s.farmReport)
+	mux.HandleFunc("GET /api/households/{id}/calendar", s.householdCalendar)
 	mux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
 	mux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
 	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
@@ -70,6 +74,32 @@ func (s *Server) householdPolitics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Server) householdCalendar(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	from, to := int64(0), int64(0)
+	var err error
+	if raw := query.Get("from_game_day"); raw != "" {
+		from, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_calendar_range"})
+			return
+		}
+	}
+	if raw := query.Get("to_game_day"); raw != "" {
+		to, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_calendar_range"})
+			return
+		}
+	}
+	projection, err := s.calendar.Household(r.Context(), r.PathValue("id"), from, to, query.Get("category"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, projection)
 }
 func (s *Server) respondPoliticalDemand(w http.ResponseWriter, r *http.Request) {
 	var req struct {

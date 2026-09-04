@@ -44,39 +44,38 @@ simulation ticks, a rational tick-to-historical-day conversion, and historical
 dates/seasons.
 
 - Tick 0 is the historical start-date snapshot.
-- By default, 48 production ticks advance 365 historical days.
-- Production season comes from the resulting historical month, not `tick % 48`.
+- By default, 48 production ticks advance 364 game days (`91 / 12` per tick).
+- Production season comes from the resulting 364-day game calendar, not `tick % 48`.
 - The isolated v0.3 simulator still uses 12 balancing ticks per synthetic season.
 - Target pace: one game year in about 8 real days.
 - Therefore the development seed uses one tick every **4 real hours** (`14400` seconds)
   by default. Local playtest resets can override only the wall-clock duration with
   `DEV_TICK_DURATION_SECONDS`.
 
-The database stores the conversion as `historical_days_per_tick_num /
-historical_days_per_tick_den` (default `365 / 48`). Characters store a
-historical `birth_date`; age is derived for the report date rather than stored
-or inferred from balancing ticks.
+The database stores the conversion as `game_days_per_tick_num /
+game_days_per_tick_den` (default `91 / 12`). Characters store an absolute
+`birth_game_day`; age is derived from the deterministic calendar.
 
 ## Development tick pacing
 
 ```bash
-# Normal development pacing: 4 hours/tick
-./scripts/reset_db.sh
+# Standard playtesting (preserves existing state)
+cd .. && ./scripts/dev.sh playtest
 
-# Recommended manual playtest pacing: 60 seconds/tick
-./scripts/reset_playtest_db.sh
+# Fresh playtest (destructive by design)
+cd .. && ./scripts/dev.sh playtest --reset
 
 # Fast debugging
-DEV_TICK_DURATION_SECONDS=15 ./scripts/reset_playtest_db.sh
+cd .. && ./scripts/dev.sh fast
 
 # Explicit custom value
-DEV_TICK_DURATION_SECONDS=120 ./scripts/reset_db.sh
+cd .. && ./scripts/dev.sh 120
 ```
 
 `DEV_TICK_DURATION_SECONDS` changes only wall-clock scheduling. It does not
-change historical days per tick or balancing calendar semantics. The historical
-conversion remains `365 / 48`, and the isolated v0.3 simulator remains on its
-synthetic 48-tick calendar.
+change game days per tick or balancing calendar semantics. The conversion
+remains `91 / 12`, and the isolated v0.3 simulator remains on its synthetic
+48-tick calendar.
 
 For the complete local environment, use the root launcher described in the
 root [README](../README.md). The commands below are advanced database-only
@@ -86,6 +85,7 @@ helpers.
 
 - Go 1.27+
 - Docker + Docker Compose
+- Linux or WSL with Bash 5.1+ and `setsid`/util-linux
 - Internet access once, so Go can download `pgx` and the pinned Goose CLI
 - `curl`
 

@@ -34,7 +34,7 @@ export type ReportChangeWindow = {
 export type Character = {
 	id: string;
 	name: string;
-	birth_date: string;
+	birth_game_day: number;
 	age: number;
 	labor_permille: number;
 	fatigue: number;
@@ -57,8 +57,9 @@ export type HouseholdReport = {
 	household_name: string;
 	world_id: string;
 	tick: number;
-	historical_date: string;
-	season: string;
+	game_day: number;
+	calendar: CalendarBreakdown;
+	season?: string;
 	supply_days: number;
 	resources: {
 		[key: string]: number;
@@ -70,6 +71,35 @@ export type HouseholdReport = {
 	recent_changes: Array<ChronicleEntry>;
 	attention: Array<ReportItem>;
 	decisions: Array<ReportItem>;
+};
+
+export type CalendarBreakdown = {
+	game_day: number;
+	year_index: number;
+	day_of_year: number;
+	week_of_year: number;
+	day_of_week: number;
+	production_season: 'spring' | 'summer' | 'autumn' | 'winter';
+	half_year: 'summer' | 'winter';
+	seasonal_phase: string;
+};
+
+export type CalendarEvent = {
+	id: string;
+	game_day: number;
+	category: string;
+	kind: string;
+	title: string;
+};
+
+export type CalendarProjection = {
+	household_id: string;
+	world_id: string;
+	setting_start_year: number;
+	current: CalendarBreakdown;
+	from_game_day: number;
+	to_game_day: number;
+	events: Array<CalendarEvent>;
 };
 
 export type Shipment = {
@@ -326,6 +356,43 @@ export type GetHouseholdReportResponses = {
 
 export type GetHouseholdReportResponse =
 	GetHouseholdReportResponses[keyof GetHouseholdReportResponses];
+
+export type GetHouseholdCalendarData = {
+	body?: never;
+	path: {
+		householdId: string;
+	};
+	query?: {
+		from_game_day?: number;
+		to_game_day?: number;
+		category?: string;
+	};
+	url: '/api/households/{householdId}/calendar';
+};
+
+export type GetHouseholdCalendarErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type GetHouseholdCalendarError =
+	GetHouseholdCalendarErrors[keyof GetHouseholdCalendarErrors];
+
+export type GetHouseholdCalendarResponses = {
+	/**
+	 * Deterministic simulated calendar projection
+	 */
+	200: CalendarProjection;
+};
+
+export type GetHouseholdCalendarResponse =
+	GetHouseholdCalendarResponses[keyof GetHouseholdCalendarResponses];
 
 export type ListHouseholdAssignmentsData = {
 	body?: never;

@@ -12,9 +12,12 @@ import (
 )
 
 type CharacterRecord struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	BirthDate      string `json:"birth_date"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	BirthGameDay int64  `json:"birth_game_day"`
+	// BirthDate is retained only as a decoding compatibility field for older
+	// fixtures. PostgreSQL-backed projections no longer populate it.
+	BirthDate      string `json:"-"`
 	Age            int    `json:"age"`
 	LaborPermille  int64  `json:"labor_permille"`
 	Fatigue        int    `json:"fatigue"`
@@ -84,6 +87,11 @@ type HouseholdSnapshot struct {
 	WorldID                  string
 	WorldName                string
 	CurrentTick              int64
+	CurrentGameDay           int64
+	CalendarRemainder        int64
+	GameDaysPerTickNum       int64
+	GameDaysPerTickDen       int64
+	SettingStartYear         int32
 	HistoricalStart          time.Time
 	HistoricalDaysPerTickNum int32
 	HistoricalDaysPerTickDen int32
@@ -158,6 +166,10 @@ type MarketRepository interface {
 type WorldClaim struct {
 	ID                  string
 	CurrentTick         int64
+	CurrentGameDay      int64
+	CalendarRemainder   int64
+	GameDaysPerTickNum  int64
+	GameDaysPerTickDen  int64
 	TickDurationSeconds int32
 	NextTickAt          time.Time
 }
@@ -189,7 +201,7 @@ type WorldTickTransaction interface {
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult) error
 	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, float64) (bool, error)
-	FinishWorldTick(context.Context, WorldClaim, int64) error
+	FinishWorldTick(context.Context, WorldClaim, int64, int64, int64) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
 }

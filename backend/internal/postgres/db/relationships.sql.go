@@ -60,7 +60,7 @@ INSERT INTO relationship_events(
     $3::uuid,
     $4,
     $5,
-    $6,
+    $6::bigint,
     $7::uuid,
     NULLIF($8::text, '')::uuid,
     $9::uuid,

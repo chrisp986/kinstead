@@ -5,6 +5,7 @@
 	let { householdId }: { householdId: string } = $props();
 	const items = [
 		{ label: 'Report', path: '/households/[householdId]', key: 'report' },
+		{ label: 'Calendar', path: '/households/[householdId]/calendar', key: 'calendar' },
 		{ label: 'Farm', path: '/households/[householdId]/farm', key: 'farm' },
 		{ label: 'Work', path: '/households/[householdId]/work', key: 'work' },
 		{ label: 'Trade', path: '/households/[householdId]/trade', key: 'trade' },
@@ -31,7 +32,7 @@
 			aria-current={active(item.path) ? 'page' : undefined}
 		>
 			<span class="icon" aria-hidden="true">
-				{#if item.key === 'report'}⌂{:else if item.key === 'farm'}⌁{:else if item.key === 'work'}✦{:else if item.key === 'trade'}⇄{:else}≡{/if}
+				{#if item.key === 'report'}⌂{:else if item.key === 'calendar'}◷{:else if item.key === 'farm'}⌁{:else if item.key === 'work'}✦{:else if item.key === 'trade'}⇄{:else}≡{/if}
 			</span>
 			<span>{item.label}</span>
 		</a>

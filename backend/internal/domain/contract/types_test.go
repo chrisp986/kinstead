@@ -39,6 +39,26 @@ func TestGenerateRecurringObligationsAtInclusiveIntervals(t *testing.T) {
 	}
 }
 
+func TestGenerateGameDayObligationsAtSupportedIntervals(t *testing.T) {
+	for _, interval := range []int64{7, 14, 28} {
+		value := activeContract()
+		value.StartsTick, value.EndsTick, value.IntervalTicks = 0, 0, 0
+		value.StartGameDay, value.EndGameDay, value.IntervalDays = 7, 28, interval
+		got, err := GenerateObligations(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) == 0 || got[0].DueGameDay != 7 || got[0].DueArrivalTick != 7 {
+			t.Fatalf("interval %d first obligation = %+v", interval, got[0])
+		}
+		for _, obligation := range got {
+			if obligation.DueGameDay < 7 || obligation.DueGameDay > 28 {
+				t.Fatalf("interval %d due day = %d", interval, obligation.DueGameDay)
+			}
+		}
+	}
+}
+
 func TestContractTransitions(t *testing.T) {
 	proposed := activeContract()
 	proposed.Status = StatusProposed
@@ -160,6 +180,22 @@ func TestBrokenObligationRecordsEventualArrival(t *testing.T) {
 	arrived, err := broken.Assess(12, shipmentTick(12))
 	if err != nil || arrived.Status != ObligationBroken || arrived.FulfilledTick == nil || *arrived.FulfilledTick != 12 {
 		t.Fatalf("eventual arrival = %+v, %v", arrived, err)
+	}
+}
+
+func TestGameDayAssessmentUsesDayBuckets(t *testing.T) {
+	o := pendingObligation()
+	o.DueArrivalTick = 0
+	o.DueGameDay = 100
+	o.ShipmentID = "shipment"
+	for _, tt := range []struct {
+		arrival GameDay
+		status  ObligationStatus
+	}{{100, ObligationFulfilled}, {107, ObligationLate}, {114, ObligationLate}, {115, ObligationBroken}} {
+		got, err := o.AssessGameDay(tt.arrival, &tt.arrival)
+		if err != nil || got.Status != tt.status {
+			t.Fatalf("arrival %d = %+v, %v; want %s", tt.arrival, got, err, tt.status)
+		}
 	}
 }
 
