@@ -943,7 +943,7 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 		return AssignmentRecord{}, fmt.Errorf("assignment overlaps existing work plan")
 	}
 	for _, value := range emergency {
-		if _, err := tx.Exec(ctx, `DELETE FROM assignments WHERE id=$1::uuid AND status='planned'`, value.id); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE assignments SET status='cancelled', updated_at=now() WHERE id=$1::uuid AND status='planned'`, value.id); err != nil {
 			return AssignmentRecord{}, err
 		}
 	}
