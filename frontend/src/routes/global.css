@@ -23,6 +23,15 @@
 	--positive: #426846;
 	--warning: #9b692b;
 	--critical: #943f31;
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.5rem;
+	--space-6: 2rem;
+	--tap-min: 2.75rem;
+	--mobile-nav-height: 4.25rem;
+	--content-max: 1180px;
 }
 
 * {
@@ -85,7 +94,7 @@ label > span {
 	font-weight: 700;
 }
 .shell {
-	width: min(1180px, calc(100% - 2rem));
+	width: min(var(--content-max), calc(100% - 2rem));
 	margin: 0 auto;
 }
 nav {
@@ -142,7 +151,7 @@ nav .brand {
 }
 @media (max-width: 600px) {
 	.shell {
-		width: min(100% - 1rem, 1180px);
+		width: min(100% - 1rem, var(--content-max));
 	}
 	nav span {
 		display: none;
