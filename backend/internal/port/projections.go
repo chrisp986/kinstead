@@ -175,9 +175,11 @@ type WorldClaim struct {
 }
 
 type ContractObligationAssessment struct {
-	WorldID           contractdomain.WorldID
-	Obligation        contractdomain.Obligation
-	ActualArrivalTick *shipmentdomain.Tick
+	WorldID              contractdomain.WorldID
+	Obligation           contractdomain.Obligation
+	ActualArrivalTick    *shipmentdomain.Tick
+	ActualArrivalGameDay *contractdomain.GameDay
+	GameDaySchedule      bool
 }
 
 type ContractRollupSnapshot struct {
