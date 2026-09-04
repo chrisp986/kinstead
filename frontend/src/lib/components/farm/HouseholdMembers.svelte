@@ -1,9 +1,13 @@
 <script lang="ts">
 	import type { Assignment, Character } from '$lib/api/generated';
 	import { labelActivity } from '$lib/domain/format';
+	import { formatRelativeGameDay } from '$lib/domain/time';
 
-	let { characters, assignments }: { characters: Character[]; assignments: Assignment[] } =
-		$props();
+	let {
+		characters,
+		assignments,
+		currentGameDay
+	}: { characters: Character[]; assignments: Assignment[]; currentGameDay: number } = $props();
 
 	function assignmentFor(characterId: string) {
 		return assignments.find((value) => value.character_id === characterId);
@@ -46,7 +50,10 @@
 						<span class="state" data-state={currentState}>{currentState}</span>
 					</div>
 					{#if assignment}<p class="assignment">
-							{labelActivity(assignment.activity)} · ticks {assignment.starts_tick}–{assignment.ends_tick}
+							{labelActivity(assignment.activity)} · {formatRelativeGameDay(
+								currentGameDay,
+								assignment.starts_game_day ?? currentGameDay
+							)}–{formatRelativeGameDay(currentGameDay, assignment.ends_game_day ?? currentGameDay)}
 						</p>{:else}<p class="assignment">No work planned</p>{/if}
 					<div class="fatigue">
 						<span>Fatigue {character.fatigue}</span>

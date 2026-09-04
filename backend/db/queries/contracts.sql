@@ -74,9 +74,11 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        o.creditor_household_id::text AS creditor_household_id,
        o.resource_code, o.quantity_milli, o.due_arrival_tick, o.due_game_day,
        COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
-       o.status, o.fulfilled_tick, o.fulfilled_game_day, c.game_day_schedule
+       o.status, o.fulfilled_tick, o.fulfilled_game_day, c.game_day_schedule,
+       s.departure_game_day, s.expected_arrival_game_day
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
+LEFT JOIN shipments s ON s.id = o.shipment_id
 WHERE o.contract_id = $1::uuid
 ORDER BY o.due_game_day, o.debtor_household_id, o.creditor_household_id, o.resource_code;
 
@@ -125,7 +127,8 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        c.world_id::text AS world_id, c.status AS contract_status,
        debtor.location_id::text AS origin_location_id,
        creditor.location_id::text AS destination_location_id,
-       w.current_tick, w.current_game_day, gen_random_uuid()::text AS proposed_shipment_id
+       w.current_tick, w.current_game_day, w.game_days_per_tick_num, w.game_days_per_tick_den,
+       c.game_day_schedule, gen_random_uuid()::text AS proposed_shipment_id
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
 JOIN worlds w ON w.id = c.world_id

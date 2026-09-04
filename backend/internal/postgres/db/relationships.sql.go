@@ -52,7 +52,7 @@ func (q *Queries) ApplyRelationshipDelta(ctx context.Context, arg ApplyRelations
 const insertRelationshipEvent = `-- name: InsertRelationshipEvent :execrows
 INSERT INTO relationship_events(
     world_id, source_household_id, target_household_id,
-    event_type, trust_delta, occurred_tick,
+    event_type, trust_delta, occurred_tick, occurred_game_day,
     related_contract_id, related_shipment_id, related_obligation_id, data
 ) VALUES (
     $1::uuid,
@@ -61,14 +61,15 @@ INSERT INTO relationship_events(
     $4,
     $5,
     $6::bigint,
-    $7::uuid,
-    NULLIF($8::text, '')::uuid,
-    $9::uuid,
+    $7::bigint,
+    $8::uuid,
+    NULLIF($9::text, '')::uuid,
+    $10::uuid,
     jsonb_build_object(
-        'resource_type', $10::text,
-        'quantity_milli', $11::bigint,
-        'due_arrival_tick', $12::bigint,
-        'actual_fulfillment_tick', $13::bigint
+        'resource_type', $11::text,
+        'quantity_milli', $12::bigint,
+        'due_arrival_tick', $13::bigint,
+        'actual_fulfillment_tick', $14::bigint
     )
 )
 ON CONFLICT (related_obligation_id)
@@ -83,6 +84,7 @@ type InsertRelationshipEventParams struct {
 	EventType             string
 	TrustDelta            int32
 	OccurredTick          int64
+	OccurredGameDay       int64
 	ContractID            pgtype.UUID
 	ShipmentID            string
 	ObligationID          pgtype.UUID
@@ -100,6 +102,7 @@ func (q *Queries) InsertRelationshipEvent(ctx context.Context, arg InsertRelatio
 		arg.EventType,
 		arg.TrustDelta,
 		arg.OccurredTick,
+		arg.OccurredGameDay,
 		arg.ContractID,
 		arg.ShipmentID,
 		arg.ObligationID,
@@ -115,7 +118,7 @@ func (q *Queries) InsertRelationshipEvent(ctx context.Context, arg InsertRelatio
 }
 
 const listRelationshipEventsBetween = `-- name: ListRelationshipEventsBetween :many
-SELECT id::text AS id, event_type, trust_delta, occurred_tick,
+SELECT id::text AS id, event_type, trust_delta, occurred_tick, occurred_game_day,
        COALESCE(related_contract_id::text, ''::text)::text AS related_contract_id,
        COALESCE(related_shipment_id::text, ''::text)::text AS related_shipment_id,
        COALESCE(related_obligation_id::text, ''::text)::text AS related_obligation_id,
@@ -135,6 +138,7 @@ type ListRelationshipEventsBetweenRow struct {
 	EventType           string
 	TrustDelta          int32
 	OccurredTick        int64
+	OccurredGameDay     int64
 	RelatedContractID   string
 	RelatedShipmentID   string
 	RelatedObligationID string
@@ -155,6 +159,7 @@ func (q *Queries) ListRelationshipEventsBetween(ctx context.Context, arg ListRel
 			&i.EventType,
 			&i.TrustDelta,
 			&i.OccurredTick,
+			&i.OccurredGameDay,
 			&i.RelatedContractID,
 			&i.RelatedShipmentID,
 			&i.RelatedObligationID,

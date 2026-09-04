@@ -62,17 +62,19 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 	}
 
 	prepared := shipmentdomain.Shipment{
-		WorldID:               shipmentdomain.WorldID(snapshot.Offer.WorldID),
-		SenderHouseholdID:     shipmentdomain.HouseholdID(snapshot.Offer.SellerHouseholdID),
-		ReceiverHouseholdID:   shipmentdomain.HouseholdID(snapshot.Buyer.HouseholdID),
-		OriginLocationID:      shipmentdomain.LocationID(snapshot.Offer.OriginLocationID),
-		DestinationLocationID: shipmentdomain.LocationID(snapshot.Buyer.LocationID),
-		ResourceType:          shipmentdomain.ResourceType(snapshot.Offer.ResourceType),
-		QuantityMilli:         shipmentdomain.QuantityMilli(purchase.QuantityMilli),
-		DepartureTick:         shipmentdomain.Tick(purchase.CurrentTick),
-		ExpectedArrivalTick:   shipmentdomain.Tick(arrivalTick),
-		TransportCostMilli:    shipmentdomain.MoneyMilli(purchase.TransportCostMilli),
-		Status:                shipmentdomain.StatusPrepared,
+		WorldID:                shipmentdomain.WorldID(snapshot.Offer.WorldID),
+		SenderHouseholdID:      shipmentdomain.HouseholdID(snapshot.Offer.SellerHouseholdID),
+		ReceiverHouseholdID:    shipmentdomain.HouseholdID(snapshot.Buyer.HouseholdID),
+		OriginLocationID:       shipmentdomain.LocationID(snapshot.Offer.OriginLocationID),
+		DestinationLocationID:  shipmentdomain.LocationID(snapshot.Buyer.LocationID),
+		ResourceType:           shipmentdomain.ResourceType(snapshot.Offer.ResourceType),
+		QuantityMilli:          shipmentdomain.QuantityMilli(purchase.QuantityMilli),
+		DepartureTick:          shipmentdomain.Tick(purchase.CurrentTick),
+		ExpectedArrivalTick:    shipmentdomain.Tick(arrivalTick),
+		DepartureGameDay:       shipmentdomain.GameDay(snapshot.CurrentGameDay),
+		ExpectedArrivalGameDay: shipmentdomain.GameDay(snapshot.CurrentGameDay + travelDays(int64(snapshot.Route.TravelTicks), snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)),
+		TransportCostMilli:     shipmentdomain.MoneyMilli(purchase.TransportCostMilli),
+		Status:                 shipmentdomain.StatusPrepared,
 	}
 	if err := prepared.Validate(); err != nil {
 		return PurchaseOfferResult{}, err
@@ -90,6 +92,13 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 		return PurchaseOfferResult{}, fmt.Errorf("commit market purchase: %w", err)
 	}
 	return PurchaseOfferResult{CostMilli: int64(purchase.TotalCostMilli), GoodsCostMilli: int64(purchase.GoodsCostMilli), TransportCostMilli: int64(purchase.TransportCostMilli), Offer: offerRecord, Shipment: shipmentRecord}, nil
+}
+
+func travelDays(ticks int64, numerator, denominator int64) int64 {
+	if ticks <= 0 || numerator <= 0 || denominator <= 0 {
+		return 0
+	}
+	return (ticks*numerator + denominator - 1) / denominator
 }
 
 func (s *MarketService) ListActiveOffers(ctx context.Context, worldID string) ([]port.MarketOfferRecord, error) {

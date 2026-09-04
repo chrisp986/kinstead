@@ -1,19 +1,29 @@
 <script lang="ts">
 	import type { HouseholdReport } from '$lib/api/generated';
-	import { formatGameDay, formatPhase } from '$lib/domain/time';
+	import { formatCalendarPosition, formatRelativeGameDay } from '$lib/domain/time';
 
 	let { report }: { report: HouseholdReport } = $props();
+
+	function nextHalfDay(gameDay: number): number {
+		const year = Math.floor(gameDay / 364);
+		const day = ((gameDay % 364) + 364) % 364;
+		return day < 182 ? year * 364 + 182 : (year + 1) * 364;
+	}
 </script>
 
 <header class="household-header">
 	<div>
 		<p class="eyebrow">Household seat</p>
 		<h1>{report.household_name}</h1>
-		<p class="date">{formatGameDay(report.calendar)} · {formatPhase(report.calendar)}</p>
-	</div>
-	<div class="tick" aria-label={`Game day ${report.game_day ?? report.tick}`}>
-		<span>Game day</span>
-		<strong>{report.game_day ?? report.tick}</strong>
+		<p class="date">
+			{formatCalendarPosition(report.calendar.phase, report.calendar.week_of_half)}
+		</p>
+		<p class="next-half">
+			{formatRelativeGameDay(report.calendar.game_day, nextHalfDay(report.calendar.game_day))} until {report
+				.calendar.half_year === 'summer'
+				? 'winter'
+				: 'summer'} begins
+		</p>
 	</div>
 </header>
 
@@ -40,22 +50,10 @@
 		font-size: 0.88rem;
 		text-transform: capitalize;
 	}
-	.tick {
-		display: grid;
-		justify-items: end;
-		min-width: 4.5rem;
-	}
-	.tick span {
+	.next-half {
+		margin: 0.2rem 0 0;
 		color: var(--ink-soft);
-		font-size: 0.65rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-	}
-	.tick strong {
-		font-family: var(--font-display);
-		font-size: 1.8rem;
-		line-height: 1;
+		font-size: 0.78rem;
 	}
 	@media (min-width: 768px) {
 		.household-header {

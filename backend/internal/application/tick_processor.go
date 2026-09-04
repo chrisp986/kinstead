@@ -56,7 +56,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 
 	// Canonical tick step 1: shipments arrive before assignments, production,
 	// consumption, and fatigue are evaluated for this tick.
-	if err := p.processShipmentArrivals(ctx, tx, world.ID, tick); err != nil {
+	if err := p.processShipmentArrivals(ctx, tx, world.ID, tick, nextGameDay); err != nil {
 		return false, err
 	}
 	// Canonical tick step 2: obligations observe arrivals persisted by step 1.
@@ -302,13 +302,13 @@ func (p *TickProcessor) processContractRollups(ctx context.Context, tx port.Worl
 	return nil
 }
 
-func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {
+func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64, gameDay calendar.GameDay) error {
 	due, err := tx.LoadDueShipments(ctx, worldID, tick)
 	if err != nil {
 		return fmt.Errorf("load shipment arrivals: %w", err)
 	}
 	for _, value := range due {
-		arrived, err := value.Arrive(shipmentdomain.Tick(tick))
+		arrived, err := value.ArriveAt(shipmentdomain.Tick(tick), shipmentdomain.GameDay(gameDay))
 		if err != nil {
 			return fmt.Errorf("arrive shipment %s: %w", value.ID, err)
 		}

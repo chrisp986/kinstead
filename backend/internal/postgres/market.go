@@ -102,10 +102,11 @@ func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buye
 	offer := marketOfferFromSQLC(locked.ID, locked.WorldID, locked.SellerHouseholdID, locked.OriginLocationID,
 		locked.ResourceCode, locked.QuantityRemainingMilli, locked.PricePerUnitMilli, locked.CreatedTick, locked.ExpiresTick, locked.Status)
 
-	var currentTick int64
+	var currentTick, currentGameDay, rateNumerator, rateDenominator int64
 	if err := tx.QueryRow(ctx, `
-        SELECT current_tick FROM worlds WHERE id = $1::uuid FOR UPDATE
-    `, offer.WorldID).Scan(&currentTick); err != nil {
+	        SELECT current_tick, current_game_day, game_days_per_tick_num, game_days_per_tick_den
+        FROM worlds WHERE id = $1::uuid FOR UPDATE
+    `, offer.WorldID).Scan(&currentTick, &currentGameDay, &rateNumerator, &rateDenominator); err != nil {
 		return MarketPurchaseSnapshot{}, err
 	}
 
@@ -186,6 +187,7 @@ func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buye
 		Route:            route,
 		SellerStockMilli: marketdomain.QuantityMilli(sellerStock),
 		CurrentTick:      currentTick,
+		CurrentGameDay:   currentGameDay, GameDaysPerTickNum: rateNumerator, GameDaysPerTickDen: rateDenominator,
 	}, nil
 }
 

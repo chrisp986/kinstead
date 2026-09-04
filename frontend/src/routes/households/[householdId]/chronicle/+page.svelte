@@ -13,5 +13,5 @@
 		title="Chronicle"
 		description="A clear record of the work, promises, arrivals, and decisions that shaped the farmstead."
 	/>
-	<ChronicleLog entries={data.chronicle} />
+	<ChronicleLog entries={data.chronicle} currentGameDay={data.report.game_day} />
 </main>

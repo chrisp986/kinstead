@@ -27,7 +27,7 @@ func (s *Store) ListHouseholdChronicle(ctx context.Context, householdID string) 
 	}
 
 	rows, err := s.Pool.Query(ctx, `
-        SELECT e.id::text, e.occurred_tick, e.entry_type,
+		SELECT e.id::text, e.occurred_tick, e.occurred_game_day, e.entry_type,
                e.subject_character_id::text, subject.name,
                e.related_household_id::text, related.name,
                e.related_shipment_id::text, e.related_assignment_id::text,
@@ -51,7 +51,7 @@ func (s *Store) ListHouseholdChronicle(ctx context.Context, householdID string) 
 		var entry ChronicleEntryRecord
 		var data []byte
 		if err := rows.Scan(
-			&entry.ID, &entry.OccurredTick, &entry.EntryType,
+			&entry.ID, &entry.OccurredTick, &entry.OccurredGameDay, &entry.EntryType,
 			&entry.SubjectCharacterID, &entry.SubjectCharacterName,
 			&entry.RelatedHouseholdID, &entry.RelatedHouseholdName,
 			&entry.RelatedShipmentID, &entry.RelatedAssignmentID,

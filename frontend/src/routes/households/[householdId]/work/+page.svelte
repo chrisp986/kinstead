@@ -16,6 +16,7 @@
 	<WorkPlanner
 		characters={data.report.characters}
 		assignments={data.report.assignments}
+		currentGameDay={data.report.game_day}
 		feedback={form}
 	/>
 </main>

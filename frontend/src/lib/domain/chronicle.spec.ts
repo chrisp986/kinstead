@@ -5,7 +5,7 @@ import { describeChronicleEntry } from './chronicle';
 function entry(values: Partial<ChronicleEntry>): ChronicleEntry {
 	return {
 		id: '00000000-0000-0000-0000-000000000001',
-		occurred_tick: 4,
+		occurred_game_day: 28,
 		entry_type: 'test_event',
 		data: {},
 		...values
@@ -52,7 +52,7 @@ describe('chronicle descriptions', () => {
 			)
 		).toEqual({
 			title: 'Work scheduled',
-			detail: 'Astrid was assigned to fishing for ticks 5–7.'
+			detail: 'Astrid was assigned to fishing.'
 		});
 
 		expect(

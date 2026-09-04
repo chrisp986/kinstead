@@ -114,6 +114,30 @@ func TestProposeContractUsesAuthoritativeWorldAndTick(t *testing.T) {
 	}
 }
 
+func TestProposeContractUsesCalendarSchedule(t *testing.T) {
+	tx := &contractProposalTxStub{snapshot: port.ContractPartiesSnapshot{WorldID: "world", CurrentTick: 5, CurrentGameDay: 10}}
+	service := NewContractService(contractRepositoryStub{tx: tx})
+	created, err := service.Propose(context.Background(), ProposeContractCommand{
+		ProposerHouseholdID: "a", CounterpartyHouseholdID: "b", StartGameDay: 17, IntervalDays: 7,
+		EndCondition: ContractEndCondition{Type: "fixed_delivery_count", DeliveryCount: 3},
+		Terms:        []ContractTermIntent{{DebtorHouseholdID: "a", CreditorHouseholdID: "b", ResourceType: "provisions", QuantityMilli: 10_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.StartGameDay != 17 || created.EndGameDay != 31 || created.IntervalDays != 7 || !created.GameDaySchedule {
+		t.Fatalf("calendar proposal = %+v", created)
+	}
+	active, err := created.Transition(contractdomain.StatusActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obligations, err := contractdomain.GenerateObligations(active)
+	if err != nil || len(obligations) != 3 || obligations[1].DueGameDay != 24 {
+		t.Fatalf("calendar obligations = %+v, %v", obligations, err)
+	}
+}
+
 func TestProposeContractRejectsProcessedStartTickBeforeWrite(t *testing.T) {
 	tx := &contractProposalTxStub{snapshot: port.ContractPartiesSnapshot{WorldID: "world", CurrentTick: 6}}
 	service := NewContractService(contractRepositoryStub{tx: tx})

@@ -7,6 +7,7 @@ type RelationshipEventRecord struct {
 	EventType           string         `json:"event_type"`
 	TrustDelta          int            `json:"trust_delta"`
 	OccurredTick        int64          `json:"occurred_tick"`
+	OccurredGameDay     int64          `json:"occurred_game_day"`
 	RelatedContractID   *string        `json:"related_contract_id,omitempty"`
 	RelatedShipmentID   *string        `json:"related_shipment_id,omitempty"`
 	RelatedObligationID *string        `json:"related_obligation_id,omitempty"`

@@ -21,12 +21,12 @@ type Alert struct {
 }
 
 type FarmReport struct {
-	HouseholdID    string                      `json:"household_id"`
-	HouseholdName  string                      `json:"household_name"`
-	WorldID        string                      `json:"world_id"`
-	Tick           int64                       `json:"tick"`
-	GameDay        int64                       `json:"game_day"`
-	Calendar       calendar.Date              `json:"calendar"`
+	HouseholdID   string        `json:"household_id"`
+	HouseholdName string        `json:"household_name"`
+	WorldID       string        `json:"world_id"`
+	Tick          int64         `json:"tick"`
+	GameDay       int64         `json:"game_day"`
+	Calendar      calendar.Date `json:"calendar"`
 	// HistoricalDate is retained for legacy Go fixtures only; it is not part of
 	// the player-facing report contract.
 	HistoricalDate string                      `json:"-"`
@@ -125,7 +125,7 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 	if characters == nil {
 		characters = make([]port.CharacterRecord, 0)
 	}
-	attentionInput := reportdomain.Input{CurrentTick: snap.CurrentTick, SupplyDays: supply}
+	attentionInput := reportdomain.Input{CurrentTick: snap.CurrentTick, CurrentGameDay: snap.CurrentGameDay, SupplyDays: supply}
 	for _, c := range characters {
 		attentionInput.Characters = append(attentionInput.Characters, reportdomain.Character{ID: c.ID, Name: c.Name, Fatigue: c.Fatigue})
 	}
@@ -153,10 +153,10 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 		}
 	}
 	for _, d := range political {
-		attentionInput.PoliticalDemands = append(attentionInput.PoliticalDemands, reportdomain.PoliticalDemand{ID: d.ID, ActorName: d.ActorName, ExpiresTick: d.ExpiresTick})
+		attentionInput.PoliticalDemands = append(attentionInput.PoliticalDemands, reportdomain.PoliticalDemand{ID: d.ID, ActorName: d.ActorName, ExpiresTick: d.ExpiresTick, ExpiresGameDay: tickGameDay(snap, d.ExpiresTick)})
 	}
 	for _, o := range obligations {
-		attentionInput.ContractObligations = append(attentionInput.ContractObligations, reportdomain.ContractObligation{ID: o.ID, ResourceType: o.ResourceType, QuantityMilli: o.QuantityMilli, DueArrivalTick: o.DueArrivalTick, ExpectedArrivalTick: o.ExpectedArrivalTick})
+		attentionInput.ContractObligations = append(attentionInput.ContractObligations, reportdomain.ContractObligation{ID: o.ID, ResourceType: o.ResourceType, QuantityMilli: o.QuantityMilli, DueArrivalTick: o.DueArrivalTick, ExpectedArrivalTick: o.ExpectedArrivalTick, DueGameDay: o.DueGameDay, ExpectedArrivalGameDay: o.ExpectedArrivalGameDay})
 	}
 	attention := reportdomain.BuildAttention(attentionInput)
 	decisions := reportdomain.BuildDecisions(attentionInput)

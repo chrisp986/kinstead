@@ -1,16 +1,19 @@
 <script lang="ts">
 	import type { Assignment, Character } from '$lib/api/generated';
 	import { labelActivity, sentenceCase } from '$lib/domain/format';
+	import { formatRelativeGameDay } from '$lib/domain/time';
 	import { enhance } from '$app/forms';
 	import StatusBadge from './StatusBadge.svelte';
 
 	let {
 		characters,
 		assignments,
+		currentGameDay,
 		feedback
 	}: {
 		characters: Character[];
 		assignments: Assignment[];
+		currentGameDay: number;
 		feedback?: { success?: boolean; action?: string; message?: string } | null;
 	} = $props();
 	let working = $state(false);
@@ -42,7 +45,7 @@
 					</div>
 					<p>
 						{assignment
-							? `${labelActivity(assignment.activity)}, ticks ${assignment.starts_tick}–${assignment.ends_tick}`
+							? `${labelActivity(assignment.activity)}, ${formatRelativeGameDay(currentGameDay, assignment.starts_game_day ?? currentGameDay)}–${formatRelativeGameDay(currentGameDay, assignment.ends_game_day ?? currentGameDay)}`
 							: character.labor_permille > 0
 								? 'Available for work'
 								: 'Not in the labor pool'}
@@ -97,7 +100,8 @@
 				><span>Duration</span><select name="duration_ticks" required
 					>{#each [1, 3, 6, 12] as duration (duration)}<option
 							value={duration}
-							selected={duration === 3}>{duration} {duration === 1 ? 'tick' : 'ticks'}</option
+							selected={duration === 3}
+							>{duration === 1 ? 'one period' : `${duration} periods`}</option
 						>{/each}</select
 				></label
 			>
@@ -109,7 +113,9 @@
 					role="status"
 				>
 					{feedback.message}
-				</p>{:else}<p class="hint">Work begins next tick. Existing plans cannot overlap.</p>{/if}
+				</p>{:else}<p class="hint">
+					Work begins in the next period. Existing plans cannot overlap.
+				</p>{/if}
 			<button type="submit" disabled={working}>{working ? 'Scheduling…' : 'Schedule work'}</button>
 		</div>
 	</form>

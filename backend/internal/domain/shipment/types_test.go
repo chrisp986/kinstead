@@ -46,6 +46,19 @@ func TestShipmentArrivesExactlyWhenDue(t *testing.T) {
 	}
 }
 
+func TestShipmentArrivalRecordsGameDaySnapshot(t *testing.T) {
+	s := testShipment()
+	s.DepartureGameDay = 21
+	s.ExpectedArrivalGameDay = 35
+	arrived, err := s.ArriveAt(3, 36)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if arrived.ActualArrivalGameDay == nil || *arrived.ActualArrivalGameDay != 36 {
+		t.Fatalf("actual arrival game day = %v, want 36", arrived.ActualArrivalGameDay)
+	}
+}
+
 func TestCancelledShipmentDoesNotDeliver(t *testing.T) {
 	s := testShipment()
 	cancelled, err := s.CancelAt(2)

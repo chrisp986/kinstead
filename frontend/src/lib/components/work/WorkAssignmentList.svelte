@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { Assignment } from '$lib/api/generated';
 	import { labelActivity } from '$lib/domain/format';
+	import { formatRelativeGameDay } from '$lib/domain/time';
 
-	let { assignments }: { assignments: Assignment[] } = $props();
+	let { assignments, currentGameDay }: { assignments: Assignment[]; currentGameDay: number } =
+		$props();
 </script>
 
 {#if assignments.length > 0}
@@ -12,7 +14,13 @@
 			{#each assignments as assignment (assignment.id)}
 				<li>
 					<strong>{assignment.character}</strong><span
-						>{labelActivity(assignment.activity)} · ticks {assignment.starts_tick}–{assignment.ends_tick}</span
+						>{labelActivity(assignment.activity)} · {formatRelativeGameDay(
+							currentGameDay,
+							assignment.starts_game_day ?? currentGameDay
+						)}–{formatRelativeGameDay(
+							currentGameDay,
+							assignment.ends_game_day ?? currentGameDay
+						)}</span
 					>
 				</li>
 			{/each}

@@ -1,8 +1,13 @@
 <script lang="ts">
 	import type { Shipment } from '$lib/api/generated';
 	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
+	import { formatRelativeGameDay } from '$lib/domain/time';
 	import StatusBadge from './StatusBadge.svelte';
-	let { shipments, householdId }: { shipments: Shipment[]; householdId: string } = $props();
+	let {
+		shipments,
+		householdId,
+		currentGameDay
+	}: { shipments: Shipment[]; householdId: string; currentGameDay: number } = $props();
 </script>
 
 <section class="panel" aria-labelledby="shipments-heading">
@@ -33,11 +38,13 @@
 						<StatusBadge status={shipment.status} />
 					</div>
 					<div class="journey">
-						<span>Departed tick {shipment.departure_tick}</span><span aria-hidden="true">→</span>
 						<span
-							>{shipment.actual_arrival_tick === undefined
-								? `Expected tick ${shipment.expected_arrival_tick}`
-								: `Arrived tick ${shipment.actual_arrival_tick}`}</span
+							>Departed {formatRelativeGameDay(currentGameDay, shipment.departure_game_day)}</span
+						><span aria-hidden="true">→</span>
+						<span
+							>{shipment.actual_arrival_game_day === undefined
+								? `Expected ${formatRelativeGameDay(currentGameDay, shipment.expected_arrival_game_day)}`
+								: `Arrived ${formatRelativeGameDay(currentGameDay, shipment.actual_arrival_game_day)}`}</span
 						>
 					</div>
 				</article>

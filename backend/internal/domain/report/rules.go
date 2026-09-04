@@ -29,6 +29,12 @@ func BuildAttention(in Input) []Item {
 	}
 	for _, d := range in.PoliticalDemands {
 		due := d.ExpiresTick - in.CurrentTick
+		var dueDay *int64
+		if d.ExpiresGameDay > 0 {
+			due = d.ExpiresGameDay - in.CurrentGameDay
+			value := d.ExpiresGameDay
+			dueDay = &value
+		}
 		if due <= 3 {
 			severity := "warning"
 			priority := 75
@@ -36,10 +42,25 @@ func BuildAttention(in Input) []Item {
 				severity, priority = "critical", 95
 			}
 			tick := d.ExpiresTick
-			items = append(items, scoredItem{priority, Item{Code: "political_demand_due", Severity: severity, Target: "politics", RelatedID: d.ID, DueTick: &tick, Data: map[string]any{"actor_name": d.ActorName}}})
+			items = append(items, scoredItem{priority, Item{Code: "political_demand_due", Severity: severity, Target: "politics", RelatedID: d.ID, DueTick: &tick, DueGameDay: dueDay, Data: map[string]any{"actor_name": d.ActorName}}})
 		}
 	}
 	for _, o := range in.ContractObligations {
+		if o.DueGameDay > 0 {
+			due := o.DueGameDay - in.CurrentGameDay
+			if o.ExpectedArrivalGameDay != nil && *o.ExpectedArrivalGameDay > o.DueGameDay {
+				items = append(items, scoredItem{70, Item{Code: "contract_delivery_expected_late", Severity: "warning", Target: "contracts", RelatedID: o.ID, DueGameDay: &o.DueGameDay, Data: map[string]any{"resource_type": o.ResourceType, "quantity_milli": o.QuantityMilli, "expected_arrival_game_day": *o.ExpectedArrivalGameDay}}})
+				continue
+			}
+			if due <= 3 {
+				severity, priority := "warning", 70
+				if due <= 1 {
+					severity, priority = "critical", 90
+				}
+				items = append(items, scoredItem{priority, Item{Code: "contract_obligation_due", Severity: severity, Target: "contracts", RelatedID: o.ID, DueGameDay: &o.DueGameDay, Data: map[string]any{"resource_type": o.ResourceType, "quantity_milli": o.QuantityMilli}}})
+			}
+			continue
+		}
 		if o.ExpectedArrivalTick != nil && *o.ExpectedArrivalTick > o.DueArrivalTick {
 			items = append(items, scoredItem{70, Item{Code: "contract_delivery_expected_late", Severity: "warning", Target: "contracts", RelatedID: o.ID, DueTick: &o.DueArrivalTick, Data: map[string]any{"resource_type": o.ResourceType, "quantity_milli": o.QuantityMilli, "expected_arrival_tick": *o.ExpectedArrivalTick}}})
 			continue
@@ -71,6 +92,12 @@ func BuildDecisions(in Input) []Item {
 	}
 	for _, d := range in.PoliticalDemands {
 		due := d.ExpiresTick - in.CurrentTick
+		var dueDay *int64
+		if d.ExpiresGameDay > 0 {
+			due = d.ExpiresGameDay - in.CurrentGameDay
+			value := d.ExpiresGameDay
+			dueDay = &value
+		}
 		if due <= 3 {
 			priority := 75
 			severity := "warning"
@@ -78,10 +105,21 @@ func BuildDecisions(in Input) []Item {
 				priority, severity = 95, "critical"
 			}
 			tick := d.ExpiresTick
-			items = append(items, scoredItem{priority, Item{Code: "respond_political_demand", Severity: severity, Target: "politics", RelatedID: d.ID, DueTick: &tick, Data: map[string]any{"actor_name": d.ActorName}}})
+			items = append(items, scoredItem{priority, Item{Code: "respond_political_demand", Severity: severity, Target: "politics", RelatedID: d.ID, DueTick: &tick, DueGameDay: dueDay, Data: map[string]any{"actor_name": d.ActorName}}})
 		}
 	}
 	for _, o := range in.ContractObligations {
+		if o.DueGameDay > 0 {
+			due := o.DueGameDay - in.CurrentGameDay
+			if due <= 3 {
+				priority, severity := 70, "warning"
+				if due <= 1 {
+					priority, severity = 90, "critical"
+				}
+				items = append(items, scoredItem{priority, Item{Code: "dispatch_contract_obligation", Severity: severity, Target: "contracts", RelatedID: o.ID, DueGameDay: &o.DueGameDay, Data: map[string]any{"resource_type": o.ResourceType, "quantity_milli": o.QuantityMilli}}})
+			}
+			continue
+		}
 		due := o.DueArrivalTick - in.CurrentTick
 		if due <= 3 {
 			priority := 70

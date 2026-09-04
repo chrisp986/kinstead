@@ -44,6 +44,8 @@ type ContractDispatchSnapshot struct {
 	Route                 geography.Route
 	CurrentTick           contractdomain.Tick
 	CurrentGameDay        contractdomain.GameDay
+	GameDaysPerTickNum    int64
+	GameDaysPerTickDen    int64
 	GameDaySchedule       bool
 	ProposedShipmentID    shipmentdomain.ID
 	ExistingShipment      *shipmentdomain.Shipment
