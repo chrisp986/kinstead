@@ -21,6 +21,20 @@
 	} = $props();
 
 	let submitting = $state<string | null>(null);
+	let showProposal = $state(false);
+	let orderedContracts = $derived(
+		[...contracts].sort((a, b) => {
+			const aUrgent = a.obligations.some(
+				(o) => o.debtor_household_id === householdId && ['pending', 'late'].includes(o.status)
+			);
+			const bUrgent = b.obligations.some(
+				(o) => o.debtor_household_id === householdId && ['pending', 'late'].includes(o.status)
+			);
+			if (aUrgent !== bUrgent) return aUrgent ? -1 : 1;
+			if (a.status !== b.status) return a.status === 'proposed' ? -1 : 1;
+			return a.id.localeCompare(b.id);
+		})
+	);
 	let contacts = $derived.by(() => {
 		const values: Record<string, string> = {};
 		for (const relationship of relationships) {
@@ -62,7 +76,7 @@
 		<p class="empty">No recurring promises involve this household yet.</p>
 	{:else}
 		<div class="contract-list">
-			{#each contracts as contract (contract.id)}
+			{#each orderedContracts as contract (contract.id)}
 				<article class="contract">
 					<div class="contract-heading">
 						<div>
@@ -135,70 +149,78 @@
 	{/if}
 
 	<div class="proposal">
-		<h3>Offer a recurring delivery</h3>
-		{#if contacts.length === 0}
-			<p class="empty">
-				A known market or relationship contact is needed before proposing a delivery.
-			</p>
-		{:else}
-			<form method="POST" action="?/proposeContract" use:enhance>
-				<label>
-					<span>Counterparty</span>
-					<select name="counterparty_household_id" required>
-						{#each contacts as contact (contact.id)}
-							<option value={contact.id}>{contact.name}</option>
-						{/each}
-					</select>
-				</label>
-				<label>
-					<span>You deliver</span>
-					<select name="resource_type">
-						<option value="provisions">Provisions</option>
-						<option value="wood">Wood</option>
-						<option value="trade_goods">Trade goods</option>
-						<option value="silver">Silver</option>
-					</select>
-				</label>
-				<label
-					><span>Units each time</span><input
-						name="quantity"
-						type="number"
-						min="0.001"
-						step="0.001"
-						value="10"
-						required
-					/></label
-				>
-				<label
-					><span>First due tick</span><input
-						name="starts_tick"
-						type="number"
-						min={currentTick + 1}
-						value={currentTick + 2}
-						required
-					/></label
-				>
-				<label
-					><span>Repeat every ticks</span><input
-						name="interval_ticks"
-						type="number"
-						min="1"
-						value="2"
-						required
-					/></label
-				>
-				<label
-					><span>Final due tick</span><input
-						name="ends_tick"
-						type="number"
-						min={currentTick + 1}
-						value={currentTick + 6}
-						required
-					/></label
-				>
-				<button type="submit">Send proposal</button>
-			</form>
-		{/if}
+		<button
+			class="disclosure"
+			type="button"
+			aria-expanded={showProposal}
+			onclick={() => (showProposal = !showProposal)}
+		>
+			{showProposal ? '− Hide proposal form' : '+ Propose recurring delivery'}
+		</button>
+		{#if showProposal}<h3>Offer a recurring delivery</h3>
+			{#if contacts.length === 0}
+				<p class="empty">
+					A known market or relationship contact is needed before proposing a delivery.
+				</p>
+			{:else}
+				<form method="POST" action="?/proposeContract" use:enhance>
+					<label>
+						<span>Counterparty</span>
+						<select name="counterparty_household_id" required>
+							{#each contacts as contact (contact.id)}
+								<option value={contact.id}>{contact.name}</option>
+							{/each}
+						</select>
+					</label>
+					<label>
+						<span>You deliver</span>
+						<select name="resource_type">
+							<option value="provisions">Provisions</option>
+							<option value="wood">Wood</option>
+							<option value="trade_goods">Trade goods</option>
+							<option value="silver">Silver</option>
+						</select>
+					</label>
+					<label
+						><span>Units each time</span><input
+							name="quantity"
+							type="number"
+							min="0.001"
+							step="0.001"
+							value="10"
+							required
+						/></label
+					>
+					<label
+						><span>First due tick</span><input
+							name="starts_tick"
+							type="number"
+							min={currentTick + 1}
+							value={currentTick + 2}
+							required
+						/></label
+					>
+					<label
+						><span>Repeat every ticks</span><input
+							name="interval_ticks"
+							type="number"
+							min="1"
+							value="2"
+							required
+						/></label
+					>
+					<label
+						><span>Final due tick</span><input
+							name="ends_tick"
+							type="number"
+							min={currentTick + 1}
+							value={currentTick + 6}
+							required
+						/></label
+					>
+					<button type="submit">Send proposal</button>
+				</form>
+			{/if}{/if}
 	</div>
 </section>
 
@@ -307,6 +329,13 @@
 		margin-top: 1.2rem;
 		padding-top: 1.2rem;
 		border-top: 1px solid var(--line);
+	}
+	.disclosure {
+		width: 100%;
+		margin: 0;
+		background: transparent;
+		border: 1px solid var(--line);
+		color: var(--green);
 	}
 	.proposal form {
 		display: grid;
