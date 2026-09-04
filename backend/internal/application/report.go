@@ -26,7 +26,7 @@ type FarmReport struct {
 	WorldID        string                      `json:"world_id"`
 	Tick           int64                       `json:"tick"`
 	GameDay        int64                       `json:"game_day"`
-	Calendar       calendar.Breakdown          `json:"calendar"`
+	Calendar       calendar.Date              `json:"calendar"`
 	// HistoricalDate is retained for legacy Go fixtures only; it is not part of
 	// the player-facing report contract.
 	HistoricalDate string                      `json:"-"`

@@ -9,8 +9,9 @@ import (
 )
 
 type ContractPartiesSnapshot struct {
-	WorldID     contractdomain.WorldID
-	CurrentTick contractdomain.Tick
+	WorldID        contractdomain.WorldID
+	CurrentTick    contractdomain.Tick
+	CurrentGameDay contractdomain.GameDay
 }
 
 type ContractProposalTransaction interface {
@@ -21,8 +22,9 @@ type ContractProposalTransaction interface {
 }
 
 type ContractResponseSnapshot struct {
-	Contract    contractdomain.Contract
-	CurrentTick contractdomain.Tick
+	Contract       contractdomain.Contract
+	CurrentTick    contractdomain.Tick
+	CurrentGameDay contractdomain.GameDay
 }
 
 type ContractResponseTransaction interface {
@@ -41,6 +43,8 @@ type ContractDispatchSnapshot struct {
 	DestinationLocationID shipmentdomain.LocationID
 	Route                 geography.Route
 	CurrentTick           contractdomain.Tick
+	CurrentGameDay        contractdomain.GameDay
+	GameDaySchedule       bool
 	ProposedShipmentID    shipmentdomain.ID
 	ExistingShipment      *shipmentdomain.Shipment
 }

@@ -17,15 +17,17 @@ var ErrInvalidClock = errors.New("invalid historical clock")
 
 type GameDay int64
 
-type Breakdown struct {
+type Date struct {
 	GameDay          GameDay          `json:"game_day"`
 	YearIndex        int64            `json:"year_index"`
 	DayOfYear        int64            `json:"day_of_year"`
 	WeekOfYear       int64            `json:"week_of_year"`
+	WeekOfHalf       int64            `json:"week_of_half"`
 	DayOfWeek        int64            `json:"day_of_week"`
 	ProductionSeason ProductionSeason `json:"production_season"`
 	HalfYear         HalfYear         `json:"half_year"`
 	SeasonalPhase    SeasonalPhase    `json:"seasonal_phase"`
+	Phase            SeasonalPhase    `json:"phase"`
 }
 
 type ProductionSeason string
@@ -51,19 +53,30 @@ const (
 	HighSummer  SeasonalPhase = "high_summer"
 	LateSummer  SeasonalPhase = "late_summer"
 	EarlyWinter SeasonalPhase = "early_winter"
-	MidWinter   SeasonalPhase = "mid_winter"
+	MidWinter   SeasonalPhase = "midwinter"
 	LateWinter  SeasonalPhase = "late_winter"
 )
 
-func BreakdownOf(day GameDay) Breakdown {
+func Breakdown(day GameDay) Date {
 	year, dayOfYear := floorDivMod(int64(day), DaysPerYear)
-	return Breakdown{
+	weekOfHalf := dayOfYear / DaysPerWeek
+	if dayOfYear >= 182 {
+		weekOfHalf = (dayOfYear - 182) / DaysPerWeek
+	}
+	phase := SeasonalPhaseAt(day)
+	return Date{
 		GameDay: day, YearIndex: year, DayOfYear: dayOfYear,
-		WeekOfYear: dayOfYear/DaysPerWeek + 1, DayOfWeek: dayOfYear%DaysPerWeek + 1,
+		WeekOfYear: dayOfYear/DaysPerWeek + 1, WeekOfHalf: weekOfHalf + 1,
+		DayOfWeek: dayOfYear%DaysPerWeek + 1,
 		ProductionSeason: ProductionSeasonAt(day), HalfYear: HalfYearAt(day),
-		SeasonalPhase: SeasonalPhaseAt(day),
+		SeasonalPhase: phase, Phase: phase,
 	}
 }
+
+// BreakdownOf is retained as a descriptive alias for existing callers.
+func BreakdownOf(day GameDay) Date { return Breakdown(day) }
+
+func WeekOfHalf(day GameDay) int64 { return Breakdown(day).WeekOfHalf }
 
 func YearIndex(day GameDay) int64 { return floorDiv(int64(day), DaysPerYear) }
 
@@ -119,7 +132,8 @@ func DaysUntil(from, target GameDay) int64 { return int64(target - from) }
 // and remainder. The remainder is part of authoritative world state so that
 // repeated ticks are deterministic and no fractional days are lost.
 func Advance(day GameDay, remainder, numerator, denominator int64) (GameDay, int64, error) {
-	if remainder < 0 || numerator <= 0 || denominator <= 0 || remainder >= denominator || int64(day) > math.MaxInt64-numerator {
+	if remainder < 0 || numerator <= 0 || denominator <= 0 || remainder >= denominator ||
+		int64(day) > math.MaxInt64-numerator || numerator > math.MaxInt64-remainder {
 		return 0, 0, ErrInvalidClock
 	}
 	total := remainder + numerator

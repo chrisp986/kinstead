@@ -60,7 +60,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	// Canonical tick step 2: obligations observe arrivals persisted by step 1.
-	if err := p.processContractObligations(ctx, tx, world.ID, tick); err != nil {
+	if err := p.processContractObligations(ctx, tx, world.ID, tick, nextGameDay); err != nil {
 		return false, err
 	}
 	if err := p.processContractRollups(ctx, tx, world.ID); err != nil {
@@ -195,20 +195,39 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 	return nil
 }
 
-func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {
-	assessments, err := tx.LoadContractObligationsForTick(ctx, worldID, tick)
+func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64, gameDay calendar.GameDay) error {
+	assessments, err := tx.LoadContractObligationsForTick(ctx, worldID, int64(gameDay))
 	if err != nil {
 		return fmt.Errorf("load contract obligations: %w", err)
 	}
 	for _, assessment := range assessments {
-		updated, err := assessment.Obligation.Assess(contractdomain.Tick(tick), assessment.ActualArrivalTick)
+		var updated contractdomain.Obligation
+		if assessment.GameDaySchedule {
+			updated, err = assessment.Obligation.AssessGameDay(contractdomain.GameDay(gameDay), assessment.ActualArrivalGameDay)
+		} else {
+			updated, err = assessment.Obligation.Assess(contractdomain.Tick(tick), assessment.ActualArrivalTick)
+		}
 		if err != nil {
 			return fmt.Errorf("assess contract obligation %s: %w", assessment.Obligation.ID, err)
 		}
-		if updated.Status == assessment.Obligation.Status && equalContractTick(updated.FulfilledTick, assessment.Obligation.FulfilledTick) {
+		// Keep the legacy fulfillment column synchronized while the database
+		// still enforces the v0.3 state constraint. Outcome classification is
+		// based only on the game-day snapshot above.
+		if assessment.ActualArrivalTick != nil && assessment.GameDaySchedule {
+			fulfilledTick := contractdomain.Tick(*assessment.ActualArrivalTick)
+			updated.FulfilledTick = &fulfilledTick
+		}
+		if updated.Status == assessment.Obligation.Status &&
+			((assessment.GameDaySchedule && equalContractGameDay(updated.FulfilledGameDay, assessment.Obligation.FulfilledGameDay)) ||
+				(!assessment.GameDaySchedule && equalContractTick(updated.FulfilledTick, assessment.Obligation.FulfilledTick))) {
 			continue
 		}
-		event, err := relationshipdomain.ContractOutcome(assessment.WorldID, assessment.Obligation, updated, contractdomain.Tick(tick))
+		var event *relationshipdomain.Event
+		if assessment.GameDaySchedule {
+			event, err = relationshipdomain.ContractOutcomeGameDay(assessment.WorldID, assessment.Obligation, updated, contractdomain.GameDay(gameDay), contractdomain.Tick(tick))
+		} else {
+			event, err = relationshipdomain.ContractOutcome(assessment.WorldID, assessment.Obligation, updated, contractdomain.Tick(tick))
+		}
 		if err != nil {
 			return fmt.Errorf("derive relationship outcome for obligation %s: %w", assessment.Obligation.ID, err)
 		}
@@ -224,6 +243,10 @@ func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.
 }
 
 func equalContractTick(a, b *contractdomain.Tick) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func equalContractGameDay(a, b *contractdomain.GameDay) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 

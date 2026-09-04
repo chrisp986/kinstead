@@ -75,6 +75,7 @@ type Contract struct {
 	StartGameDay      int64
 	EndGameDay        int64
 	IntervalDays      int32
+	GameDaySchedule   bool
 }
 
 type ContractObligation struct {

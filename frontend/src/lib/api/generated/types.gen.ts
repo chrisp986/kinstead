@@ -78,10 +78,12 @@ export type CalendarBreakdown = {
 	year_index: number;
 	day_of_year: number;
 	week_of_year: number;
+	week_of_half: number;
 	day_of_week: number;
 	production_season: 'spring' | 'summer' | 'autumn' | 'winter';
 	half_year: 'summer' | 'winter';
 	seasonal_phase: string;
+	phase: string;
 };
 
 export type CalendarEvent = {

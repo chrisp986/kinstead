@@ -442,16 +442,18 @@ components:
           items: { $ref: '#/components/schemas/ReportItem' }
     CalendarBreakdown:
       type: object
-      required: [game_day, year_index, day_of_year, week_of_year, day_of_week, production_season, half_year, seasonal_phase]
+      required: [game_day, year_index, day_of_year, week_of_year, week_of_half, day_of_week, production_season, half_year, seasonal_phase, phase]
       properties:
         game_day: { type: integer, format: int64 }
         year_index: { type: integer, format: int64 }
         day_of_year: { type: integer, format: int64 }
         week_of_year: { type: integer, format: int64 }
+        week_of_half: { type: integer, format: int64 }
         day_of_week: { type: integer, format: int64 }
         production_season: { type: string, enum: [spring, summer, autumn, winter] }
         half_year: { type: string, enum: [summer, winter] }
         seasonal_phase: { type: string }
+        phase: { type: string }
     CalendarEvent:
       type: object
       required: [id, game_day, category, kind, title]

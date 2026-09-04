@@ -20,7 +20,7 @@ type CalendarProjection struct {
 	HouseholdID string             `json:"household_id"`
 	WorldID     string             `json:"world_id"`
 	StartYear   int32              `json:"setting_start_year"`
-	Current     calendar.Breakdown `json:"current"`
+	Current     calendar.Date      `json:"current"`
 	FromGameDay int64              `json:"from_game_day"`
 	ToGameDay   int64              `json:"to_game_day"`
 	Events      []CalendarEvent    `json:"events"`

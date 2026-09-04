@@ -778,9 +778,9 @@ func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim
             calendar_remainder = $5,
             next_tick_at = next_tick_at + (tick_duration_seconds * interval '1 second'),
             updated_at = now()
-        WHERE id = $1::uuid AND current_tick = $3
-          AND current_game_day = $6
-          AND calendar_remainder = $7
+		WHERE id = $1::uuid AND current_tick = $3::bigint
+		  AND current_game_day = $6::bigint
+		  AND calendar_remainder = $7::bigint
 	`, world.ID, tick, world.CurrentTick, gameDay, remainder, world.CurrentGameDay, world.CalendarRemainder)
 	if err != nil {
 		return err
