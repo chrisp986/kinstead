@@ -93,13 +93,13 @@ func TestGameDayPhasesAndBoundaries(t *testing.T) {
 
 func TestDefaultAnchorsUseStableGameCalendarDays(t *testing.T) {
 	want := map[string]int64{
-		"summer_start": 91,
-		"midsummer":    121,
+		"summer_start":  91,
+		"midsummer":     121,
 		"harvest_start": 152,
-		"thing":        287,
-		"winter_start": 273,
-		"midwinter":    304,
-		"jol":          320,
+		"thing":         287,
+		"winter_start":  273,
+		"midwinter":     304,
+		"jol":           320,
 	}
 	for _, rule := range DefaultAnchors() {
 		if got := int64(AnchorGameDay(rule, 0)); got != want[rule.Code] {
