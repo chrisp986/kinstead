@@ -109,6 +109,7 @@ const characters = [
 	},
 	{ id: '00000000-0000-0000-0000-000000000105', name: 'Sven', labor_permille: 0, fatigue: 0 }
 ];
+const politicalResponses = new Map();
 
 function send(response, status, body) {
 	response.writeHead(status, { 'content-type': 'application/json' });
@@ -157,7 +158,10 @@ createServer(async (request, response) => {
 				{
 					id: '00000000-0000-0000-0000-000000000801',
 					demand_type: 'political_levy',
-					status: 'pending',
+					status:
+						politicalResponses.get('00000000-0000-0000-0000-000000000801')?.status ?? 'pending',
+					selected_option: politicalResponses.get('00000000-0000-0000-0000-000000000801')
+						?.selected_option,
 					actor_id: '00000000-0000-0000-0000-000000000901',
 					actor_name: 'Jarl Eirik',
 					actor_type: 'jarl',
@@ -178,7 +182,10 @@ createServer(async (request, response) => {
 				{
 					id: '00000000-0000-0000-0000-000000000802',
 					demand_type: 'political_levy',
-					status: 'pending',
+					status:
+						politicalResponses.get('00000000-0000-0000-0000-000000000802')?.status ?? 'pending',
+					selected_option: politicalResponses.get('00000000-0000-0000-0000-000000000802')
+						?.selected_option,
 					actor_id: '00000000-0000-0000-0000-000000000901',
 					actor_name: 'Jarl Eirik',
 					actor_type: 'jarl',
@@ -199,7 +206,10 @@ createServer(async (request, response) => {
 				{
 					id: '00000000-0000-0000-0000-000000000803',
 					demand_type: 'political_labor_service',
-					status: 'pending',
+					status:
+						politicalResponses.get('00000000-0000-0000-0000-000000000803')?.status ?? 'pending',
+					selected_option: politicalResponses.get('00000000-0000-0000-0000-000000000803')
+						?.selected_option,
 					actor_id: '00000000-0000-0000-0000-000000000901',
 					actor_name: 'Jarl Eirik',
 					actor_type: 'jarl',
@@ -213,9 +223,37 @@ createServer(async (request, response) => {
 						{ code: 'serve', service_ticks: 6, standing_delta: 7, requires_character: true },
 						{ code: 'refuse', standing_delta: -3 }
 					]
+				},
+				{
+					id: '00000000-0000-0000-0000-000000000804',
+					demand_type: 'political_labor_service',
+					status:
+						politicalResponses.get('00000000-0000-0000-0000-000000000804')?.status ?? 'pending',
+					selected_option: politicalResponses.get('00000000-0000-0000-0000-000000000804')
+						?.selected_option,
+					actor_id: '00000000-0000-0000-0000-000000000901',
+					actor_name: 'Jarl Eirik',
+					actor_type: 'jarl',
+					available_from_tick: 1,
+					expires_tick: 5,
+					parameters: {},
+					eligible_characters: [],
+					options: [
+						{ code: 'serve', service_ticks: 6, standing_delta: 7, requires_character: true },
+						{ code: 'refuse', standing_delta: -3 }
+					]
 				}
 			]
 		});
+	}
+	if (request.method === 'POST' && url.pathname.startsWith('/api/political-demands/')) {
+		const body = await readBody(request);
+		if (body.option === 'serve' && !body.character_id) {
+			return send(response, 409, { error: 'political_demand_conflict' });
+		}
+		const decisionId = url.pathname.split('/').pop();
+		politicalResponses.set(decisionId, { status: 'resolved', selected_option: body.option });
+		return send(response, 200, { status: 'resolved' });
 	}
 	if (request.method === 'GET' && url.pathname === '/api/market/offers') {
 		const offers =

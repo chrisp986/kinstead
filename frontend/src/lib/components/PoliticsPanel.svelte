@@ -23,6 +23,7 @@
 	</div>
 	{#if politics.decisions.length === 0}<p class="muted">No current demands.</p>{:else}
 		{#each politics.decisions as demand (demand.id)}
+			{@const candidates = demand.eligible_characters ?? []}
 			<article class="demand">
 				<div>
 					<h3>{demand.actor_name} · {label(demand)}</h3>
@@ -33,26 +34,44 @@
 					</p>
 				</div>
 				{#if demand.status === 'pending'}
-					<form method="POST" action="?/respondPoliticalDemand">
-						<input type="hidden" name="decision_id" value={demand.id} />
-						{#if demand.demand_type === 'political_labor_service'}
-							{@const serve = option(demand, 'serve')}
-							<p>
-								Serve for {serve?.service_ticks ?? 0} ticks · {formatStandingDelta(
-									serve?.standing_delta ?? 0
-								)} standing
-							</p>
-							<select name="character_id" required aria-label="Service character"
-								><option value="">Choose a full-capacity member</option
-								>{#each demand.eligible_characters ?? [] as character (character.id)}<option
-										value={character.id}>{character.name}</option
-									>{/each}</select
+					{#if demand.demand_type === 'political_labor_service'}
+						{@const serve = option(demand, 'serve')}
+						<p>
+							Serve for {serve?.service_ticks ?? 0} ticks · {formatStandingDelta(
+								serve?.standing_delta ?? 0
+							)} standing
+						</p>
+						<form method="POST" action="?/respondPoliticalDemand">
+							<input type="hidden" name="decision_id" value={demand.id} />
+							<select
+								name="character_id"
+								required
+								disabled={candidates.length === 0}
+								aria-label="Service character"
 							>
-							<button name="option" value="serve">Serve</button>
-						{:else}
-							{@const wood = option(demand, 'pay_wood')}
-							{@const silver = option(demand, 'pay_silver')}
-							{@const refuse = option(demand, 'refuse')}
+								<option value="">Choose a full-capacity member</option>
+								{#each candidates as character (character.id)}<option value={character.id}
+										>{character.name}</option
+									>{/each}
+							</select>
+							<button type="submit" name="option" value="serve" disabled={candidates.length === 0}
+								>Serve</button
+							>
+						</form>
+						{#if candidates.length === 0}<p class="muted">
+								No household member is available for service.
+							</p>{/if}
+						<form method="POST" action="?/respondPoliticalDemand">
+							<input type="hidden" name="decision_id" value={demand.id} />
+							<input type="hidden" name="option" value="refuse" />
+							<button type="submit" class="secondary">Refuse</button>
+						</form>
+					{:else}
+						{@const wood = option(demand, 'pay_wood')}
+						{@const silver = option(demand, 'pay_silver')}
+						{@const refuse = option(demand, 'refuse')}
+						<form method="POST" action="?/respondPoliticalDemand">
+							<input type="hidden" name="decision_id" value={demand.id} />
 							<p>
 								{formatMilli(wood?.resource_milli ?? 0)}
 								{wood?.resource_code ?? 'wood'} → {formatStandingDelta(wood?.standing_delta ?? 0)} standing
@@ -61,20 +80,20 @@
 									silver?.standing_delta ?? 0
 								)} standing · Refuse → {formatStandingDelta(refuse?.standing_delta ?? 0)} standing
 							</p>
-							<button name="option" value="pay_wood">Pay wood</button><button
-								name="option"
-								value="pay_silver">Pay silver</button
-							>
-						{/if}
-						<button name="option" value="refuse" class="secondary"
-							>Refuse ({formatStandingDelta(option(demand, 'refuse')?.standing_delta ?? 0)})</button
-						>
-					</form>
+							<button type="submit" name="option" value="pay_wood">Pay wood</button>
+							<button type="submit" name="option" value="pay_silver">Pay silver</button>
+							<button type="submit" name="option" value="refuse" class="secondary">
+								Refuse ({formatStandingDelta(refuse?.standing_delta ?? 0)})
+							</button>
+						</form>
+					{/if}
 				{/if}
 			</article>
 		{/each}
 	{/if}
-	{#if feedback?.action === 'respondPoliticalDemand'}<p class="feedback">{feedback.message}</p>{/if}
+	{#if feedback?.action === 'respondPoliticalDemand'}<p class="feedback" role="status">
+			{feedback.message}
+		</p>{/if}
 </section>
 
 <style>

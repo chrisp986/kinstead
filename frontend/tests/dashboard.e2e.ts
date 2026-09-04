@@ -16,7 +16,17 @@ test('manages work and purchases a shipment from the household dashboard', async
 	await expect(page.getByText(/18\s+wood → \+10 standing/)).toBeVisible();
 	await expect(page.getByText(/6\s+silver → \+10 standing/)).toBeVisible();
 	await expect(page.getByText(/13\s+wood → \+7 standing/)).toBeVisible();
-	await expect(page.getByText('Serve for 6 ticks · +7 standing')).toBeVisible();
+	await expect(page.getByText('Serve for 6 ticks · +7 standing').first()).toBeVisible();
+	const laborDemands = page.locator('article.demand').filter({ hasText: 'Labor service' });
+	await laborDemands.nth(0).getByRole('button', { name: 'Refuse', exact: true }).click();
+	await expect(page.getByRole('status')).toContainText('Jarl demand resolved');
+	const unavailableLabor = page
+		.locator('article.demand')
+		.filter({ hasText: 'No household member is available for service.' });
+	await expect(unavailableLabor.getByRole('button', { name: 'Serve', exact: true })).toBeDisabled();
+	await expect(unavailableLabor.getByRole('button', { name: 'Refuse', exact: true })).toBeEnabled();
+	await unavailableLabor.getByRole('button', { name: 'Refuse', exact: true }).click();
+	await expect(page.getByRole('status')).toContainText('Jarl demand resolved');
 
 	await page.getByRole('button', { name: 'Accept promise' }).click();
 	await expect(page.getByRole('status')).toContainText('Contract accepted');
