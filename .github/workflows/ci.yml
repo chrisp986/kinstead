@@ -54,12 +54,51 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: Apply migrations
+      - name: Apply and verify tracked migrations
         run: |
-          for migration in db/migrations/*.sql; do
-            sed '/^-- +goose Down/,$d' "$migration" | psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1
-          done
+          DATABASE_URL="$TEST_DATABASE_URL" ./scripts/migrate_db.sh
+          DATABASE_URL="$TEST_DATABASE_URL" ./scripts/migrate_db.sh
+          latest_repo="$(for migration in db/migrations/*.sql; do basename "$migration" | cut -d_ -f1; done | sort -n | tail -1)"
+          latest_db="$(psql "$TEST_DATABASE_URL" -Atqc "SELECT max(version_id) FROM goose_db_version WHERE is_applied")"
+          test "$latest_db" = "$((10#$latest_repo))"
+      - name: Verify incremental migration upgrade
+        run: |
+          migration_dir="$(mktemp -d)"
+          trap 'rm -rf "$migration_dir"' EXIT
+          cp db/migrations/*.sql "$migration_dir/"
+          cat > "$migration_dir/000014_ci_incremental_probe.sql" <<'SQL'
+          -- +goose Up
+          CREATE TABLE ci_incremental_migration_probe (id integer PRIMARY KEY);
+
+          -- +goose Down
+          DROP TABLE ci_incremental_migration_probe;
+          SQL
+          MIGRATIONS_DIR="$migration_dir" DATABASE_URL="$TEST_DATABASE_URL" ./scripts/migrate_db.sh
+          latest_db="$(psql "$TEST_DATABASE_URL" -Atqc "SELECT max(version_id) FROM goose_db_version WHERE is_applied")"
+          test "$latest_db" = "14"
+          MIGRATIONS_DIR="$migration_dir" DATABASE_URL="$TEST_DATABASE_URL" ./scripts/migrate_db.sh
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP TABLE ci_incremental_migration_probe;'
       - run: go test -count=1 -p 1 -tags postgres ./...
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y shellcheck
+      - name: Validate shell scripts
+        run: |
+          bash -n scripts/dev.sh
+          bash -n scripts/test_dev.sh
+          bash -n backend/scripts/bootstrap_db.sh
+          bash -n backend/scripts/migrate_db.sh
+          bash -n backend/scripts/reset_db.sh
+          bash -n backend/scripts/reset_playtest_db.sh
+          shellcheck scripts/dev.sh scripts/test_dev.sh \
+            backend/scripts/bootstrap_db.sh backend/scripts/migrate_db.sh \
+            backend/scripts/reset_db.sh backend/scripts/reset_playtest_db.sh
+      - name: Test launcher argument parsing
+        run: ./scripts/test_dev.sh
 
   frontend:
     runs-on: ubuntu-latest

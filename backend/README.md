@@ -78,14 +78,20 @@ change historical days per tick or balancing calendar semantics. The historical
 conversion remains `365 / 48`, and the isolated v0.3 simulator remains on its
 synthetic 48-tick calendar.
 
+For the complete local environment, use the root launcher described in the
+root [README](../README.md). The commands below are advanced database-only
+helpers.
+
 ## Requirements for full local test
 
 - Go 1.27+
 - Docker + Docker Compose
-- Internet access once, so Go can download `pgx`
+- Internet access once, so Go can download `pgx` and the pinned Goose CLI
 - `curl`
 
-You do **not** need local `psql` or `goose`; the bundled scripts run SQL through the PostgreSQL container.
+You do not need a local Goose binary. `scripts/migrate_db.sh` runs the pinned
+Goose CLI (`v3.26.0`) with `go run`; the seed SQL runs through the PostgreSQL
+container. A local `psql` binary is optional.
 
 ## 1. Core tests
 
@@ -110,13 +116,22 @@ and rollback tests instead of skipping them:
 make test-integration
 ```
 
-## 3. Create a fresh development database
+## 3. Create or reset the development database
 
 ```bash
 make db-reset
 ```
 
-This starts PostgreSQL, applies the `Up` parts of the migrations and inserts the Bjornvik seed.
+This destroys the disposable local volume, starts PostgreSQL, applies tracked
+Goose migrations, and inserts the Bjornvik seed. For normal development,
+prefer `./scripts/dev.sh playtest` from the repository root so existing state
+is preserved and pending migrations are applied automatically.
+
+To apply tracked migrations without resetting data:
+
+```bash
+./scripts/migrate_db.sh
+```
 
 ## 4. Start API and worker
 

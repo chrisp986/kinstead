@@ -46,3 +46,14 @@ is applied from scratch. PostgreSQL remains running when the launcher exits.
 
 Tick speed changes only real-world scheduling. It does not change historical
 days per tick, historical dates/seasons, or the frozen v0.3 balancing calendar.
+
+Local launcher requirements:
+
+- Linux or WSL
+- Bash >= 5.1
+- Docker with Docker Compose v2
+- Go, Node/npm, and curl
+- `setsid` from util-linux
+
+The launcher uses Bash process groups for cleanup and is not currently
+supported by stock macOS Bash.
