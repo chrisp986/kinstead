@@ -2,6 +2,7 @@
 	import type { MarketOffer } from '$lib/api/generated';
 	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
 	import { enhance } from '$app/forms';
+	import ActionFeedback from './shell/ActionFeedback.svelte';
 
 	let {
 		offers,
@@ -22,9 +23,7 @@
 			<h2 id="market-heading">Nearby offers</h2>
 		</div>
 	</div>
-	{#if feedback?.action === 'purchase'}
-		<p class:success={feedback.success} class="market-feedback" role="status">{feedback.message}</p>
-	{/if}
+	<ActionFeedback feedback={feedback?.action === 'purchase' ? feedback : null} />
 	{#if offers.length === 0}
 		<p class="empty">There are no active market offers.</p>
 	{:else}
@@ -75,17 +74,6 @@
 </section>
 
 <style>
-	.market-feedback {
-		margin: 1rem 0 0;
-		padding: 0.7rem;
-		background: #f5ded6;
-		color: var(--critical);
-		font-size: 0.85rem;
-	}
-	.market-feedback.success {
-		background: #e8efe2;
-		color: var(--positive);
-	}
 	.offers {
 		display: grid;
 		gap: 0.8rem;

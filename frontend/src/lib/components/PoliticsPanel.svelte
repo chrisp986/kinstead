@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PoliticalDecision, PoliticsOverview } from '$lib/api/generated';
 	import { formatMilli } from '$lib/domain/format';
+	import ActionFeedback from './shell/ActionFeedback.svelte';
 	type Feedback = { action?: string; message?: string };
 	let { politics, feedback } = $props<{
 		politics: PoliticsOverview;
@@ -91,9 +92,7 @@
 			</article>
 		{/each}
 	{/if}
-	{#if feedback?.action === 'respondPoliticalDemand'}<p class="feedback" role="status">
-			{feedback.message}
-		</p>{/if}
+	<ActionFeedback feedback={feedback?.action === 'respondPoliticalDemand' ? feedback : null} />
 </section>
 
 <style>
@@ -143,9 +142,5 @@
 		background: transparent;
 		color: var(--ink);
 		border: 1px solid var(--line);
-	}
-	.feedback {
-		margin-top: 0.75rem;
-		color: var(--accent);
 	}
 </style>

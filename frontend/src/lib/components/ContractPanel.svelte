@@ -3,6 +3,7 @@
 	import type { Contract, MarketOffer, Relationship } from '$lib/api/generated';
 	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
 	import StatusBadge from './StatusBadge.svelte';
+	import ActionFeedback from './shell/ActionFeedback.svelte';
 
 	let {
 		contracts,
@@ -69,7 +70,7 @@
 	</div>
 
 	{#if feedback?.action && ['proposeContract', 'respondContract', 'dispatchObligation'].includes(feedback.action)}
-		<p class:success={feedback.success} class="feedback" role="status">{feedback.message}</p>
+		<ActionFeedback {feedback} />
 	{/if}
 
 	{#if contracts.length === 0}
@@ -238,17 +239,6 @@
 		background: var(--ink);
 		color: var(--paper);
 		font-weight: 700;
-	}
-	.feedback {
-		margin: 1rem 0 0;
-		padding: 0.7rem;
-		background: #f5ded6;
-		color: var(--critical);
-		font-size: 0.85rem;
-	}
-	.feedback.success {
-		background: #e8efe2;
-		color: var(--positive);
 	}
 	.contract-list {
 		display: grid;

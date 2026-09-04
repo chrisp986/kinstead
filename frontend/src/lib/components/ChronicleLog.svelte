@@ -3,6 +3,15 @@
 	import { describeChronicleEntry } from '$lib/domain/chronicle';
 
 	let { entries }: { entries: ChronicleEntry[] } = $props();
+	let grouped = $derived.by(() => {
+		const groups: { tick: number; entries: ChronicleEntry[] }[] = [];
+		for (const entry of entries) {
+			const current = groups.at(-1);
+			if (current?.tick === entry.occurred_tick) current.entries.push(entry);
+			else groups.push({ tick: entry.occurred_tick, entries: [entry] });
+		}
+		return groups;
+	});
 	function delta(entry: ChronicleEntry): number {
 		const value = entry.data.trust_delta ?? entry.data.standing_delta;
 		return typeof value === 'number' ? value : 0;
@@ -22,14 +31,20 @@
 		<p class="empty">No household events have been recorded yet.</p>
 	{:else}
 		<ol class="timeline">
-			{#each entries as entry (entry.id)}
-				{@const description = describeChronicleEntry(entry)}
-				<li class:positive={delta(entry) > 0} class:negative={delta(entry) < 0}>
-					<div class="tick-marker"><span>Tick</span><strong>{entry.occurred_tick}</strong></div>
-					<div class="event-copy">
-						<h3>{description.title}</h3>
-						<p>{description.detail}</p>
-					</div>
+			{#each grouped as group (group.tick)}
+				<li class="tick-group">
+					<div class="tick-marker"><span>Tick</span><strong>{group.tick}</strong></div>
+					<ol class="tick-events">
+						{#each group.entries as entry (entry.id)}
+							{@const description = describeChronicleEntry(entry)}
+							<li class:positive={delta(entry) > 0} class:negative={delta(entry) < 0}>
+								<div class="event-copy">
+									<h3>{description.title}</h3>
+									<p>{description.detail}</p>
+								</div>
+							</li>
+						{/each}
+					</ol>
 				</li>
 			{/each}
 		</ol>
@@ -57,15 +72,25 @@
 		padding: 0;
 		list-style: none;
 	}
-	.timeline li {
+	.tick-group {
 		display: grid;
 		grid-template-columns: 3.5rem 1fr;
 		gap: 1rem;
 		padding: 0.9rem 0;
 		border-top: 1px solid var(--line-light);
 	}
-	.timeline li:first-child {
+	.tick-group:first-child {
 		border-top: 0;
+	}
+	.tick-events {
+		display: grid;
+		gap: 0.7rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.tick-events li {
+		min-width: 0;
 	}
 	.tick-marker {
 		display: grid;
