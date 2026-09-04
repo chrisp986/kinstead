@@ -87,14 +87,18 @@ refusal, transactional resource and assignment consequences, score clamps and
 derived standing, structured chronicle outcomes, REST/OpenAPI projections,
 generated client, and household Politics UI.
 
-### 6. Chronicle + Farm Report --- next major milestone
+### 6. Chronicle + Farm Report --- complete
 
--   structured chronicle entries
--   "what changed / needs attention / decisions now"
--   emergency action reporting
--   concise notification rules
+Implemented structured household Chronicle facts, idempotent contract-outcome
+references, deterministic recent-change selection, and a prioritized Farm
+Report with "what changed / needs attention / decide now" sections. The
+report uses narrow read-model ports and structured item codes rather than
+backend-localized prose. Minimal post-tick emergency food protection schedules
+one normal next-tick assignment for an otherwise-free full-capacity worker and
+records the action; future emergency work can be replaced transactionally by
+the player's plan.
 
-### 7. SvelteKit Vertical Slice
+### 7. SvelteKit Vertical Slice --- next major milestone
 
 Screens: - Farm Report - Farm - Work Planning - Trade - Chronicle
 
