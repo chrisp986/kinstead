@@ -46,6 +46,13 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	if processed {
 		return false, fmt.Errorf("world %s tick %d already processed while current_tick is %d", world.ID, tick, world.CurrentTick)
 	}
+	nextGameDay, nextRemainder, err := calendar.Advance(
+		calendar.GameDay(world.CurrentGameDay), world.CalendarRemainder,
+		world.GameDaysPerTickNum, world.GameDaysPerTickDen,
+	)
+	if err != nil {
+		return false, fmt.Errorf("advance world game day: %w", err)
+	}
 
 	// Canonical tick step 1: shipments arrive before assignments, production,
 	// consumption, and fatigue are evaluated for this tick.
@@ -70,14 +77,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("load household %s: %w", householdID, err)
 		}
-		historicalDate, err := (calendar.Clock{
-			StartDate:   snap.HistoricalStart,
-			DaysPerTick: calendar.Rational{Numerator: int64(snap.HistoricalDaysPerTickNum), Denominator: int64(snap.HistoricalDaysPerTickDen)},
-		}).DateAtTick(tick)
-		if err != nil {
-			return false, fmt.Errorf("historical date for world %s tick %d: %w", world.ID, tick, err)
-		}
-		tickContext := simulation.NeutralTickContext(simulation.SeasonForDate(historicalDate))
+		tickContext := simulation.NeutralTickContext(simulation.Season(calendar.ProductionSeasonAt(nextGameDay)))
 		result, err := simulation.ProcessTick(snap.State, tick, assignments, tickContext, p.Balance)
 		if err != nil {
 			return false, fmt.Errorf("simulate household %s: %w", householdID, err)
@@ -99,7 +99,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		}
 	}
 
-	if err := tx.FinishWorldTick(ctx, world, tick); err != nil {
+	if err := tx.FinishWorldTick(ctx, world, tick, int64(nextGameDay), nextRemainder); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

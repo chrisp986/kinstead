@@ -14,6 +14,7 @@ type HouseholdID string
 type ResourceType string
 type QuantityMilli int64
 type Tick int64
+type GameDay int64
 type Status string
 type ObligationStatus string
 
@@ -54,14 +55,23 @@ type Contract struct {
 	StartsTick        Tick
 	EndsTick          Tick
 	IntervalTicks     int64
+	StartGameDay      GameDay
+	EndGameDay        GameDay
+	IntervalDays      int64
 	Status            Status
 	Terms             []Term
 }
 
 func (c Contract) Validate() error {
 	if c.WorldID == "" || c.PartyAHouseholdID == "" || c.PartyBHouseholdID == "" ||
-		c.PartyAHouseholdID == c.PartyBHouseholdID || c.StartsTick < 0 || c.EndsTick < c.StartsTick ||
-		c.IntervalTicks <= 0 || c.IntervalTicks > math.MaxInt32 || len(c.Terms) == 0 {
+		c.PartyAHouseholdID == c.PartyBHouseholdID || len(c.Terms) == 0 {
+		return ErrInvalidContract
+	}
+	if c.IntervalDays > 0 {
+		if c.StartGameDay < 0 || c.EndGameDay < c.StartGameDay || c.IntervalDays > math.MaxInt32 {
+			return ErrInvalidContract
+		}
+	} else if c.StartsTick < 0 || c.EndsTick < c.StartsTick || c.IntervalTicks <= 0 || c.IntervalTicks > math.MaxInt32 {
 		return ErrInvalidContract
 	}
 	switch c.Status {
@@ -120,13 +130,13 @@ func (c Contract) RollUp(obligations []Obligation) (Contract, error) {
 		Creditor HouseholdID
 		Resource ResourceType
 		Quantity QuantityMilli
-		Due      Tick
+		Due      int64
 	}
 	expectedKeys := make(map[obligationKey]struct{}, len(expected))
 	for _, obligation := range expected {
 		expectedKeys[obligationKey{
 			Debtor: obligation.DebtorHouseholdID, Creditor: obligation.CreditorHouseholdID,
-			Resource: obligation.ResourceType, Quantity: obligation.QuantityMilli, Due: obligation.DueArrivalTick,
+			Resource: obligation.ResourceType, Quantity: obligation.QuantityMilli, Due: obligationDue(obligation),
 		}] = struct{}{}
 	}
 	allSettled := true
@@ -136,7 +146,7 @@ func (c Contract) RollUp(obligations []Obligation) (Contract, error) {
 		}
 		key := obligationKey{
 			Debtor: obligation.DebtorHouseholdID, Creditor: obligation.CreditorHouseholdID,
-			Resource: obligation.ResourceType, Quantity: obligation.QuantityMilli, Due: obligation.DueArrivalTick,
+			Resource: obligation.ResourceType, Quantity: obligation.QuantityMilli, Due: obligationDue(obligation),
 		}
 		if _, ok := expectedKeys[key]; !ok {
 			return Contract{}, ErrInvalidContract
@@ -166,9 +176,18 @@ type Obligation struct {
 	ResourceType        ResourceType
 	QuantityMilli       QuantityMilli
 	DueArrivalTick      Tick
+	DueGameDay          GameDay
 	ShipmentID          shipmentdomain.ID
 	Status              ObligationStatus
 	FulfilledTick       *Tick
+	FulfilledGameDay    *GameDay
+}
+
+func obligationDue(o Obligation) int64 {
+	if o.DueGameDay != 0 || o.DueArrivalTick == 0 {
+		return int64(o.DueGameDay)
+	}
+	return int64(o.DueArrivalTick)
 }
 
 // GenerateObligations expands every active contract term at starts_tick and
@@ -178,28 +197,40 @@ func GenerateObligations(c Contract) ([]Obligation, error) {
 		return nil, ErrInvalidContract
 	}
 	obligations := make([]Obligation, 0)
-	for due := int64(c.StartsTick); due <= int64(c.EndsTick); {
+	start, end, interval := int64(c.StartsTick), int64(c.EndsTick), c.IntervalTicks
+	gameDays := c.IntervalDays > 0
+	if gameDays {
+		start, end, interval = int64(c.StartGameDay), int64(c.EndGameDay), c.IntervalDays
+	}
+	for due := start; due <= end; {
 		for _, term := range c.Terms {
-			obligations = append(obligations, Obligation{
+			obligation := Obligation{
 				ContractID: c.ID, DebtorHouseholdID: term.DebtorHouseholdID, CreditorHouseholdID: term.CreditorHouseholdID,
 				ResourceType: term.ResourceType, QuantityMilli: term.QuantityMilli,
 				DueArrivalTick: Tick(due), Status: ObligationPending,
-			})
+			}
+			if gameDays {
+				obligation.DueGameDay = GameDay(due)
+			}
+			obligations = append(obligations, obligation)
 		}
-		if due > math.MaxInt64-c.IntervalTicks || due+c.IntervalTicks > int64(c.EndsTick) {
+		if due > math.MaxInt64-interval || due+interval > end {
 			break
 		}
-		due += c.IntervalTicks
+		due += interval
 	}
 	return obligations, nil
 }
 
 func (o Obligation) Validate() error {
 	if o.ContractID == "" || o.DebtorHouseholdID == "" || o.CreditorHouseholdID == "" ||
-		o.DebtorHouseholdID == o.CreditorHouseholdID || o.ResourceType == "" || o.QuantityMilli <= 0 || o.DueArrivalTick < 0 {
+		o.DebtorHouseholdID == o.CreditorHouseholdID || o.ResourceType == "" || o.QuantityMilli <= 0 || (o.DueArrivalTick < 0 && o.DueGameDay < 0) {
 		return ErrInvalidObligation
 	}
 	if o.DueArrivalTick > Tick(math.MaxInt64-3) {
+		return ErrInvalidObligation
+	}
+	if o.DueGameDay > GameDay(math.MaxInt64-3) {
 		return ErrInvalidObligation
 	}
 	switch o.Status {
@@ -278,6 +309,46 @@ func (o Obligation) Assess(currentTick Tick, actualArrival *shipmentdomain.Tick)
 		return o, nil
 	}
 	if currentTick-o.DueArrivalTick <= 2 {
+		o.Status = ObligationLate
+	} else {
+		o.Status = ObligationBroken
+	}
+	return o, nil
+}
+
+// AssessGameDay applies the contract's day-based delivery buckets: on time is
+// day 0, one through seven days late is late, eight through fourteen days late
+// is late2, and fifteen or more days late is broken. Existing callers using
+// tick-backed obligations continue to use Assess above until their storage
+// projection is upgraded.
+func (o Obligation) AssessGameDay(current GameDay, actual *GameDay) (Obligation, error) {
+	if o.DueGameDay < 0 || current < 0 || o.ContractID == "" || o.ShipmentID == "" && actual != nil {
+		return Obligation{}, ErrInvalidObligation
+	}
+	if o.Status == ObligationFulfilled || (o.Status == ObligationLate && o.FulfilledGameDay != nil) ||
+		(o.Status == ObligationBroken && (o.FulfilledGameDay != nil || actual == nil)) {
+		return o, nil
+	}
+	if actual != nil {
+		if *actual < 0 {
+			return Obligation{}, ErrInvalidObligation
+		}
+		o.FulfilledGameDay = actual
+		delay := *actual - o.DueGameDay
+		switch {
+		case delay <= 0:
+			o.Status = ObligationFulfilled
+		case delay <= 14:
+			o.Status = ObligationLate
+		default:
+			o.Status = ObligationBroken
+		}
+		return o, nil
+	}
+	if current <= o.DueGameDay {
+		return o, nil
+	}
+	if current-o.DueGameDay <= 14 {
 		o.Status = ObligationLate
 	} else {
 		o.Status = ObligationBroken

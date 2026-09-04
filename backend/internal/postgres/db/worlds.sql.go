@@ -12,7 +12,9 @@ import (
 )
 
 const claimDueWorld = `-- name: ClaimDueWorld :one
-SELECT id::text AS id, current_tick, tick_duration_seconds, next_tick_at
+SELECT id::text AS id, current_tick, tick_duration_seconds, next_tick_at,
+       current_game_day, calendar_remainder,
+       game_days_per_tick_num, game_days_per_tick_den, setting_start_year
 FROM worlds
 WHERE next_tick_at <= now()
 ORDER BY next_tick_at
@@ -25,6 +27,11 @@ type ClaimDueWorldRow struct {
 	CurrentTick         int64
 	TickDurationSeconds int32
 	NextTickAt          pgtype.Timestamptz
+	CurrentGameDay      int64
+	CalendarRemainder   int64
+	GameDaysPerTickNum  int64
+	GameDaysPerTickDen  int64
+	SettingStartYear    int32
 }
 
 func (q *Queries) ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error) {
@@ -35,6 +42,11 @@ func (q *Queries) ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error) {
 		&i.CurrentTick,
 		&i.TickDurationSeconds,
 		&i.NextTickAt,
+		&i.CurrentGameDay,
+		&i.CalendarRemainder,
+		&i.GameDaysPerTickNum,
+		&i.GameDaysPerTickDen,
+		&i.SettingStartYear,
 	)
 	return i, err
 }

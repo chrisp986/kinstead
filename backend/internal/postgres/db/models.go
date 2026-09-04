@@ -33,6 +33,7 @@ type Character struct {
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
 	BirthDate          pgtype.Date
+	BirthGameDay       int64
 }
 
 type CharacterSkill struct {
@@ -56,6 +57,8 @@ type ChronicleEntry struct {
 	RelatedAssignmentID        pgtype.UUID
 	RelatedHouseholdDecisionID pgtype.UUID
 	RelatedPoliticalActorID    pgtype.UUID
+	RelatedObligationID        pgtype.UUID
+	OccurredGameDay            int64
 }
 
 type Contract struct {
@@ -69,6 +72,9 @@ type Contract struct {
 	Status            string
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
+	StartGameDay      int64
+	EndGameDay        int64
+	IntervalDays      int32
 }
 
 type ContractObligation struct {
@@ -83,6 +89,8 @@ type ContractObligation struct {
 	Status              string
 	FulfilledTick       pgtype.Int8
 	UpdatedAt           pgtype.Timestamptz
+	DueGameDay          int64
+	FulfilledGameDay    pgtype.Int8
 }
 
 type ContractTerm struct {
@@ -240,21 +248,24 @@ type ResourceType struct {
 }
 
 type Shipment struct {
-	ID                    pgtype.UUID
-	WorldID               pgtype.UUID
-	SenderHouseholdID     pgtype.UUID
-	ReceiverHouseholdID   pgtype.UUID
-	OriginLocationID      pgtype.UUID
-	DestinationLocationID pgtype.UUID
-	ResourceCode          string
-	QuantityMilli         int64
-	DepartureTick         int64
-	ExpectedArrivalTick   int64
-	ActualArrivalTick     pgtype.Int8
-	TransportCostMilli    int64
-	Status                string
-	Metadata              []byte
-	CreatedAt             pgtype.Timestamptz
+	ID                     pgtype.UUID
+	WorldID                pgtype.UUID
+	SenderHouseholdID      pgtype.UUID
+	ReceiverHouseholdID    pgtype.UUID
+	OriginLocationID       pgtype.UUID
+	DestinationLocationID  pgtype.UUID
+	ResourceCode           string
+	QuantityMilli          int64
+	DepartureTick          int64
+	ExpectedArrivalTick    int64
+	ActualArrivalTick      pgtype.Int8
+	TransportCostMilli     int64
+	Status                 string
+	Metadata               []byte
+	CreatedAt              pgtype.Timestamptz
+	DepartureGameDay       pgtype.Int8
+	ExpectedArrivalGameDay int64
+	ActualArrivalGameDay   pgtype.Int8
 }
 
 type World struct {
@@ -268,6 +279,11 @@ type World struct {
 	UpdatedAt                pgtype.Timestamptz
 	HistoricalDaysPerTickNum int32
 	HistoricalDaysPerTickDen int32
+	CurrentGameDay           int64
+	CalendarRemainder        int64
+	GameDaysPerTickNum       int64
+	GameDaysPerTickDen       int64
+	SettingStartYear         int32
 }
 
 type WorldEvent struct {

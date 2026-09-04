@@ -66,7 +66,7 @@ jobs:
           migration_dir="$(mktemp -d)"
           trap 'rm -rf "$migration_dir"' EXIT
           cp db/migrations/*.sql "$migration_dir/"
-          cat > "$migration_dir/000014_ci_incremental_probe.sql" <<'SQL'
+          cat > "$migration_dir/000015_ci_incremental_probe.sql" <<'SQL'
           -- +goose Up
           CREATE TABLE ci_incremental_migration_probe (id integer PRIMARY KEY);
 
@@ -75,7 +75,7 @@ jobs:
           SQL
           MIGRATIONS_DIR="$migration_dir" DATABASE_URL="$TEST_DATABASE_URL" ./scripts/migrate_db.sh
           latest_db="$(psql "$TEST_DATABASE_URL" -Atqc "SELECT max(version_id) FROM goose_db_version WHERE is_applied")"
-          test "$latest_db" = "14"
+          test "$latest_db" = "15"
           MIGRATIONS_DIR="$migration_dir" DATABASE_URL="$TEST_DATABASE_URL" ./scripts/migrate_db.sh
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP TABLE ci_incremental_migration_probe;'
       - run: go test -count=1 -p 1 -tags postgres ./...

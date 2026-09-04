@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { HouseholdReport } from '$lib/api/generated';
+	import { formatGameDay, formatPhase } from '$lib/domain/time';
 
 	let { report }: { report: HouseholdReport } = $props();
 </script>
@@ -8,11 +9,11 @@
 	<div>
 		<p class="eyebrow">Household seat</p>
 		<h1>{report.household_name}</h1>
-		<p class="date">{report.historical_date} · {report.season}</p>
+		<p class="date">{formatGameDay(report.calendar)} · {formatPhase(report.calendar)}</p>
 	</div>
-	<div class="tick" aria-label={`World tick ${report.tick}`}>
-		<span>World tick</span>
-		<strong>{report.tick}</strong>
+	<div class="tick" aria-label={`Game day ${report.game_day ?? report.tick}`}>
+		<span>Game day</span>
+		<strong>{report.game_day ?? report.tick}</strong>
 	</div>
 </header>
 

@@ -96,8 +96,8 @@ func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string,
 func (t *worldTickTx) ScheduleEmergencyFoodWork(ctx context.Context, householdID, characterID, activity string, startsTick, endsTick int64, supplyDays float64) (bool, error) {
 	return t.store.ScheduleEmergencyFoodWork(ctx, t.tx, householdID, characterID, activity, startsTick, endsTick, supplyDays)
 }
-func (t *worldTickTx) FinishWorldTick(ctx context.Context, world port.WorldClaim, tick int64) error {
-	return t.store.FinishWorldTick(ctx, t.tx, world, tick)
+func (t *worldTickTx) FinishWorldTick(ctx context.Context, world port.WorldClaim, tick, gameDay, remainder int64) error {
+	return t.store.FinishWorldTick(ctx, t.tx, world, tick, gameDay, remainder)
 }
 func (t *worldTickTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
 func (t *worldTickTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
@@ -117,7 +117,12 @@ func (s *Store) ClaimDueWorld(ctx context.Context, tx pgx.Tx) (WorldClaim, bool,
 	if !row.NextTickAt.Valid {
 		return WorldClaim{}, false, fmt.Errorf("world %s has invalid next_tick_at", row.ID)
 	}
-	w := WorldClaim{ID: row.ID, CurrentTick: row.CurrentTick, TickDurationSeconds: row.TickDurationSeconds, NextTickAt: row.NextTickAt.Time}
+	w := WorldClaim{
+		ID: row.ID, CurrentTick: row.CurrentTick, CurrentGameDay: row.CurrentGameDay,
+		CalendarRemainder: row.CalendarRemainder, GameDaysPerTickNum: row.GameDaysPerTickNum,
+		GameDaysPerTickDen: row.GameDaysPerTickDen, TickDurationSeconds: row.TickDurationSeconds,
+		NextTickAt: row.NextTickAt.Time,
+	}
 	return w, true, nil
 }
 
@@ -507,8 +512,10 @@ type HouseholdSnapshot = port.HouseholdSnapshot
 func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID string, tick int64) (HouseholdSnapshot, []simulation.Assignment, error) {
 	var snap HouseholdSnapshot
 	err := tx.QueryRow(ctx, `
-        SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
-               w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
+		SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
+		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
+		       w.game_days_per_tick_den, w.setting_start_year,
+		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
                w.tick_duration_seconds, COALESCE(h.specialization, '')
         FROM households h
         JOIN worlds w ON w.id = h.world_id
@@ -516,7 +523,9 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
         FOR UPDATE OF h, w
     `, householdID).Scan(
 		&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName,
-		&snap.CurrentTick, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization,
+		&snap.CurrentTick, &snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum,
+		&snap.GameDaysPerTickDen, &snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum,
+		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization,
 	)
 	if err != nil {
 		return snap, nil, err
@@ -547,7 +556,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 	}
 
 	charRows, err := tx.Query(ctx, `
-		SELECT c.id::text, c.name, c.birth_date::text, c.labor_capacity_milli, c.fatigue,
+		SELECT c.id::text, c.name, c.birth_game_day, c.labor_capacity_milli, c.fatigue,
                COALESCE((
                    SELECT cs.skill_code FROM character_skills cs
                    WHERE cs.character_id = c.id AND cs.level > 0
@@ -565,7 +574,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 	var chars []simulation.Character
 	for charRows.Next() {
 		var cr CharacterRecord
-		if err := charRows.Scan(&cr.ID, &cr.Name, &cr.BirthDate, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
+		if err := charRows.Scan(&cr.ID, &cr.Name, &cr.BirthGameDay, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
 			charRows.Close()
 			return snap, nil, err
 		}
@@ -753,7 +762,7 @@ func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, househ
 	return err == nil, err
 }
 
-func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim, tick int64) error {
+func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim, tick, gameDay, remainder int64) error {
 	worldID, err := uuidParam(world.ID)
 	if err != nil {
 		return err
@@ -765,10 +774,14 @@ func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim
 	tag, err := tx.Exec(ctx, `
         UPDATE worlds
         SET current_tick = $2,
+            current_game_day = $4,
+            calendar_remainder = $5,
             next_tick_at = next_tick_at + (tick_duration_seconds * interval '1 second'),
             updated_at = now()
         WHERE id = $1::uuid AND current_tick = $3
-    `, world.ID, tick, world.CurrentTick)
+          AND current_game_day = $6
+          AND calendar_remainder = $7
+	`, world.ID, tick, world.CurrentTick, gameDay, remainder, world.CurrentGameDay, world.CalendarRemainder)
 	if err != nil {
 		return err
 	}
@@ -806,12 +819,17 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	// Read-only twin of LoadHouseholdForTick. It intentionally avoids row locks for API projections.
 	var snap HouseholdSnapshot
 	err := tx.QueryRow(ctx, `
-        SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
-               w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
+		SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
+		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
+		       w.game_days_per_tick_den, w.setting_start_year,
+		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
                w.tick_duration_seconds, COALESCE(h.specialization, '')
         FROM households h JOIN worlds w ON w.id=h.world_id
         WHERE h.id=$1::uuid
-    `, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.CurrentTick, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization)
+	`, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.CurrentTick,
+		&snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum, &snap.GameDaysPerTickDen,
+		&snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen,
+		&snap.TickDurationSeconds, &snap.Specialization)
 	if err != nil {
 		return snap, nil, err
 	}
@@ -836,7 +854,7 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	}
 
 	rows, err = tx.Query(ctx, `
-		SELECT c.id::text,c.name,c.birth_date::text,c.labor_capacity_milli,c.fatigue,
+		SELECT c.id::text,c.name,c.birth_game_day,c.labor_capacity_milli,c.fatigue,
         COALESCE((SELECT cs.skill_code FROM character_skills cs WHERE cs.character_id=c.id AND cs.level>0 ORDER BY cs.level DESC,cs.skill_code LIMIT 1),'')
         FROM characters c WHERE c.household_id=$1::uuid AND c.status='active' ORDER BY c.created_at,c.id
     `, householdID)
@@ -846,7 +864,7 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	var chars []simulation.Character
 	for rows.Next() {
 		var cr CharacterRecord
-		if err := rows.Scan(&cr.ID, &cr.Name, &cr.BirthDate, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
+		if err := rows.Scan(&cr.ID, &cr.Name, &cr.BirthGameDay, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
 			rows.Close()
 			return snap, nil, err
 		}

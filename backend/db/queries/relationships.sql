@@ -9,7 +9,7 @@ INSERT INTO relationship_events(
     sqlc.arg(target_household_id)::uuid,
     sqlc.arg(event_type),
     sqlc.arg(trust_delta),
-    sqlc.arg(occurred_tick),
+    sqlc.arg(occurred_tick)::bigint,
     sqlc.arg(contract_id)::uuid,
     NULLIF(sqlc.arg(shipment_id)::text, '')::uuid,
     sqlc.arg(obligation_id)::uuid,

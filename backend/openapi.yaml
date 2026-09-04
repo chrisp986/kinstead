@@ -31,6 +31,28 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/HouseholdReport' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/households/{householdId}/calendar:
+    get:
+      operationId: getHouseholdCalendar
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+        - name: from_game_day
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: to_game_day
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deterministic simulated calendar projection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalendarProjection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/households/{householdId}/assignments:
     get:
       operationId: listHouseholdAssignments
@@ -362,11 +384,11 @@ components:
         to_tick: { type: integer, format: int64 }
     Character:
       type: object
-      required: [id, name, birth_date, age, labor_permille, fatigue]
+      required: [id, name, birth_game_day, age, labor_permille, fatigue]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        birth_date: { type: string, format: date }
+        birth_game_day: { type: integer, format: int64 }
         age: { type: integer, minimum: 0 }
         labor_permille: { type: integer, format: int64 }
         fatigue: { type: integer }
@@ -386,13 +408,14 @@ components:
     HouseholdReport:
       type: object
       required:
-        [household_id, household_name, world_id, tick, historical_date, season, supply_days, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
+        [household_id, household_name, world_id, tick, game_day, calendar, supply_days, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
       properties:
         household_id: { type: string, format: uuid }
         household_name: { type: string }
         world_id: { type: string, format: uuid }
         tick: { type: integer, format: int64 }
-        historical_date: { type: string, format: date }
+        game_day: { type: integer, format: int64 }
+        calendar: { $ref: '#/components/schemas/CalendarBreakdown' }
         season: { type: string }
         supply_days: { type: number }
         resources:
@@ -417,6 +440,40 @@ components:
         decisions:
           type: array
           items: { $ref: '#/components/schemas/ReportItem' }
+    CalendarBreakdown:
+      type: object
+      required: [game_day, year_index, day_of_year, week_of_year, day_of_week, production_season, half_year, seasonal_phase]
+      properties:
+        game_day: { type: integer, format: int64 }
+        year_index: { type: integer, format: int64 }
+        day_of_year: { type: integer, format: int64 }
+        week_of_year: { type: integer, format: int64 }
+        day_of_week: { type: integer, format: int64 }
+        production_season: { type: string, enum: [spring, summer, autumn, winter] }
+        half_year: { type: string, enum: [summer, winter] }
+        seasonal_phase: { type: string }
+    CalendarEvent:
+      type: object
+      required: [id, game_day, category, kind, title]
+      properties:
+        id: { type: string }
+        game_day: { type: integer, format: int64 }
+        category: { type: string }
+        kind: { type: string }
+        title: { type: string }
+    CalendarProjection:
+      type: object
+      required: [household_id, world_id, setting_start_year, current, from_game_day, to_game_day, events]
+      properties:
+        household_id: { type: string, format: uuid }
+        world_id: { type: string, format: uuid }
+        setting_start_year: { type: integer }
+        current: { $ref: '#/components/schemas/CalendarBreakdown' }
+        from_game_day: { type: integer, format: int64 }
+        to_game_day: { type: integer, format: int64 }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/CalendarEvent' }
     Shipment:
       type: object
       required:

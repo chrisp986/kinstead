@@ -14,6 +14,9 @@ import type {
 	DispatchContractObligationResponses,
 	GetHealthData,
 	GetHealthResponses,
+	GetHouseholdCalendarData,
+	GetHouseholdCalendarErrors,
+	GetHouseholdCalendarResponses,
 	GetHouseholdPoliticsData,
 	GetHouseholdPoliticsErrors,
 	GetHouseholdPoliticsResponses,
@@ -84,6 +87,15 @@ export const getHouseholdReport = <ThrowOnError extends boolean = false>(
 		GetHouseholdReportErrors,
 		ThrowOnError
 	>({ url: '/api/households/{householdId}/report', ...options });
+
+export const getHouseholdCalendar = <ThrowOnError extends boolean = false>(
+	options: Options<GetHouseholdCalendarData, ThrowOnError>
+): RequestResult<GetHouseholdCalendarResponses, GetHouseholdCalendarErrors, ThrowOnError> =>
+	(options.client ?? client).get<
+		GetHouseholdCalendarResponses,
+		GetHouseholdCalendarErrors,
+		ThrowOnError
+	>({ url: '/api/households/{householdId}/calendar', ...options });
 
 export const listHouseholdAssignments = <ThrowOnError extends boolean = false>(
 	options: Options<ListHouseholdAssignmentsData, ThrowOnError>
