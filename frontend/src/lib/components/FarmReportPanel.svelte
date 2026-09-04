@@ -1,20 +1,31 @@
 <script lang="ts">
 	import type { ChronicleEntry, ReportItem } from '$lib/api/generated';
+	import { resolve } from '$app/paths';
 	import { describeChronicleEntry } from '$lib/domain/chronicle';
 	import { describeReportItem } from '$lib/domain/report';
 
 	let {
-		report
+		report,
+		householdId
 	}: {
 		report: {
+			household_id: string;
 			recent_changes: ChronicleEntry[];
 			attention: ReportItem[];
 			decisions: ReportItem[];
 		};
+		householdId?: string;
 	} = $props();
 
-	function anchor(target?: string): string {
-		return `#${target === 'contracts' ? 'contracts' : target === 'politics' ? 'politics' : target === 'work' ? 'work' : target === 'farm' ? 'farm' : 'trade'}`;
+	function decisionHref(target?: string): string {
+		const id = householdId ?? report.household_id;
+		const base = `/households/${id}`;
+		if (target === 'politics') return resolve(`${base}/farm#politics` as `/households/${string}`);
+		if (target === 'contracts')
+			return resolve(`${base}/trade#contracts` as `/households/${string}`);
+		if (target === 'work') return resolve(`${base}/work` as `/households/${string}`);
+		if (target === 'farm') return resolve(`${base}/farm` as `/households/${string}`);
+		return resolve(`${base}/trade` as `/households/${string}`);
 	}
 </script>
 
@@ -26,7 +37,7 @@
 		</div>
 	</div>
 	<div class="report-grid">
-		<section aria-labelledby="recent-heading">
+		<section class="recent" aria-labelledby="recent-heading">
 			<h3 id="recent-heading">Recent changes</h3>
 			{#if report.recent_changes.length === 0}<p class="empty">No recent changes.</p>{:else}<ul>
 					{#each report.recent_changes.slice(0, 3) as entry (entry.id)}{@const description =
@@ -34,7 +45,7 @@
 						<li><strong>{description.title}</strong><span>{description.detail}</span></li>{/each}
 				</ul>{/if}
 		</section>
-		<section aria-labelledby="attention-heading">
+		<section class="attention" aria-labelledby="attention-heading">
 			<h3 id="attention-heading">Needs attention</h3>
 			{#if report.attention.length === 0}<p class="empty">Nothing urgent.</p>{:else}<ul>
 					{#each report.attention as item (item.code + item.related_id)}<li
@@ -44,12 +55,17 @@
 						</li>{/each}
 				</ul>{/if}
 		</section>
-		<section aria-labelledby="decisions-heading">
+		<section class="decisions" aria-labelledby="decisions-heading">
 			<h3 id="decisions-heading">Decide now</h3>
 			{#if report.decisions.length === 0}<p class="empty">No immediate decisions.</p>{:else}<ol>
 					{#each report.decisions as item (item.code + item.related_id)}<li>
+							<!-- decisionHref() resolves the dynamic household route and anchor. -->
 							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-							<a href={anchor(item.target)}>{describeReportItem(item)}</a>
+							<a class="decision-card" href={decisionHref(item.target)}>
+								<strong>{item.target ?? 'Household decision'}</strong>
+								<span>{describeReportItem(item)}</span>
+								<span class="review">Review decision →</span>
+							</a>
 						</li>{/each}
 				</ol>{/if}
 		</section>
@@ -69,6 +85,15 @@
 	.report-grid section {
 		padding: 0.9rem;
 		background: var(--surface-muted);
+	}
+	.decisions {
+		order: 3;
+	}
+	.attention {
+		order: 2;
+	}
+	.recent {
+		order: 1;
 	}
 	.report-grid h3 {
 		margin: 0 0 0.6rem;
@@ -100,6 +125,33 @@
 		color: var(--green);
 		font-weight: 700;
 	}
+	.decision-card {
+		display: grid;
+		gap: 0.2rem;
+		min-height: 7rem;
+		padding: 0.85rem;
+		border: 1px solid var(--line);
+		background: var(--surface);
+		text-decoration: none;
+	}
+	.decision-card:hover,
+	.decision-card:focus-visible {
+		background: #edf2e8;
+	}
+	.decision-card strong {
+		font-size: 0.68rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+	.decision-card span {
+		color: var(--ink);
+		font-size: 0.9rem;
+	}
+	.decision-card .review {
+		margin-top: auto;
+		color: var(--green);
+		font-size: 0.78rem;
+	}
 	.empty {
 		margin: 0;
 		color: var(--ink-soft);
@@ -108,6 +160,15 @@
 	@media (max-width: 800px) {
 		.report-grid {
 			grid-template-columns: 1fr;
+		}
+		.decisions {
+			order: 1;
+		}
+		.attention {
+			order: 2;
+		}
+		.recent {
+			order: 3;
 		}
 	}
 </style>
