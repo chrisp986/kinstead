@@ -158,7 +158,7 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 		if err := tx.ApplyPoliticalScoreDelta(ctx, d.WorldID, d.HouseholdID, d.PoliticalActorID, resolution.StandingDelta); err != nil {
 			return err
 		}
-		data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": resolution.Option, "standing_delta": resolution.StandingDelta, "deadline_tick": d.ExpiresTick})
+		data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": resolution.Option, "standing_delta": resolution.StandingDelta, "deadline_tick": d.ExpiresTick, "deadline_game_day": d.ExpiresGameDay})
 		if err := tx.InsertPoliticalChronicle(ctx, d.HouseholdID, tick, "political_demand_auto_resolved", d.ID, d.PoliticalActorID, "", data); err != nil {
 			return err
 		}
@@ -178,7 +178,7 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 		for _, householdID := range households {
 			terms := politicsdomain.DefaultTerms(politicsdomain.DemandType(event.EventType))
 			encoded, _ := json.Marshal(terms)
-			d := port.PoliticalDecisionRecord{HouseholdID: householdID, WorldID: worldID, WorldEventID: event.ID, DecisionType: event.EventType, AvailableFromTick: event.StartsTick, ExpiresTick: event.ExpiresTick, Parameters: encoded}
+			d := port.PoliticalDecisionRecord{HouseholdID: householdID, WorldID: worldID, WorldEventID: event.ID, DecisionType: event.EventType, AvailableFromTick: event.StartsTick, ExpiresTick: event.ExpiresTick, AvailableFromGameDay: event.StartsGameDay, ExpiresGameDay: event.ExpiresGameDay, Parameters: encoded}
 			created, err := tx.InsertPoliticalDecision(ctx, d)
 			if err != nil {
 				return err
@@ -186,7 +186,7 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 			if !created {
 				continue
 			}
-			data, _ := json.Marshal(map[string]any{"actor_id": event.PoliticalActorID, "demand_type": event.EventType, "deadline_tick": event.ExpiresTick})
+			data, _ := json.Marshal(map[string]any{"actor_id": event.PoliticalActorID, "demand_type": event.EventType, "deadline_tick": event.ExpiresTick, "deadline_game_day": event.ExpiresGameDay})
 			if err := tx.InsertPoliticalReceivedChronicle(ctx, householdID, tick, event.ID, event.PoliticalActorID, data); err != nil {
 				return err
 			}

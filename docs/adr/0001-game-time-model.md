@@ -43,7 +43,9 @@ exact reconstruction of a single medieval Swedish calendar.
 ## Persistence rules
 
 Simulated dates and deadlines use integer game-day values, for example
-`start_game_day`, `due_game_day`, and `next_delivery_game_day`.
+`start_game_day`, `due_game_day`, and `next_delivery_game_day`. Political
+response deadlines and shipment departure/arrival projections are also stored
+as game-day snapshots.
 
 SQL `DATE`, `TIME`, and `TIMESTAMP` types must not be used for simulated
 historical dates or simulation deadlines. Real-world operational and audit
@@ -58,6 +60,10 @@ they must remain reproducible from the source clock.
 Recurring contracts schedule obligations against the authoritative game clock.
 The initial implementation should support recurring intervals expressed in game
 days. Each generated obligation receives an absolute game-day arrival deadline.
+Calendar contracts classify lateness as 1--7 days, 8--14 days, and 15+ days;
+legacy v0.3 tick-backed contracts retain their frozen tick outcomes. Political
+demand service duration remains tick-based, while the response deadline is
+snapshotted in game days when the demand is issued.
 
 Season-bound and domain-event schedules may be added explicitly when useful,
 for example `spring start` or a future market/assembly event. These rules must

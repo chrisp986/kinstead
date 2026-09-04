@@ -56,6 +56,19 @@ The database stores the conversion as `game_days_per_tick_num /
 game_days_per_tick_den` (default `91 / 12`). Characters store an absolute
 `birth_game_day`; age is derived from the deterministic calendar.
 
+Calendar scheduling is persisted separately from execution cadence. Contract
+obligations use absolute `due_game_day` values, shipment projections snapshot
+departure/expected/actual arrival days, and political demands snapshot their
+response deadline. Calendar contracts classify 1--7 days late as the first
+late bucket, 8--14 as the second, and 15+ as broken; old tick-backed v0.3
+contracts retain their tick behavior.
+
+The calendar projection is available at
+`GET /api/households/{id}/calendar` and includes seasonal anchors, farm and
+assembly markers, contract deadlines, shipment arrivals, political deadlines,
+and relevant work-plan ends. Its default range is the current game day plus
+182 days.
+
 ## Development tick pacing
 
 ```bash

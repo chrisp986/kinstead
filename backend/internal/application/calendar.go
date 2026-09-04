@@ -187,7 +187,7 @@ func sourceEvents(value port.CalendarContext, from, to int64) []CalendarEvent {
 		events = append(events, CalendarEvent{ID: "shipment-" + item.ID, Kind: CalendarShipmentArrival, Category: "trade", GameDay: item.ExpectedArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status, Title: "Shipment expected"})
 	}
 	for _, item := range value.Deadlines {
-		day := tickGameDay(value.Snapshot, item.DeadlineTick)
+		day := item.DeadlineGameDay
 		if day >= from && day <= to {
 			events = append(events, CalendarEvent{ID: item.ID, Kind: CalendarEventKind(item.Kind), Category: item.Category, GameDay: day, Importance: item.Importance, ActionRequired: true, RelatedID: item.ID, Title: item.Title})
 		}

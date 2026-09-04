@@ -11,6 +11,9 @@ export type CalendarView = {
 	week_of_half: number;
 };
 
+export type CalendarGroup =
+	'urgent' | 'today' | 'this_week' | 'next_week' | 'later_current_half' | 'next_half' | 'later';
+
 export function calendarForGameDay(gameDay: number): CalendarView {
 	const yearIndex = Math.floor(gameDay / 364);
 	const dayOfYear = ((gameDay % 364) + 364) % 364;
@@ -56,7 +59,10 @@ const phaseNames: Record<string, string> = {
 
 export function formatGameDay(value?: CalendarView): string {
 	if (!value) return 'World calendar';
-	return formatCalendarPosition(value.phase || value.seasonal_phase, value.week_of_half);
+	return formatCalendarPosition(
+		value.phase || value.seasonal_phase || value.production_season,
+		value.week_of_half
+	);
 }
 
 export function formatPhase(value?: CalendarView): string {
@@ -65,6 +71,7 @@ export function formatPhase(value?: CalendarView): string {
 }
 
 export function formatPhaseName(value: string): string {
+	if (!value) return 'Season unknown';
 	return (
 		phaseNames[value] ?? value.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase())
 	);
@@ -72,6 +79,29 @@ export function formatPhaseName(value: string): string {
 
 export function formatCalendarPosition(phase: string, weekOfHalf: number): string {
 	return `${formatPhaseName(phase)} · ${ordinal(weekOfHalf)} week`;
+}
+
+export function nextHalfYearStart(gameDay: number): number {
+	const year = Math.floor(gameDay / 364);
+	const dayOfYear = ((gameDay % 364) + 364) % 364;
+	return dayOfYear < 182 ? year * 364 + 182 : (year + 1) * 364;
+}
+
+export function calendarGroupForEvent(
+	currentGameDay: number,
+	targetGameDay: number,
+	actionRequired: boolean,
+	importance: string,
+	nextHalfStart = nextHalfYearStart(currentGameDay)
+): CalendarGroup {
+	const days = targetGameDay - currentGameDay;
+	if (days === 0) return 'today';
+	if (days > 0 && actionRequired && importance === 'critical' && days <= 7) return 'urgent';
+	if (days > 0 && days <= 7) return 'this_week';
+	if (days > 7 && days <= 14) return 'next_week';
+	if (targetGameDay < nextHalfStart) return 'later_current_half';
+	if (targetGameDay < nextHalfStart + 182) return 'next_half';
+	return 'later';
 }
 
 export function formatRelativeGameDay(current: number, target: number): string {

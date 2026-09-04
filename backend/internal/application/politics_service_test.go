@@ -172,3 +172,26 @@ func TestPoliticsResponseDoesNotRetryExpectedErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestPoliticsResponseUsesCalendarDeadlineWhenSnapshotIsPresent(t *testing.T) {
+	repo := &fakePoliticsRepository{
+		decisionFor: func(int) port.PoliticalDecisionRecord {
+			d := politicalServiceTestDecision(string(politicsdomain.StatusPending))
+			d.CurrentTick = 1
+			d.ExpiresTick = 100
+			d.CurrentGameDay = 10
+			d.AvailableFromGameDay = 1
+			d.ExpiresGameDay = 10
+			return d
+		},
+	}
+	service := NewPoliticsService(repo, nil)
+	if err := service.Respond(context.Background(), RespondPoliticalDemandCommand{
+		DecisionID: "decision", HouseholdID: "household", Option: "refuse",
+	}); !errors.Is(err, politicsdomain.ErrExpired) {
+		t.Fatalf("error=%v, want calendar deadline expiry", err)
+	}
+	if repo.attempts != 1 {
+		t.Fatalf("attempts=%d, want 1", repo.attempts)
+	}
+}

@@ -138,12 +138,18 @@ Modern date pickers and month/day deadlines are not part of normal
 contract gameplay. Internal schedule state stores absolute game-day
 values and schedule rules, not rendered labels.
 
-Contract trust consequences:
+Contract trust consequences for calendar-scheduled contracts:
 
 - fulfilled on time or early: +2
-- fulfilled 1 tick late: -1
-- fulfilled 2 ticks late: -2
-- broken / 3+ ticks late: -8
+- fulfilled 1--7 days late: -1
+- fulfilled 8--14 days late: -2
+- broken / 15+ days late: -8
+
+Existing tick-backed v0.3 contracts retain their original one-/two-tick late
+classification. New recurring contracts use 7, 14, or 28 game-day intervals;
+the server resolves seasonal end conditions to absolute game days. Expected
+shipment travel is still a tick-based simulation mechanic, but departure and
+arrival game days are snapshotted for calendar and deadline projections.
 
 A contract obligation affects the creditor's trust in the debtor. Each
 obligation produces at most one final trust consequence. Trust is clamped to
@@ -161,11 +167,12 @@ player states: disapproving (-100..-31), neutral (-30..29), favorable
 (30..69), connected (70..100). Political demands consume labor/resources
 and create opportunity costs.
 
-Contract trust consequences are fixed and directional: fulfilled on time or
-early is +2, one tick late is -1, two ticks late is -2, and broken/3+ ticks
-late is -8. Each obligation produces at most one consequence; trust is clamped
-to -100..100 and does not scale by quantity, value, resource type, distance,
-or contract duration.
+Contract trust consequences are fixed and directional. Calendar contracts use
+the day buckets above; legacy tick-backed v0.3 contracts use fulfilled on time
+or early +2, one tick late -1, two ticks late -2, and broken/3+ ticks -8. Each
+obligation produces at most one consequence; trust is clamped to -100..100 and
+does not scale by quantity, value, resource type, distance, or contract
+duration.
 
 Jarl demands use production event types `political_labor_service` and
 `political_levy`. Labor service reserves one full-capacity character for four
@@ -179,8 +186,8 @@ emergency actions.
 
 ## UI
 
-Primary screens: 1. Farm Report 2. Farm 3. Work Planning 4. Trade 5.
-Chronicle
+Primary screens: 1. Farm Report 2. Farm 3. Work Planning 4. Trade 5. Calendar
+6. Chronicle
 
 Farm Report answers: What changed? What needs attention? What meaningful
 decisions matter now? Prefer 2--3 important actions.
@@ -188,6 +195,12 @@ decisions matter now? Prefer 2--3 important actions.
 Time-sensitive UI should prefer derived, readable game-calendar labels such
 as season/week and relative durations. Exact internal `game_day` values may
 be exposed in diagnostics, but are not the normal player-facing format.
+
+The Calendar screen offers `Upcoming` (grouped by urgency and half-year) and
+`Year cycle` (the summer/winter rhythm with seasonal phases and anchors). It
+projects contract due dates, dispatch deadlines, shipment arrivals, political
+response deadlines, farm markers, festivals, and assemblies without creating a
+second source of truth.
 
 ## Vertical Slice scope
 

@@ -12,14 +12,14 @@ var ErrConcurrentTransaction = errors.New("concurrent transaction conflict")
 
 type PoliticalEventRecord struct {
 	ID, WorldID, LocationID, PoliticalActorID, EventType, ActorName, ActorType string
-	StartsTick, ExpiresTick                                                    int64
+	StartsTick, ExpiresTick, StartsGameDay, ExpiresGameDay                     int64
 	Parameters                                                                 []byte
 }
 type PoliticalDecisionRecord struct {
 	ID, HouseholdID, WorldID, WorldEventID, DecisionType, Status string
 	PoliticalActorID, EventType                                  string
 	AvailableFromTick, ExpiresTick, CurrentTick                  int64
-	AvailableFromGameDay, ExpiresGameDay                         int64
+	AvailableFromGameDay, ExpiresGameDay, CurrentGameDay         int64
 	SelectedOption                                               *string
 	StandingDelta                                                *int
 	Parameters                                                   []byte

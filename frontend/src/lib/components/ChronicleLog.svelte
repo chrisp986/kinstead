@@ -38,7 +38,7 @@
 					<div class="day-marker">
 						<span>{group.gameDay === currentGameDay ? 'Today' : 'Recorded'}</span><strong
 							>{formatCalendarPosition(
-								date.phase ?? date.seasonal_phase,
+								date.phase || date.seasonal_phase || date.production_season,
 								date.week_of_half
 							)}</strong
 						>

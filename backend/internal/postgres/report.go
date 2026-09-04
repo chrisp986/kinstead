@@ -61,7 +61,7 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 
 func (s *Store) ListPendingPoliticalDemandsForReport(ctx context.Context, householdID string) ([]port.PoliticalReportDemand, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT d.id::text, a.name, d.expires_tick
+		SELECT d.id::text, a.name, d.expires_tick, d.expires_game_day
 		FROM household_decisions d
 		JOIN world_events e ON e.id=d.world_event_id
 		JOIN political_actors a ON a.id=e.political_actor_id
@@ -74,7 +74,7 @@ func (s *Store) ListPendingPoliticalDemandsForReport(ctx context.Context, househ
 	items := make([]port.PoliticalReportDemand, 0)
 	for rows.Next() {
 		var item port.PoliticalReportDemand
-		if err := rows.Scan(&item.ID, &item.ActorName, &item.ExpiresTick); err != nil {
+		if err := rows.Scan(&item.ID, &item.ActorName, &item.ExpiresTick, &item.ExpiresGameDay); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
