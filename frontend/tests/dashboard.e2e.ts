@@ -38,7 +38,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page.getByRole('status')).toContainText('Shipment dispatched for arrival at tick 2');
 	await expect(page.getByText('In transit').first()).toBeVisible();
 
-	await page.getByRole('link', { name: 'Chronicle' }).click();
+	await page.getByRole('link', { name: 'Chronicle', exact: true }).click();
 	await expect(page).toHaveURL(/\/chronicle$/);
 	await expect(page.getByRole('heading', { name: 'Chronicle' })).toBeVisible();
 	await expect(page.getByText('Work completed')).toBeVisible();
