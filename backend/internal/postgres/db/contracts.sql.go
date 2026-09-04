@@ -282,27 +282,31 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        o.creditor_household_id::text AS creditor_household_id,
        o.resource_code, o.quantity_milli, o.due_arrival_tick, o.due_game_day,
        COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
-       o.status, o.fulfilled_tick, o.fulfilled_game_day, c.game_day_schedule
+       o.status, o.fulfilled_tick, o.fulfilled_game_day, c.game_day_schedule,
+       s.departure_game_day, s.expected_arrival_game_day
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
+LEFT JOIN shipments s ON s.id = o.shipment_id
 WHERE o.contract_id = $1::uuid
 ORDER BY o.due_game_day, o.debtor_household_id, o.creditor_household_id, o.resource_code
 `
 
 type ListContractObligationsRow struct {
-	ID                  string
-	ContractID          string
-	DebtorHouseholdID   string
-	CreditorHouseholdID string
-	ResourceCode        string
-	QuantityMilli       int64
-	DueArrivalTick      int64
-	DueGameDay          int64
-	ShipmentID          string
-	Status              string
-	FulfilledTick       pgtype.Int8
-	FulfilledGameDay    pgtype.Int8
-	GameDaySchedule     bool
+	ID                     string
+	ContractID             string
+	DebtorHouseholdID      string
+	CreditorHouseholdID    string
+	ResourceCode           string
+	QuantityMilli          int64
+	DueArrivalTick         int64
+	DueGameDay             int64
+	ShipmentID             string
+	Status                 string
+	FulfilledTick          pgtype.Int8
+	FulfilledGameDay       pgtype.Int8
+	GameDaySchedule        bool
+	DepartureGameDay       pgtype.Int8
+	ExpectedArrivalGameDay pgtype.Int8
 }
 
 func (q *Queries) ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error) {
@@ -328,6 +332,8 @@ func (q *Queries) ListContractObligations(ctx context.Context, dollar_1 pgtype.U
 			&i.FulfilledTick,
 			&i.FulfilledGameDay,
 			&i.GameDaySchedule,
+			&i.DepartureGameDay,
+			&i.ExpectedArrivalGameDay,
 		); err != nil {
 			return nil, err
 		}
@@ -587,7 +593,8 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        c.world_id::text AS world_id, c.status AS contract_status,
        debtor.location_id::text AS origin_location_id,
        creditor.location_id::text AS destination_location_id,
-       w.current_tick, w.current_game_day, gen_random_uuid()::text AS proposed_shipment_id
+       w.current_tick, w.current_game_day, w.game_days_per_tick_num, w.game_days_per_tick_den,
+       c.game_day_schedule, gen_random_uuid()::text AS proposed_shipment_id
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
 JOIN worlds w ON w.id = c.world_id
@@ -618,6 +625,9 @@ type LockContractObligationForDispatchRow struct {
 	DestinationLocationID string
 	CurrentTick           int64
 	CurrentGameDay        int64
+	GameDaysPerTickNum    int64
+	GameDaysPerTickDen    int64
+	GameDaySchedule       bool
 	ProposedShipmentID    string
 }
 
@@ -643,6 +653,9 @@ func (q *Queries) LockContractObligationForDispatch(ctx context.Context, dollar_
 		&i.DestinationLocationID,
 		&i.CurrentTick,
 		&i.CurrentGameDay,
+		&i.GameDaysPerTickNum,
+		&i.GameDaysPerTickDen,
+		&i.GameDaySchedule,
 		&i.ProposedShipmentID,
 	)
 	return i, err

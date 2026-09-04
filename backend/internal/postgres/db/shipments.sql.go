@@ -18,26 +18,30 @@ SELECT id::text AS id, world_id::text AS world_id,
        origin_location_id::text AS origin_location_id,
        destination_location_id::text AS destination_location_id,
        resource_code, quantity_milli, departure_tick, expected_arrival_tick,
-       actual_arrival_tick, transport_cost_milli, status
+       actual_arrival_tick, departure_game_day, expected_arrival_game_day,
+       actual_arrival_game_day, transport_cost_milli, status
 FROM shipments
 WHERE sender_household_id = $1::uuid OR receiver_household_id = $1::uuid
 ORDER BY departure_tick DESC, id
 `
 
 type ListShipmentsByHouseholdRow struct {
-	ID                    string
-	WorldID               string
-	SenderHouseholdID     string
-	ReceiverHouseholdID   string
-	OriginLocationID      string
-	DestinationLocationID string
-	ResourceCode          string
-	QuantityMilli         int64
-	DepartureTick         int64
-	ExpectedArrivalTick   int64
-	ActualArrivalTick     pgtype.Int8
-	TransportCostMilli    int64
-	Status                string
+	ID                     string
+	WorldID                string
+	SenderHouseholdID      string
+	ReceiverHouseholdID    string
+	OriginLocationID       string
+	DestinationLocationID  string
+	ResourceCode           string
+	QuantityMilli          int64
+	DepartureTick          int64
+	ExpectedArrivalTick    int64
+	ActualArrivalTick      pgtype.Int8
+	DepartureGameDay       pgtype.Int8
+	ExpectedArrivalGameDay int64
+	ActualArrivalGameDay   pgtype.Int8
+	TransportCostMilli     int64
+	Status                 string
 }
 
 func (q *Queries) ListShipmentsByHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByHouseholdRow, error) {
@@ -61,6 +65,9 @@ func (q *Queries) ListShipmentsByHousehold(ctx context.Context, dollar_1 pgtype.
 			&i.DepartureTick,
 			&i.ExpectedArrivalTick,
 			&i.ActualArrivalTick,
+			&i.DepartureGameDay,
+			&i.ExpectedArrivalGameDay,
+			&i.ActualArrivalGameDay,
 			&i.TransportCostMilli,
 			&i.Status,
 		); err != nil {
@@ -81,26 +88,30 @@ SELECT id::text AS id, world_id::text AS world_id,
        origin_location_id::text AS origin_location_id,
        destination_location_id::text AS destination_location_id,
        resource_code, quantity_milli, departure_tick, expected_arrival_tick,
-       actual_arrival_tick, transport_cost_milli, status
+       actual_arrival_tick, departure_game_day, expected_arrival_game_day,
+       actual_arrival_game_day, transport_cost_milli, status
 FROM shipments
 WHERE world_id = $1::uuid
 ORDER BY departure_tick DESC, id
 `
 
 type ListShipmentsByWorldRow struct {
-	ID                    string
-	WorldID               string
-	SenderHouseholdID     string
-	ReceiverHouseholdID   string
-	OriginLocationID      string
-	DestinationLocationID string
-	ResourceCode          string
-	QuantityMilli         int64
-	DepartureTick         int64
-	ExpectedArrivalTick   int64
-	ActualArrivalTick     pgtype.Int8
-	TransportCostMilli    int64
-	Status                string
+	ID                     string
+	WorldID                string
+	SenderHouseholdID      string
+	ReceiverHouseholdID    string
+	OriginLocationID       string
+	DestinationLocationID  string
+	ResourceCode           string
+	QuantityMilli          int64
+	DepartureTick          int64
+	ExpectedArrivalTick    int64
+	ActualArrivalTick      pgtype.Int8
+	DepartureGameDay       pgtype.Int8
+	ExpectedArrivalGameDay int64
+	ActualArrivalGameDay   pgtype.Int8
+	TransportCostMilli     int64
+	Status                 string
 }
 
 func (q *Queries) ListShipmentsByWorld(ctx context.Context, dollar_1 pgtype.UUID) ([]ListShipmentsByWorldRow, error) {
@@ -124,6 +135,9 @@ func (q *Queries) ListShipmentsByWorld(ctx context.Context, dollar_1 pgtype.UUID
 			&i.DepartureTick,
 			&i.ExpectedArrivalTick,
 			&i.ActualArrivalTick,
+			&i.DepartureGameDay,
+			&i.ExpectedArrivalGameDay,
+			&i.ActualArrivalGameDay,
 			&i.TransportCostMilli,
 			&i.Status,
 		); err != nil {
@@ -144,7 +158,8 @@ SELECT id::text AS id, world_id::text AS world_id,
        origin_location_id::text AS origin_location_id,
        destination_location_id::text AS destination_location_id,
        resource_code, quantity_milli, departure_tick, expected_arrival_tick,
-       actual_arrival_tick, transport_cost_milli, status
+       actual_arrival_tick, departure_game_day, expected_arrival_game_day,
+       actual_arrival_game_day, transport_cost_milli, status
 FROM shipments
 WHERE world_id = $1::uuid
   AND status = 'in_transit'
@@ -160,19 +175,22 @@ type LoadShipmentsDueForArrivalParams struct {
 }
 
 type LoadShipmentsDueForArrivalRow struct {
-	ID                    string
-	WorldID               string
-	SenderHouseholdID     string
-	ReceiverHouseholdID   string
-	OriginLocationID      string
-	DestinationLocationID string
-	ResourceCode          string
-	QuantityMilli         int64
-	DepartureTick         int64
-	ExpectedArrivalTick   int64
-	ActualArrivalTick     pgtype.Int8
-	TransportCostMilli    int64
-	Status                string
+	ID                     string
+	WorldID                string
+	SenderHouseholdID      string
+	ReceiverHouseholdID    string
+	OriginLocationID       string
+	DestinationLocationID  string
+	ResourceCode           string
+	QuantityMilli          int64
+	DepartureTick          int64
+	ExpectedArrivalTick    int64
+	ActualArrivalTick      pgtype.Int8
+	DepartureGameDay       pgtype.Int8
+	ExpectedArrivalGameDay int64
+	ActualArrivalGameDay   pgtype.Int8
+	TransportCostMilli     int64
+	Status                 string
 }
 
 func (q *Queries) LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipmentsDueForArrivalParams) ([]LoadShipmentsDueForArrivalRow, error) {
@@ -196,6 +214,9 @@ func (q *Queries) LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipme
 			&i.DepartureTick,
 			&i.ExpectedArrivalTick,
 			&i.ActualArrivalTick,
+			&i.DepartureGameDay,
+			&i.ExpectedArrivalGameDay,
+			&i.ActualArrivalGameDay,
 			&i.TransportCostMilli,
 			&i.Status,
 		); err != nil {
@@ -211,7 +232,7 @@ func (q *Queries) LoadShipmentsDueForArrival(ctx context.Context, arg LoadShipme
 
 const markShipmentArrived = `-- name: MarkShipmentArrived :one
 UPDATE shipments
-SET status = 'arrived', actual_arrival_tick = $2
+SET status = 'arrived', actual_arrival_tick = $2, actual_arrival_game_day = $4
 WHERE id = $1::uuid
   AND world_id = $3::uuid
   AND status = 'in_transit'
@@ -221,13 +242,19 @@ RETURNING id::text
 `
 
 type MarkShipmentArrivedParams struct {
-	Column1           pgtype.UUID
-	ActualArrivalTick pgtype.Int8
-	Column3           pgtype.UUID
+	Column1              pgtype.UUID
+	ActualArrivalTick    pgtype.Int8
+	Column3              pgtype.UUID
+	ActualArrivalGameDay pgtype.Int8
 }
 
 func (q *Queries) MarkShipmentArrived(ctx context.Context, arg MarkShipmentArrivedParams) (string, error) {
-	row := q.db.QueryRow(ctx, markShipmentArrived, arg.Column1, arg.ActualArrivalTick, arg.Column3)
+	row := q.db.QueryRow(ctx, markShipmentArrived,
+		arg.Column1,
+		arg.ActualArrivalTick,
+		arg.Column3,
+		arg.ActualArrivalGameDay,
+	)
 	var id string
 	err := row.Scan(&id)
 	return id, err

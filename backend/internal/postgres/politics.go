@@ -309,6 +309,10 @@ func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (p
 	if e != nil {
 		return port.HouseholdPoliticsProjection{}, e
 	}
+	snapshot, e := s.GetHouseholdReport(ctx, householdID)
+	if e != nil {
+		return port.HouseholdPoliticsProjection{}, e
+	}
 	out := port.HouseholdPoliticsProjection{Relationships: make([]port.PoliticalRelationshipRecord, 0), Decisions: make([]port.PoliticalDecisionProjection, 0)}
 	for _, v := range r {
 		out.Relationships = append(out.Relationships, port.PoliticalRelationshipRecord{PoliticalActorID: v.PoliticalActorID, ActorName: v.ActorName, ActorType: v.ActorType, Score: int(v.Standing), Standing: string(politicsdomain.DeriveStanding(politicsdomain.Score(v.Standing))), UpdatedAt: v.UpdatedAt.Time.Format("2006-01-02T15:04:05Z07:00")})
@@ -341,7 +345,13 @@ func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (p
 		}
 		params := map[string]any{}
 		_ = json.Unmarshal(v.Parameters, &params)
-		projection := port.PoliticalDecisionProjection{ID: v.ID, DemandType: v.DecisionType, Status: v.Status, ActorID: v.PoliticalActorID, ActorName: v.ActorName, ActorType: v.ActorType, AvailableFromTick: v.AvailableFromTick, ExpiresTick: v.ExpiresTick, SelectedOption: sel, StandingDelta: sd, Parameters: params, Options: options}
+		projection := port.PoliticalDecisionProjection{
+			ID: v.ID, DemandType: v.DecisionType, Status: v.Status, ActorID: v.PoliticalActorID,
+			ActorName: v.ActorName, ActorType: v.ActorType, AvailableFromTick: v.AvailableFromTick,
+			ExpiresTick: v.ExpiresTick, AvailableFromGameDay: gameDayAtTick(snapshot, v.AvailableFromTick),
+			ExpiresGameDay: gameDayAtTick(snapshot, v.ExpiresTick), SelectedOption: sel,
+			StandingDelta: sd, Parameters: params, Options: options,
+		}
 		if demand == politicsdomain.DemandLaborService && v.Status == string(politicsdomain.StatusPending) {
 			did, _ := uuidParam(v.ID)
 			eligible, ee := sqlcdb.New(s.Pool).ListEligiblePoliticalCharacters(ctx, did)

@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { Contract, MarketOffer, Relationship } from '$lib/api/generated';
 	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
+	import { formatInterval, formatRelativeGameDay } from '$lib/domain/time';
 	import StatusBadge from './StatusBadge.svelte';
 	import ActionFeedback from './shell/ActionFeedback.svelte';
 
@@ -10,14 +11,14 @@
 		relationships,
 		offers,
 		householdId,
-		currentTick,
+		currentGameDay,
 		feedback
 	}: {
 		contracts: Contract[];
 		relationships: Relationship[];
 		offers: MarketOffer[];
 		householdId: string;
-		currentTick: number;
+		currentGameDay: number;
 		feedback?: { success?: boolean; action?: string; message?: string } | null;
 	} = $props();
 
@@ -82,9 +83,7 @@
 					<div class="contract-heading">
 						<div>
 							<span class="contract-label">With household …{shortId(counterpart(contract))}</span>
-							<h3>
-								Ticks {contract.starts_tick}–{contract.ends_tick}, every {contract.interval_ticks}
-							</h3>
+							<h3>{formatInterval(contract.interval_days)} · recurring delivery</h3>
 						</div>
 						<StatusBadge status={contract.status} />
 					</div>
@@ -115,7 +114,8 @@
 							{#each contract.obligations as obligation (obligation.id)}
 								<div class="obligation">
 									<div>
-										<strong>Due tick {obligation.due_arrival_tick}</strong>
+										<strong>{formatRelativeGameDay(currentGameDay, obligation.due_game_day)}</strong
+										>
 										<span
 											>{formatMilli(obligation.quantity_milli)}
 											{labelResource(obligation.resource_type)}</span
@@ -192,30 +192,36 @@
 							required
 						/></label
 					>
+					<input type="hidden" name="current_game_day" value={currentGameDay} />
 					<label
-						><span>First due tick</span><input
-							name="starts_tick"
-							type="number"
-							min={currentTick + 1}
-							value={currentTick + 2}
-							required
+						><span>First delivery</span><select name="first_due_offset" required
+							><option value="7">In one week</option><option value="14">In two weeks</option><option
+								value="28">In four weeks</option
+							></select
+						>
 						/></label
 					>
 					<label
-						><span>Repeat every ticks</span><input
-							name="interval_ticks"
+						><span>Repeat</span><select name="interval_days" required
+							><option value="7">Every week</option><option value="14">Every two weeks</option
+							><option value="28">Every four weeks</option></select
+						>
+						/></label
+					>
+					<label
+						><span>Ends at</span><select name="end_condition_type" required
+							><option value="fixed_delivery_count">Six deliveries</option><option
+								value="winter_start">Winter begins</option
+							><option value="summer_start">Summer begins</option></select
+						>
+						/></label
+					>
+					<label
+						><span>Delivery count</span><input
+							name="delivery_count"
 							type="number"
 							min="1"
-							value="2"
-							required
-						/></label
-					>
-					<label
-						><span>Final due tick</span><input
-							name="ends_tick"
-							type="number"
-							min={currentTick + 1}
-							value={currentTick + 6}
+							value="6"
 							required
 						/></label
 					>

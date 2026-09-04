@@ -170,18 +170,20 @@ func (c Contract) RollUp(obligations []Obligation) (Contract, error) {
 }
 
 type Obligation struct {
-	ID                  ObligationID
-	ContractID          ID
-	DebtorHouseholdID   HouseholdID
-	CreditorHouseholdID HouseholdID
-	ResourceType        ResourceType
-	QuantityMilli       QuantityMilli
-	DueArrivalTick      Tick
-	DueGameDay          GameDay
-	ShipmentID          shipmentdomain.ID
-	Status              ObligationStatus
-	FulfilledTick       *Tick
-	FulfilledGameDay    *GameDay
+	ID                     ObligationID
+	ContractID             ID
+	DebtorHouseholdID      HouseholdID
+	CreditorHouseholdID    HouseholdID
+	ResourceType           ResourceType
+	QuantityMilli          QuantityMilli
+	DueArrivalTick         Tick
+	DueGameDay             GameDay
+	ShipmentID             shipmentdomain.ID
+	ExpectedArrivalGameDay *GameDay
+	LatestDispatchGameDay  *GameDay
+	Status                 ObligationStatus
+	FulfilledTick          *Tick
+	FulfilledGameDay       *GameDay
 }
 
 func obligationDue(o Obligation) int64 {
@@ -294,7 +296,9 @@ func (o Obligation) Dispatch(shipment shipmentdomain.Shipment) (Obligation, erro
 		return Obligation{}, ErrShipmentMismatch
 	}
 	o.ShipmentID = shipment.ID
-	if Tick(shipment.DepartureTick) > o.DueArrivalTick {
+	if o.DueGameDay != 0 && shipment.DepartureGameDay > shipmentdomain.GameDay(o.DueGameDay) {
+		o.Status = ObligationLate
+	} else if o.DueGameDay == 0 && Tick(shipment.DepartureTick) > o.DueArrivalTick {
 		o.Status = ObligationLate
 	} else {
 		o.Status = ObligationDispatched

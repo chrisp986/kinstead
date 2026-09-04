@@ -233,6 +233,7 @@ type RelationshipEvent struct {
 	RelatedShipmentID   pgtype.UUID
 	Data                []byte
 	RelatedObligationID pgtype.UUID
+	OccurredGameDay     int64
 }
 
 type ResourceStock struct {

@@ -4,11 +4,24 @@ const householdId = '00000000-0000-0000-0000-000000000020';
 const sellerId = '00000000-0000-0000-0000-000000000021';
 const worldId = '00000000-0000-0000-0000-000000000001';
 const offerId = '00000000-0000-0000-0000-000000000302';
+const calendar = {
+	game_day: 0,
+	year_index: 0,
+	day_of_year: 0,
+	week_of_year: 1,
+	week_of_half: 1,
+	day_of_week: 1,
+	production_season: 'spring',
+	half_year: 'summer',
+	seasonal_phase: '',
+	phase: ''
+};
 const assignments = [];
 const chronicleEntries = [
 	{
 		id: '00000000-0000-0000-0000-000000000501',
 		occurred_tick: 0,
+		occurred_game_day: 0,
 		entry_type: 'assignment_completed',
 		subject_character_id: '00000000-0000-0000-0000-000000000101',
 		subject_character_name: 'Bjorn',
@@ -27,6 +40,10 @@ const contracts = [
 		starts_tick: 2,
 		ends_tick: 2,
 		interval_ticks: 1,
+		start_game_day: 2,
+		end_game_day: 2,
+		interval_days: 7,
+		interval: 'every week',
 		status: 'proposed',
 		terms: [
 			{
@@ -54,6 +71,7 @@ const relationships = [
 				event_type: 'contract_obligation_fulfilled',
 				trust_delta: 2,
 				occurred_tick: 10,
+				occurred_game_day: 10,
 				data: { due_arrival_tick: 10, actual_fulfillment_tick: 10 }
 			},
 			{
@@ -61,6 +79,7 @@ const relationships = [
 				event_type: 'contract_obligation_late',
 				trust_delta: -1,
 				occurred_tick: 21,
+				occurred_game_day: 21,
 				data: { due_arrival_tick: 20, actual_fulfillment_tick: 21 }
 			},
 			{
@@ -68,6 +87,7 @@ const relationships = [
 				event_type: 'contract_obligation_broken',
 				trust_delta: -8,
 				occurred_tick: 35,
+				occurred_game_day: 35,
 				data: { due_arrival_tick: 32 }
 			}
 		]
@@ -86,6 +106,8 @@ function shipment(id, quantity) {
 		quantity_milli: quantity,
 		departure_tick: 0,
 		expected_arrival_tick: 2,
+		departure_game_day: 0,
+		expected_arrival_game_day: 2,
 		transport_cost_milli: 0,
 		status: 'in_transit'
 	};
@@ -130,6 +152,8 @@ createServer(async (request, response) => {
 			household_name: 'Bjornvik',
 			world_id: worldId,
 			tick: 0,
+			game_day: 0,
+			calendar,
 			historical_date: '0980-01-01',
 			season: 'winter',
 			supply_days: 30.6,
@@ -322,12 +346,15 @@ createServer(async (request, response) => {
 			intensity: body.intensity,
 			starts_tick: 1,
 			ends_tick: body.duration_ticks,
+			starts_game_day: 1,
+			ends_game_day: body.duration_ticks,
 			status: 'planned'
 		};
 		assignments.push(assignment);
 		chronicleEntries.unshift({
 			id: '00000000-0000-0000-0000-000000000502',
 			occurred_tick: 0,
+			occurred_game_day: 0,
 			entry_type: 'assignment_scheduled',
 			subject_character_id: body.character_id,
 			subject_character_name: character?.name,
@@ -336,7 +363,9 @@ createServer(async (request, response) => {
 				activity: body.activity,
 				intensity: body.intensity,
 				starts_tick: assignment.starts_tick,
-				ends_tick: assignment.ends_tick
+				ends_tick: assignment.ends_tick,
+				starts_game_day: assignment.starts_game_day,
+				ends_game_day: assignment.ends_game_day
 			}
 		});
 		return send(response, 201, assignment);
@@ -349,6 +378,7 @@ createServer(async (request, response) => {
 		chronicleEntries.unshift({
 			id: '00000000-0000-0000-0000-000000000503',
 			occurred_tick: 0,
+			occurred_game_day: 0,
 			entry_type: 'market_purchase',
 			related_household_id: sellerId,
 			related_household_name: 'Hrafnstead',
@@ -389,6 +419,7 @@ createServer(async (request, response) => {
 					resource_type: 'wood',
 					quantity_milli: 5_000,
 					due_arrival_tick: 2,
+					due_game_day: 2,
 					status: 'pending'
 				}
 			];

@@ -19,7 +19,7 @@ fi
 
 query_database() {
   local query="$1"
-  if command -v psql >/dev/null 2>&1; then
+  if has_usable_psql; then
     psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "$query"
     return
   fi
@@ -28,12 +28,21 @@ query_database() {
 }
 
 run_database_sql() {
-  if command -v psql >/dev/null 2>&1; then
+  if has_usable_psql; then
     psql "$DATABASE_URL" -v ON_ERROR_STOP=1
     return
   fi
   docker compose -f "$COMPOSE_FILE" exec -T postgres \
     psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME"
+}
+
+has_usable_psql() {
+	local psql_path
+	psql_path="$(command -v psql 2>/dev/null)" || return 1
+	if command -v readlink >/dev/null 2>&1 && [[ "$(readlink -f "$psql_path" 2>/dev/null)" == */pg_alts ]]; then
+		return 1
+	fi
+	psql "$DATABASE_URL" -Atqc 'SELECT 1' >/dev/null 2>&1
 }
 
 latest_migration_version() {

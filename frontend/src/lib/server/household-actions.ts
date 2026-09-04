@@ -76,7 +76,7 @@ export async function purchase({ fetch, params, request }: ActionContext) {
 		return {
 			success: true,
 			action: 'purchase',
-			message: `Purchase accepted. Shipment is expected at tick ${result.data.shipment.expected_arrival_tick}.`
+			message: 'Purchase accepted. The shipment is on its way.'
 		};
 	} catch {
 		return fail(503, { action: 'purchase', message: 'The simulation backend is unavailable.' });
@@ -88,34 +88,44 @@ export async function proposeContract({ fetch, params, request }: ActionContext)
 	const counterpartyHouseholdId = String(formData.get('counterparty_household_id') ?? '');
 	const resourceType = String(formData.get('resource_type') ?? '');
 	const quantityMilli = parseMilli(String(formData.get('quantity') ?? ''));
-	const startsTick = Number(formData.get('starts_tick'));
-	const endsTick = Number(formData.get('ends_tick'));
-	const intervalTicks = Number(formData.get('interval_ticks'));
+	const currentGameDay = Number(formData.get('current_game_day'));
+	const firstDueOffset = Number(formData.get('first_due_offset'));
+	const intervalDays = Number(formData.get('interval_days'));
+	const endConditionType = String(formData.get('end_condition_type') ?? '');
+	const deliveryCount = Number(formData.get('delivery_count'));
+	const firstDueGameDay = currentGameDay + firstDueOffset;
 	if (
 		!counterpartyHouseholdId ||
 		counterpartyHouseholdId === params.householdId ||
 		!['provisions', 'wood', 'trade_goods', 'silver'].includes(resourceType) ||
 		quantityMilli === null ||
-		!Number.isSafeInteger(startsTick) ||
-		!Number.isSafeInteger(endsTick) ||
-		!Number.isSafeInteger(intervalTicks) ||
-		startsTick < 1 ||
-		endsTick < startsTick ||
-		intervalTicks < 1
+		!Number.isSafeInteger(currentGameDay) ||
+		!Number.isSafeInteger(firstDueOffset) ||
+		!Number.isSafeInteger(intervalDays) ||
+		!Number.isSafeInteger(firstDueGameDay) ||
+		firstDueOffset < 1 ||
+		![7, 14, 28].includes(intervalDays) ||
+		!['fixed_delivery_count', 'winter_start', 'summer_start'].includes(endConditionType) ||
+		(endConditionType === 'fixed_delivery_count' &&
+			(!Number.isSafeInteger(deliveryCount) || deliveryCount < 1))
 	)
 		return fail(400, {
 			action: 'proposeContract',
-			message: 'Check the contract terms and due ticks.'
+			message: 'Check the contract terms and calendar schedule.'
 		});
+	const endCondition =
+		endConditionType === 'fixed_delivery_count'
+			? { type: 'fixed_delivery_count' as const, delivery_count: deliveryCount }
+			: { type: endConditionType as 'winter_start' | 'summer_start' };
 	try {
 		const result = await proposeContractApi({
 			client: createServerApi(fetch),
 			body: {
 				proposer_household_id: params.householdId,
 				counterparty_household_id: counterpartyHouseholdId,
-				starts_tick: startsTick,
-				ends_tick: endsTick,
-				interval_ticks: intervalTicks,
+				first_due_game_day: firstDueGameDay,
+				interval_days: intervalDays as 7 | 14 | 28,
+				end_condition: endCondition,
 				terms: [
 					{
 						debtor_household_id: params.householdId,
@@ -194,7 +204,7 @@ export async function dispatchObligation({ fetch, params, request }: ActionConte
 		return {
 			success: true,
 			action: 'dispatchObligation',
-			message: `Shipment dispatched for arrival at tick ${result.data.shipment.expected_arrival_tick}.`
+			message: 'Shipment dispatched. It is on the way.'
 		};
 	} catch {
 		return fail(503, {

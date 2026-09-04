@@ -13,6 +13,7 @@
 			recent_changes: ChronicleEntry[];
 			attention: ReportItem[];
 			decisions: ReportItem[];
+			game_day: number;
 		};
 		householdId?: string;
 	} = $props();
@@ -51,7 +52,7 @@
 					{#each report.attention as item (item.code + item.related_id)}<li
 							class:critical={item.severity === 'critical'}
 						>
-							{describeReportItem(item)}
+							{describeReportItem(item, report.game_day)}
 						</li>{/each}
 				</ul>{/if}
 		</section>
@@ -63,7 +64,7 @@
 							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
 							<a class="decision-card" href={decisionHref(item.target)}>
 								<strong>{item.target ?? 'Household decision'}</strong>
-								<span>{describeReportItem(item)}</span>
+								<span>{describeReportItem(item, report.game_day)}</span>
 								<span class="review">Review decision →</span>
 							</a>
 						</li>{/each}

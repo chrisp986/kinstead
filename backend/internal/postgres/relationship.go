@@ -60,7 +60,7 @@ func (s *Store) ListRelationshipsForHousehold(ctx context.Context, householdID s
 				return nil, err
 			}
 			record.Events = append(record.Events, port.RelationshipEventRecord{
-				ID: event.ID, EventType: event.EventType, TrustDelta: int(event.TrustDelta), OccurredTick: event.OccurredTick,
+				ID: event.ID, EventType: event.EventType, TrustDelta: int(event.TrustDelta), OccurredTick: event.OccurredTick, OccurredGameDay: event.OccurredGameDay,
 				RelatedContractID: optionalString(event.RelatedContractID), RelatedShipmentID: optionalString(event.RelatedShipmentID),
 				RelatedObligationID: optionalString(event.RelatedObligationID), Data: data,
 			})

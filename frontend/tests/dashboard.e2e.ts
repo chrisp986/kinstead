@@ -28,14 +28,14 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await page.getByRole('link', { name: 'Trade' }).click();
 	await expect(page).toHaveURL(/\/trade$/);
 	await page.getByRole('button', { name: 'Buy for delivery' }).click();
-	await expect(page.getByRole('status')).toContainText('Shipment is expected at tick 2');
+	await expect(page.getByRole('status')).toContainText('shipment is on its way');
 	await expect(page.getByRole('heading', { name: 'Shipments' })).toBeVisible();
 
 	// Flow D: accept and dispatch a contract, then inspect Transit.
 	await page.getByRole('button', { name: 'Accept promise' }).click();
 	await expect(page.getByRole('status')).toContainText('Contract accepted');
 	await page.getByRole('button', { name: 'Dispatch goods' }).click();
-	await expect(page.getByRole('status')).toContainText('Shipment dispatched for arrival at tick 2');
+	await expect(page.getByRole('status')).toContainText('Shipment dispatched. It is on the way.');
 	await expect(page.getByText('In transit').first()).toBeVisible();
 
 	await page.getByRole('link', { name: 'Chronicle', exact: true }).click();

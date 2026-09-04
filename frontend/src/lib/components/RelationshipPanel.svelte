@@ -30,11 +30,13 @@
 	}
 
 	function outcomeDetail(event: Relationship['events'][number]): string | null {
-		const due = tickValue(event.data.due_arrival_tick);
-		const arrived = tickValue(event.data.actual_fulfillment_tick);
+		const due = tickValue(event.data.due_game_day);
+		const arrived = tickValue(
+			event.data.actual_arrival_game_day ?? event.data.actual_fulfillment_game_day
+		);
 		if (due === null) return null;
-		if (arrived !== null) return `Due tick ${due} · arrived tick ${arrived}`;
-		if (event.event_type === 'contract_obligation_broken') return `Due tick ${due} · unresolved`;
+		if (arrived !== null) return 'Delivered after the due date';
+		if (event.event_type === 'contract_obligation_broken') return 'Due date passed · unresolved';
 		return null;
 	}
 </script>
@@ -67,7 +69,7 @@
 							{#each relationship.events.slice(0, 4) as event (event.id)}
 								<li>
 									<div class="event-copy">
-										<span>Tick {event.occurred_tick}</span>
+										<span>Relationship history</span>
 										<strong
 											>{sentenceCase(event.event_type.replace('contract_obligation_', ''))}</strong
 										>

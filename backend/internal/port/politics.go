@@ -19,6 +19,7 @@ type PoliticalDecisionRecord struct {
 	ID, HouseholdID, WorldID, WorldEventID, DecisionType, Status string
 	PoliticalActorID, EventType                                  string
 	AvailableFromTick, ExpiresTick, CurrentTick                  int64
+	AvailableFromGameDay, ExpiresGameDay                         int64
 	SelectedOption                                               *string
 	StandingDelta                                                *int
 	Parameters                                                   []byte
@@ -49,19 +50,21 @@ type PoliticalServiceCandidate struct {
 	LaborPermille int64  `json:"labor_permille"`
 }
 type PoliticalDecisionProjection struct {
-	ID                 string                      `json:"id"`
-	DemandType         string                      `json:"demand_type"`
-	Status             string                      `json:"status"`
-	ActorID            string                      `json:"actor_id"`
-	ActorName          string                      `json:"actor_name"`
-	ActorType          string                      `json:"actor_type"`
-	AvailableFromTick  int64                       `json:"available_from_tick"`
-	ExpiresTick        int64                       `json:"expires_tick"`
-	SelectedOption     *string                     `json:"selected_option,omitempty"`
-	StandingDelta      *int                        `json:"standing_delta,omitempty"`
-	Parameters         map[string]any              `json:"parameters"`
-	Options            []PoliticalOption           `json:"options"`
-	EligibleCharacters []PoliticalServiceCandidate `json:"eligible_characters,omitempty"`
+	ID                   string                      `json:"id"`
+	DemandType           string                      `json:"demand_type"`
+	Status               string                      `json:"status"`
+	ActorID              string                      `json:"actor_id"`
+	ActorName            string                      `json:"actor_name"`
+	ActorType            string                      `json:"actor_type"`
+	AvailableFromTick    int64                       `json:"available_from_tick"`
+	ExpiresTick          int64                       `json:"expires_tick"`
+	AvailableFromGameDay int64                       `json:"available_from_game_day"`
+	ExpiresGameDay       int64                       `json:"expires_game_day"`
+	SelectedOption       *string                     `json:"selected_option,omitempty"`
+	StandingDelta        *int                        `json:"standing_delta,omitempty"`
+	Parameters           map[string]any              `json:"parameters"`
+	Options              []PoliticalOption           `json:"options"`
+	EligibleCharacters   []PoliticalServiceCandidate `json:"eligible_characters,omitempty"`
 }
 type HouseholdPoliticsProjection struct {
 	Relationships []PoliticalRelationshipRecord `json:"relationships"`

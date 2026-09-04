@@ -16,12 +16,12 @@
 		description="Stores, household members, and the obligations that shape this place."
 	/>
 	<ResourceSummary resources={data.report.resources} supplyDays={data.report.supply_days} />
-	<HouseholdMembers characters={data.report.characters} assignments={data.report.assignments} />
+	<HouseholdMembers
+		characters={data.report.characters}
+		assignments={data.report.assignments}
+		currentGameDay={data.report.game_day}
+	/>
 	<div id="politics">
-		<PoliticsPanel
-			politics={data.politics}
-			householdId={data.report.household_id}
-			feedback={form}
-		/>
+		<PoliticsPanel politics={data.politics} currentGameDay={data.report.game_day} feedback={form} />
 	</div>
 </main>
