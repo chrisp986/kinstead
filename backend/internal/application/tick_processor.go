@@ -123,10 +123,13 @@ func (p *TickProcessor) processEmergencyFoodWork(ctx context.Context, tx port.Wo
 		if c.Specialization == simulation.Agriculture || (c.Specialization != simulation.Fishing && result.State.FarmSpecialization == simulation.Agriculture) {
 			activity = simulation.Agriculture
 		}
-		if err := tx.ScheduleEmergencyFoodWork(ctx, householdID, c.ID, string(activity), tick+1, tick+1, result.State.SupplyDays(p.Balance)); err != nil {
+		scheduled, err := tx.ScheduleEmergencyFoodWork(ctx, householdID, c.ID, string(activity), tick+1, tick+1, result.State.SupplyDays(p.Balance))
+		if err != nil {
 			return err
 		}
-		break
+		if scheduled {
+			break
+		}
 	}
 	return nil
 }

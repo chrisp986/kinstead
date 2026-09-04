@@ -188,7 +188,7 @@ type WorldTickTransaction interface {
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult) error
-	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, float64) error
+	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, float64) (bool, error)
 	FinishWorldTick(context.Context, WorldClaim, int64) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
