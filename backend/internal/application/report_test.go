@@ -99,3 +99,23 @@ func TestFarmReportSelectsSignificantRecentChangesAndDecisions(t *testing.T) {
 		t.Fatalf("decisions = %+v", report.Decisions)
 	}
 }
+
+func TestRecentChangeWindowTicksBoundsAcceleratedWorlds(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration int32
+		want     int64
+	}{
+		{name: "normal development pacing", duration: 14400, want: 6},
+		{name: "recommended playtest pacing", duration: 60, want: 12},
+		{name: "fast debugging", duration: 10, want: 12},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := recentChangeWindowTicks(tt.duration); got != tt.want {
+				t.Fatalf("recentChangeWindowTicks(%d) = %d, want %d", tt.duration, got, tt.want)
+			}
+		})
+	}
+}

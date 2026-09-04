@@ -48,6 +48,27 @@ type ReportService struct {
 	Balance simulation.BalanceConfig
 }
 
+const (
+	recentChangeWindowSeconds  = int64(24 * time.Hour / time.Second)
+	maxRecentChangeWindowTicks = int64(12)
+)
+
+func recentChangeWindowTicks(tickDurationSeconds int32) int64 {
+	if tickDurationSeconds <= 0 {
+		return 1
+	}
+
+	seconds := int64(tickDurationSeconds)
+	ticks := (recentChangeWindowSeconds + seconds - 1) / seconds
+	if ticks < 1 {
+		return 1
+	}
+	if ticks > maxRecentChangeWindowTicks {
+		return maxRecentChangeWindowTicks
+	}
+	return ticks
+}
+
 func NewReportService(store port.ReportReader) *ReportService {
 	return &ReportService{Store: store, Balance: balance.V03()}
 }
@@ -95,16 +116,7 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 	var political []port.PoliticalReportDemand
 	var obligations []port.ContractReportObligation
 	if reader, ok := s.Store.(port.FarmReportReader); ok {
-		windowTicks := int64(1)
-		if snap.TickDurationSeconds > 0 {
-			windowTicks = (86400 + int64(snap.TickDurationSeconds) - 1) / int64(snap.TickDurationSeconds)
-			if windowTicks < 1 {
-				windowTicks = 1
-			}
-			if windowTicks > 12 {
-				windowTicks = 12
-			}
-		}
+		windowTicks := recentChangeWindowTicks(snap.TickDurationSeconds)
 		from := snap.CurrentTick - windowTicks + 1
 		if from < 0 {
 			from = 0
@@ -140,13 +152,7 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 	if decisions == nil {
 		decisions = make([]reportdomain.Item, 0)
 	}
-	windowTicks := int64(1)
-	if snap.TickDurationSeconds > 0 {
-		windowTicks = (86400 + int64(snap.TickDurationSeconds) - 1) / int64(snap.TickDurationSeconds)
-		if windowTicks > 12 {
-			windowTicks = 12
-		}
-	}
+	windowTicks := recentChangeWindowTicks(snap.TickDurationSeconds)
 	fromTick := snap.CurrentTick - windowTicks + 1
 	if fromTick < 0 {
 		fromTick = 0

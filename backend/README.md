@@ -48,12 +48,35 @@ dates/seasons.
 - Production season comes from the resulting historical month, not `tick % 48`.
 - The isolated v0.3 simulator still uses 12 balancing ticks per synthetic season.
 - Target pace: one game year in about 8 real days.
-- Therefore the development seed uses one tick every **4 real hours** (`14400` seconds).
+- Therefore the development seed uses one tick every **4 real hours** (`14400` seconds)
+  by default. Local playtest resets can override only the wall-clock duration with
+  `DEV_TICK_DURATION_SECONDS`.
 
 The database stores the conversion as `historical_days_per_tick_num /
 historical_days_per_tick_den` (default `365 / 48`). Characters store a
 historical `birth_date`; age is derived for the report date rather than stored
 or inferred from balancing ticks.
+
+## Development tick pacing
+
+```bash
+# Normal development pacing: 4 hours/tick
+./scripts/reset_db.sh
+
+# Recommended manual playtest pacing: 60 seconds/tick
+./scripts/reset_playtest_db.sh
+
+# Fast debugging
+DEV_TICK_DURATION_SECONDS=15 ./scripts/reset_playtest_db.sh
+
+# Explicit custom value
+DEV_TICK_DURATION_SECONDS=120 ./scripts/reset_db.sh
+```
+
+`DEV_TICK_DURATION_SECONDS` changes only wall-clock scheduling. It does not
+change historical days per tick or balancing calendar semantics. The historical
+conversion remains `365 / 48`, and the isolated v0.3 simulator remains on its
+synthetic 48-tick calendar.
 
 ## Requirements for full local test
 

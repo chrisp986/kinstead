@@ -2,7 +2,7 @@
 BEGIN;
 
 INSERT INTO worlds (id, name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
-VALUES ('00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0, 14400, now());
+VALUES ('00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0, :tick_duration_seconds, now());
 
 INSERT INTO locations (id, world_id, name, location_type) VALUES
 ('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000001','Bjornvik','farm'),
