@@ -51,16 +51,46 @@ Each world tick is sequential and transactional:
 Idempotency key: `(world_id, tick)`. A retry must not duplicate effects.
 Process missed ticks one-by-one.
 
-Tick 0 is the historical start-date snapshot. Processing tick N advances the
-world through the interval ending at
-`floor(N × historical_days_per_tick_num / historical_days_per_tick_den)` days
-after that date. Production season is derived from the resulting historical
-date (March--May spring, June--August summer, September--November autumn,
-December--February winter). Wall-clock scheduling, production ticks,
-historical dates, and the synthetic v0.3 48-tick calendar are separate.
+Ticks are execution cadence, not calendar units. The production clock
+advances simulated time deterministically after each processed tick according
+to the world's pacing policy. The synthetic v0.3 `48 ticks/year,
+12 ticks/season` values remain balancing inputs and do not define production
+calendar semantics.
 
 Use PostgreSQL row locking/`FOR UPDATE SKIP LOCKED` for worker
 coordination. Avoid long-lived in-memory authoritative state.
+
+## Game time
+
+Authoritative simulated historical time is an absolute integer `game_day`.
+`game_day = 0` is the world's initial snapshot. A gameplay year contains
+**364 days / 52 weeks**, divided into **four 91-day / 13-week seasons**.
+Derived year, season, week, and day labels are projections over `game_day` and
+must never become independent authoritative state.
+
+A world may carry a display anchor for historical context, such as the
+starting year label `980 CE`, but simulated time is not stored as a Julian,
+Gregorian, or SQL civil date. The gameplay calendar is intentionally a stable
+simulation abstraction so historical presentation can evolve without
+migrating domain state.
+
+Persist simulated temporal values as integer game-day values, for example:
+
+- `game_day`
+- `start_game_day`
+- `end_game_day`
+- `due_game_day`
+- `next_delivery_game_day`
+
+Do not use SQL `DATE`, `TIME`, or `TIMESTAMP` for simulated dates or
+simulation deadlines. Real-world operational/audit fields such as
+`created_at`, `updated_at`, lease timestamps, and observability timestamps use
+`TIMESTAMPTZ` as appropriate.
+
+Calendar formatting belongs to domain/application presentation logic, not SQL.
+Normal UI should derive phrases such as `third week of winter`, `in 5 days`,
+or `every two weeks` from authoritative game time. Exact `game_day` values may
+be exposed for diagnostics.
 
 ## Data model
 
@@ -71,7 +101,14 @@ Use normalized tables for stable concepts. JSONB is for flexible
 event/chronicle metadata.
 
 Use fixed-point `BIGINT` for resources/money (`1000 = 1 unit`). Store
-birth tick/date and derive age.
+birth game day (or equivalent age anchor) and derive age from the authoritative
+game clock.
+
+Contract schedules persist rules, not rendered calendar labels. The vertical
+slice should use absolute game-day deadlines plus recurring day intervals.
+Season-triggered or other domain-event schedules can be represented explicitly
+when added; they must resolve deterministically to authoritative game-day
+obligations.
 
 ## API
 
@@ -81,6 +118,10 @@ political demand.
 
 OpenAPI is the Go↔SvelteKit contract. Generate TypeScript client/types
 from it.
+
+API projections may expose derived calendar labels and relative durations,
+but commands should submit domain intent or validated schedule rules rather
+than client-computed civil dates.
 
 ## Concurrency
 
@@ -103,6 +144,12 @@ excluded because reversing a completed sale requires a separate explicit
 market workflow.
 
 Contract fulfillment is determined by shipment arrival.
+
+Recurring contract generation uses the authoritative game clock. A generated
+obligation receives a game-day arrival deadline. Shipment execution may still
+use tick-based travel balance values; expected arrival and lateness are resolved
+server-side from authoritative tick/game-clock state rather than client date
+arithmetic.
 
 Contract dispatch reserves the exact obligated goods, derives travel time and
 transport cost from directed geography, creates the physical shipment, and
