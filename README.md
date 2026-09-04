@@ -16,3 +16,33 @@ For Codex tasks, use:
 > changes. Treat them as authoritative unless the task explicitly
 > overrides them. Implement only the requested milestone and keep tests
 > passing.
+
+## Local development
+
+From the repository root, start PostgreSQL, the backend API, the worker, and
+the SvelteKit frontend together:
+
+```bash
+# Recommended playtest environment: 60 seconds/tick (the default)
+./scripts/dev.sh playtest
+
+# Normal development world: 4 hours/tick
+./scripts/dev.sh normal
+
+# Fast debugging: 15 seconds/tick
+./scripts/dev.sh fast
+
+# Custom wall-clock duration
+./scripts/dev.sh 30
+
+# Recreate the disposable local database first
+./scripts/dev.sh playtest --reset
+```
+
+Without `--reset`, the existing Bjornvik world and its state are preserved;
+the selected duration is applied and `next_tick_at` is rescheduled. With
+`--reset`, the local PostgreSQL volume is recreated and the development seed
+is applied from scratch. PostgreSQL remains running when the launcher exits.
+
+Tick speed changes only real-world scheduling. It does not change historical
+days per tick, historical dates/seasons, or the frozen v0.3 balancing calendar.

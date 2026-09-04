@@ -12,6 +12,11 @@ COMPOSE_FILE="${COMPOSE_FILE:-../docker-compose.yml}"
 DB_USER="${DB_USER:-game}"
 DB_NAME="${DB_NAME:-game}"
 
+if [[ "${1:-}" != "" && "${1:-}" != "--seed-only" ]] || [[ "$#" -gt 1 ]]; then
+  echo "usage: $0 [--seed-only]" >&2
+  exit 1
+fi
+
 if [[ -v DEV_TICK_DURATION_SECONDS && -z "$DEV_TICK_DURATION_SECONDS" ]]; then
   echo "DEV_TICK_DURATION_SECONDS must be a positive integer" >&2
   exit 1
@@ -24,12 +29,14 @@ if ! [[ "$DEV_TICK_DURATION_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
-for migration in db/migrations/*.sql; do
-  echo "Applying $migration"
-  awk '/^-- \+goose Down/{exit} {print}' "$migration" \
-    | docker compose -f "$COMPOSE_FILE" exec -T postgres \
-        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME"
-done
+if [[ "${1:-}" != "--seed-only" ]]; then
+  for migration in db/migrations/*.sql; do
+    echo "Applying $migration"
+    awk '/^-- \+goose Down/{exit} {print}' "$migration" \
+      | docker compose -f "$COMPOSE_FILE" exec -T postgres \
+          psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME"
+  done
+fi
 
 echo "Applying development seed"
 docker compose -f "$COMPOSE_FILE" exec -T postgres \
