@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"game/backend/internal/domain/politics"
@@ -10,6 +11,10 @@ import (
 )
 
 type RespondPoliticalDemandCommand struct{ DecisionID, HouseholdID, Option, CharacterID string }
+
+var ErrPoliticalDemandResolved = errors.New("political demand is already resolved")
+
+const maxPoliticsResponseAttempts = 3
 
 type PoliticsService struct {
 	Store  port.PoliticsRepository
@@ -25,6 +30,20 @@ func (s *PoliticsService) GetHouseholdPolitics(ctx context.Context, householdID 
 }
 
 func (s *PoliticsService) Respond(ctx context.Context, cmd RespondPoliticalDemandCommand) error {
+	var err error
+	for attempt := 0; attempt < maxPoliticsResponseAttempts; attempt++ {
+		err = s.respondOnce(ctx, cmd)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, port.ErrConcurrentTransaction) {
+			return err
+		}
+	}
+	return fmt.Errorf("%w: political demand changed concurrently", port.ErrConcurrentTransaction)
+}
+
+func (s *PoliticsService) respondOnce(ctx context.Context, cmd RespondPoliticalDemandCommand) error {
 	tx, e := s.Store.BeginPoliticsResponse(ctx)
 	if e != nil {
 		return e
@@ -35,7 +54,7 @@ func (s *PoliticsService) Respond(ctx context.Context, cmd RespondPoliticalDeman
 		return e
 	}
 	if d.Status != string(politics.StatusPending) {
-		return fmt.Errorf("political demand is already resolved")
+		return ErrPoliticalDemandResolved
 	}
 	if err := politics.ResponseAllowed(d.CurrentTick, d.ExpiresTick); err != nil {
 		return err
@@ -52,14 +71,14 @@ func (s *PoliticsService) Respond(ctx context.Context, cmd RespondPoliticalDeman
 	var assignment string
 	if r.RequiresWorker {
 		if cmd.CharacterID == "" {
-			return fmt.Errorf("serve requires a character")
+			return politics.ErrMissingCharacter
 		}
 		c, e := tx.LoadCharacterForPolitics(ctx, cmd.CharacterID, cmd.HouseholdID)
 		if e != nil {
 			return e
 		}
 		if c.Status != "active" || c.LaborCapacityMilli != 1000 {
-			return fmt.Errorf("character is not eligible for service")
+			return politics.ErrIneligibleCharacter
 		}
 		start, end := d.ExpiresTick, d.ExpiresTick+r.ServiceTicks-1
 		overlap, e := tx.AssignmentOverlaps(ctx, cmd.CharacterID, start, end)
@@ -67,7 +86,7 @@ func (s *PoliticsService) Respond(ctx context.Context, cmd RespondPoliticalDeman
 			return e
 		}
 		if overlap {
-			return fmt.Errorf("service assignment overlaps existing work")
+			return politics.ErrServiceOverlap
 		}
 		assignment, e = tx.CreateRulerServiceAssignment(ctx, cmd.HouseholdID, cmd.CharacterID, start, end, cmd.DecisionID)
 		if e != nil {
@@ -83,7 +102,7 @@ func (s *PoliticsService) Respond(ctx context.Context, cmd RespondPoliticalDeman
 		return e
 	}
 	if !resolved {
-		return fmt.Errorf("political demand changed during response")
+		return ErrPoliticalDemandResolved
 	}
 	if e := tx.ApplyPoliticalScoreDelta(ctx, d.WorldID, cmd.HouseholdID, d.PoliticalActorID, r.StandingDelta); e != nil {
 		return e

@@ -1,6 +1,14 @@
 package port
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrConcurrentTransaction indicates that PostgreSQL aborted a serializable
+// transaction because another transaction changed the same authoritative state.
+// Callers may retry the complete transaction from a fresh snapshot.
+var ErrConcurrentTransaction = errors.New("concurrent transaction conflict")
 
 type PoliticalEventRecord struct {
 	ID, WorldID, LocationID, PoliticalActorID, EventType, ActorName, ActorType string

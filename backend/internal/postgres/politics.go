@@ -5,14 +5,30 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	politicsdomain "game/backend/internal/domain/politics"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+func normalizeTransactionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001", "40P01":
+			return fmt.Errorf("%w: %s", port.ErrConcurrentTransaction, pgErr.Message)
+		}
+	}
+	return err
+}
 
 func politicalEvent(row sqlcdb.LoadPoliticalEventsStartingTickRow) port.PoliticalEventRecord {
 	expires := int64(0)
@@ -42,7 +58,7 @@ func (t *worldTickTx) LoadPoliticalEventsStartingTick(ctx context.Context, world
 	}
 	rows, e := sqlcdb.New(t.tx).LoadPoliticalEventsStartingTick(ctx, sqlcdb.LoadPoliticalEventsStartingTickParams{WorldID: id, Tick: tick})
 	if e != nil {
-		return nil, e
+		return nil, normalizeTransactionError(e)
 	}
 	out := make([]port.PoliticalEventRecord, 0, len(rows))
 	for _, r := range rows {
@@ -57,7 +73,7 @@ func (t *worldTickTx) ListHouseholdsForPoliticalEvent(ctx context.Context, event
 	}
 	rows, e := sqlcdb.New(t.tx).ListHouseholdsForPoliticalEvent(ctx, id)
 	if e != nil {
-		return nil, e
+		return nil, normalizeTransactionError(e)
 	}
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -79,7 +95,7 @@ func (t *worldTickTx) InsertPoliticalDecision(ctx context.Context, d port.Politi
 		return false, e
 	}
 	n, e := sqlcdb.New(t.tx).InsertHouseholdDecision(ctx, sqlcdb.InsertHouseholdDecisionParams{HouseholdID: h, WorldID: w, WorldEventID: ev, DecisionType: d.DecisionType, AvailableFromTick: d.AvailableFromTick, ExpiresTick: d.ExpiresTick, Parameters: d.Parameters})
-	return n == 1, e
+	return n == 1, normalizeTransactionError(e)
 }
 func (t *worldTickTx) LoadExpiringPoliticalDecisions(ctx context.Context, worldID string, tick int64) ([]port.PoliticalDecisionRecord, error) {
 	id, e := uuidParam(worldID)
@@ -88,7 +104,7 @@ func (t *worldTickTx) LoadExpiringPoliticalDecisions(ctx context.Context, worldI
 	}
 	rows, e := sqlcdb.New(t.tx).LoadExpiringPoliticalDecisions(ctx, sqlcdb.LoadExpiringPoliticalDecisionsParams{WorldID: id, Tick: tick})
 	if e != nil {
-		return nil, e
+		return nil, normalizeTransactionError(e)
 	}
 	out := make([]port.PoliticalDecisionRecord, 0, len(rows))
 	for _, r := range rows {
@@ -104,7 +120,7 @@ func (t *worldTickTx) AutoResolvePoliticalDecision(ctx context.Context, d port.P
 		return false, e
 	}
 	n, e := sqlcdb.New(t.tx).AutoResolvePoliticalDecision(ctx, sqlcdb.AutoResolvePoliticalDecisionParams{DecisionID: id, SelectedOption: pgtype.Text{String: option, Valid: true}, ResolvedTick: pgtype.Int8{Int64: tick, Valid: true}, StandingDelta: pgtype.Int4{Int32: int32(delta), Valid: true}})
-	return n == 1, e
+	return n == 1, normalizeTransactionError(e)
 }
 func (t *worldTickTx) ApplyPoliticalScoreDelta(ctx context.Context, w, h, a string, delta int) error {
 	return applyPoliticalScore(ctx, t.tx, w, h, a, delta)
@@ -125,7 +141,7 @@ func (t *worldTickTx) InsertPoliticalReceivedChronicle(ctx context.Context, h st
 	if e != nil {
 		return e
 	}
-	return sqlcdb.New(t.tx).InsertPoliticalReceivedChronicle(ctx, sqlcdb.InsertPoliticalReceivedChronicleParams{HouseholdID: hi, OccurredTick: tick, WorldEventID: ei, ActorID: ai, Data: data})
+	return normalizeTransactionError(sqlcdb.New(t.tx).InsertPoliticalReceivedChronicle(ctx, sqlcdb.InsertPoliticalReceivedChronicleParams{HouseholdID: hi, OccurredTick: tick, WorldEventID: ei, ActorID: ai, Data: data}))
 }
 
 type politicsTx struct{ tx pgx.Tx }
@@ -133,7 +149,7 @@ type politicsTx struct{ tx pgx.Tx }
 func (s *Store) BeginPoliticsResponse(ctx context.Context) (port.PoliticsResponseTransaction, error) {
 	tx, e := s.Begin(ctx)
 	if e != nil {
-		return nil, e
+		return nil, normalizeTransactionError(e)
 	}
 	return &politicsTx{tx: tx}, nil
 }
@@ -148,7 +164,7 @@ func (t *politicsTx) LoadPoliticalDecision(ctx context.Context, decision, househ
 	}
 	r, e := sqlcdb.New(t.tx).LockPoliticalDecision(ctx, sqlcdb.LockPoliticalDecisionParams{DecisionID: d, HouseholdID: h})
 	if e != nil {
-		return port.PoliticalDecisionRecord{}, e
+		return port.PoliticalDecisionRecord{}, normalizeTransactionError(e)
 	}
 	out := port.PoliticalDecisionRecord{ID: r.ID, HouseholdID: r.HouseholdID, WorldID: r.WorldID, WorldEventID: r.WorldEventID, DecisionType: r.DecisionType, AvailableFromTick: r.AvailableFromTick, ExpiresTick: r.ExpiresTick, Status: r.Status, Parameters: r.Parameters, PoliticalActorID: r.PoliticalActorID, EventType: r.EventType, CurrentTick: r.CurrentTick}
 	if r.SelectedOption.Valid {
@@ -172,7 +188,7 @@ func (t *politicsTx) LoadCharacterForPolitics(ctx context.Context, c, h string) 
 	}
 	r, e := sqlcdb.New(t.tx).LoadPoliticalCharacter(ctx, sqlcdb.LoadPoliticalCharacterParams{CharacterID: ci, HouseholdID: hi})
 	if e != nil {
-		return port.PoliticalCharacterRecord{}, e
+		return port.PoliticalCharacterRecord{}, normalizeTransactionError(e)
 	}
 	return port.PoliticalCharacterRecord{ID: r.ID, HouseholdID: r.HouseholdID, Status: r.Status, LaborCapacityMilli: int64(r.LaborCapacityMilli)}, nil
 }
@@ -181,7 +197,8 @@ func (t *politicsTx) ResourceQuantity(ctx context.Context, h, r string) (int64, 
 	if e != nil {
 		return 0, e
 	}
-	return sqlcdb.New(t.tx).LockResourceStock(ctx, sqlcdb.LockResourceStockParams{HouseholdID: hi, ResourceCode: r})
+	quantity, err := sqlcdb.New(t.tx).LockResourceStock(ctx, sqlcdb.LockResourceStockParams{HouseholdID: hi, ResourceCode: r})
+	return quantity, normalizeTransactionError(err)
 }
 func (t *politicsTx) DeductResource(ctx context.Context, h, r string, a int64) error {
 	hi, e := uuidParam(h)
@@ -190,19 +207,20 @@ func (t *politicsTx) DeductResource(ctx context.Context, h, r string, a int64) e
 	}
 	q, e := sqlcdb.New(t.tx).LockResourceStock(ctx, sqlcdb.LockResourceStockParams{HouseholdID: hi, ResourceCode: r})
 	if e != nil {
-		return e
+		return normalizeTransactionError(e)
 	}
 	if q < a {
-		return fmt.Errorf("insufficient %s", r)
+		return fmt.Errorf("%w: %s", politicsdomain.ErrInsufficientResources, r)
 	}
-	return sqlcdb.New(t.tx).DeductResourceStock(ctx, sqlcdb.DeductResourceStockParams{HouseholdID: hi, ResourceCode: r, Amount: a})
+	return normalizeTransactionError(sqlcdb.New(t.tx).DeductResourceStock(ctx, sqlcdb.DeductResourceStockParams{HouseholdID: hi, ResourceCode: r, Amount: a}))
 }
 func (t *politicsTx) AssignmentOverlaps(ctx context.Context, c string, start, end int64) (bool, error) {
 	ci, e := uuidParam(c)
 	if e != nil {
 		return false, e
 	}
-	return sqlcdb.New(t.tx).AssignmentOverlaps(ctx, sqlcdb.AssignmentOverlapsParams{CharacterID: ci, StartsTick: start, EndsTick: end})
+	overlap, err := sqlcdb.New(t.tx).AssignmentOverlaps(ctx, sqlcdb.AssignmentOverlapsParams{CharacterID: ci, StartsTick: start, EndsTick: end})
+	return overlap, normalizeTransactionError(err)
 }
 func (t *politicsTx) CreateRulerServiceAssignment(ctx context.Context, h, c string, start, end int64, decision string) (string, error) {
 	hi, e := uuidParam(h)
@@ -214,7 +232,8 @@ func (t *politicsTx) CreateRulerServiceAssignment(ctx context.Context, h, c stri
 		return "", e
 	}
 	meta, _ := json.Marshal(map[string]string{"source": "political_demand", "decision_id": decision})
-	return sqlcdb.New(t.tx).CreateRulerServiceAssignment(ctx, sqlcdb.CreateRulerServiceAssignmentParams{HouseholdID: hi, CharacterID: ci, StartsTick: start, EndsTick: end, Metadata: meta})
+	assignment, err := sqlcdb.New(t.tx).CreateRulerServiceAssignment(ctx, sqlcdb.CreateRulerServiceAssignmentParams{HouseholdID: hi, CharacterID: ci, StartsTick: start, EndsTick: end, Metadata: meta})
+	return assignment, normalizeTransactionError(err)
 }
 func (t *politicsTx) ResolvePoliticalDecision(ctx context.Context, d, opt string, tick int64, delta int, assignment string) (bool, error) {
 	id, e := uuidParam(d)
@@ -222,7 +241,7 @@ func (t *politicsTx) ResolvePoliticalDecision(ctx context.Context, d, opt string
 		return false, e
 	}
 	n, e := sqlcdb.New(t.tx).ResolvePoliticalDecision(ctx, sqlcdb.ResolvePoliticalDecisionParams{DecisionID: id, SelectedOption: pgtype.Text{String: opt, Valid: true}, ResolvedTick: pgtype.Int8{Int64: tick, Valid: true}, StandingDelta: pgtype.Int4{Int32: int32(delta), Valid: true}, AssignmentID: assignment})
-	return n == 1, e
+	return n == 1, normalizeTransactionError(e)
 }
 func (t *politicsTx) ApplyPoliticalScoreDelta(ctx context.Context, w, h, a string, delta int) error {
 	return applyPoliticalScore(ctx, t.tx, w, h, a, delta)
@@ -233,7 +252,9 @@ func (t *politicsTx) InsertPoliticalChronicle(ctx context.Context, h string, tic
 func (t *politicsTx) InsertPoliticalReceivedChronicle(ctx context.Context, h string, tick int64, event, actor string, data []byte) error {
 	return fmt.Errorf("received chronicle is tick-owned")
 }
-func (t *politicsTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
+func (t *politicsTx) Commit(ctx context.Context) error {
+	return normalizeTransactionError(t.tx.Commit(ctx))
+}
 func (t *politicsTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 
 func applyPoliticalScore(ctx context.Context, tx pgx.Tx, w, h, a string, delta int) error {
@@ -249,7 +270,7 @@ func applyPoliticalScore(ctx context.Context, tx pgx.Tx, w, h, a string, delta i
 	if e != nil {
 		return e
 	}
-	return sqlcdb.New(tx).ApplyPoliticalScoreDelta(ctx, sqlcdb.ApplyPoliticalScoreDeltaParams{WorldID: wi, HouseholdID: hi, PoliticalActorID: ai, ScoreDelta: delta})
+	return normalizeTransactionError(sqlcdb.New(tx).ApplyPoliticalScoreDelta(ctx, sqlcdb.ApplyPoliticalScoreDeltaParams{WorldID: wi, HouseholdID: hi, PoliticalActorID: ai, ScoreDelta: delta}))
 }
 func insertPoliticalChronicle(ctx context.Context, tx pgx.Tx, h string, tick int64, entry, decision, actor, assignment string, data []byte) error {
 	hi, e := uuidParam(h)
@@ -265,7 +286,7 @@ func insertPoliticalChronicle(ctx context.Context, tx pgx.Tx, h string, tick int
 		return e
 	}
 	_, e = sqlcdb.New(tx).InsertPoliticalChronicle(ctx, sqlcdb.InsertPoliticalChronicleParams{HouseholdID: hi, OccurredTick: tick, EntryType: entry, DecisionID: di, ActorID: ai, AssignmentID: assignment, Data: data})
-	return e
+	return normalizeTransactionError(e)
 }
 
 func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (port.HouseholdPoliticsProjection, error) {

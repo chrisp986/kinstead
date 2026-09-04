@@ -38,6 +38,10 @@ const (
 var ErrInvalidDemandType = fmt.Errorf("invalid political demand type")
 var ErrInvalidOption = fmt.Errorf("invalid political demand option")
 var ErrExpired = fmt.Errorf("political demand has expired")
+var ErrMissingCharacter = fmt.Errorf("political labor service requires a character")
+var ErrIneligibleCharacter = fmt.Errorf("character is not eligible for political service")
+var ErrServiceOverlap = fmt.Errorf("political service assignment overlaps existing work")
+var ErrInsufficientResources = fmt.Errorf("insufficient resources for political demand")
 
 type Resolution struct {
 	Option         Option

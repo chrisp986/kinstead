@@ -379,7 +379,14 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_political_option", "message": err.Error()})
 		return
 	}
-	if strings.Contains(err.Error(), "political demand has expired") || strings.Contains(err.Error(), "already resolved") || strings.Contains(err.Error(), "overlaps") || strings.Contains(err.Error(), "insufficient") || strings.Contains(err.Error(), "not eligible") || strings.Contains(err.Error(), "requires a character") {
+	if errors.Is(err, port.ErrConcurrentTransaction) ||
+		errors.Is(err, application.ErrPoliticalDemandResolved) ||
+		errors.Is(err, politicsdomain.ErrExpired) ||
+		errors.Is(err, politicsdomain.ErrMissingCharacter) ||
+		errors.Is(err, politicsdomain.ErrIneligibleCharacter) ||
+		errors.Is(err, politicsdomain.ErrServiceOverlap) ||
+		errors.Is(err, politicsdomain.ErrInsufficientResources) ||
+		strings.Contains(err.Error(), "overlaps") {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "political_demand_conflict", "message": err.Error()})
 		return
 	}
