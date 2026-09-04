@@ -148,13 +148,13 @@ function deltaPhrase(delta: number | undefined, noun = 'trust'): string {
 }
 
 function arrivalPhrase(entry: ChronicleEntry): string {
-	const actual = dataInteger(entry, 'actual_arrival_tick');
+	const actual = dataInteger(entry, 'actual_arrival_tick') ?? dataInteger(entry, 'actual_fulfillment_tick');
 	return actual === undefined ? '' : ` on tick ${actual}`;
 }
 
 function latePhrase(entry: ChronicleEntry): string {
 	const due = dataInteger(entry, 'due_arrival_tick');
-	const actual = dataInteger(entry, 'actual_arrival_tick');
+	const actual = dataInteger(entry, 'actual_arrival_tick') ?? dataInteger(entry, 'actual_fulfillment_tick');
 	if (due !== undefined && actual !== undefined) return `on tick ${actual}, due on tick ${due}`;
 	return 'late';
 }
