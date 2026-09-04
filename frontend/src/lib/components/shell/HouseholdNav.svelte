@@ -27,7 +27,11 @@
 	{#each items as item (item.key)}
 		<!-- href() applies SvelteKit's base path to a typed dynamic route. -->
 		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-		<a href={href(item.path)} aria-current={active(item.path) ? 'page' : undefined}>
+		<a
+			href={href(item.path)}
+			aria-label={item.label}
+			aria-current={active(item.path) ? 'page' : undefined}
+		>
 			<span class="icon" aria-hidden="true">
 				{#if item.key === 'report'}⌂{:else if item.key === 'farm'}⌁{:else if item.key === 'work'}✦{:else if item.key === 'trade'}⇄{:else}≡{/if}
 			</span>

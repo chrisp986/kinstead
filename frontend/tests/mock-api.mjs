@@ -139,8 +139,40 @@ createServer(async (request, response) => {
 			alerts: [],
 			change_window: { from_tick: 0, to_tick: 0 },
 			recent_changes: chronicleEntries,
-			attention: [],
-			decisions: []
+			attention: [
+				{
+					code: 'political_demand_due',
+					severity: 'critical',
+					target: 'politics',
+					related_id: '00000000-0000-0000-0000-000000000801',
+					due_tick: 5,
+					data: { actor_name: 'Jarl Eirik' }
+				}
+			],
+			decisions: [
+				{
+					code: 'respond_political_demand',
+					severity: 'critical',
+					target: 'politics',
+					related_id: '00000000-0000-0000-0000-000000000801',
+					due_tick: 5,
+					data: { actor_name: 'Jarl Eirik' }
+				},
+				{
+					code: 'dispatch_contract_obligation',
+					severity: 'warning',
+					target: 'contracts',
+					related_id: obligationId,
+					due_tick: 2,
+					data: { resource_type: 'wood', quantity_milli: 5000 }
+				},
+				{
+					code: 'secure_provisions',
+					severity: 'critical',
+					target: 'trade',
+					data: { supply_days: 6.5 }
+				}
+			]
 		});
 	}
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/shipments`) {
