@@ -93,6 +93,9 @@ func (t *worldTickTx) LoadHouseholdForTick(ctx context.Context, householdID stri
 func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string, result simulation.TickResult) error {
 	return t.store.SaveHouseholdTick(ctx, t.tx, householdID, result)
 }
+func (t *worldTickTx) ScheduleEmergencyFoodWork(ctx context.Context, householdID, characterID, activity string, startsTick, endsTick int64, supplyDays float64) error {
+	return t.store.ScheduleEmergencyFoodWork(ctx, t.tx, householdID, characterID, activity, startsTick, endsTick, supplyDays)
+}
 func (t *worldTickTx) FinishWorldTick(ctx context.Context, world port.WorldClaim, tick int64) error {
 	return t.store.FinishWorldTick(ctx, t.tx, world, tick)
 }
@@ -505,14 +508,15 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 	var snap HouseholdSnapshot
 	err := tx.QueryRow(ctx, `
         SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
-               w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den, COALESCE(h.specialization, '')
+               w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
+               w.tick_duration_seconds, COALESCE(h.specialization, '')
         FROM households h
         JOIN worlds w ON w.id = h.world_id
         WHERE h.id = $1::uuid
         FOR UPDATE OF h, w
     `, householdID).Scan(
 		&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName,
-		&snap.CurrentTick, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen, &snap.Specialization,
+		&snap.CurrentTick, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization,
 	)
 	if err != nil {
 		return snap, nil, err
@@ -696,6 +700,57 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
 	return err
 }
 
+func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, householdID, characterID, activity string, startsTick, endsTick int64, supplyDays float64) error {
+	if supplyDays >= 7 || (activity != string(simulation.Agriculture) && activity != string(simulation.Fishing)) || startsTick != endsTick {
+		return nil
+	}
+	var eligible bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM characters c
+			WHERE c.id=$1::uuid AND c.household_id=$2::uuid
+			  AND c.status='active' AND c.labor_capacity_milli=1000
+		)`, characterID, householdID).Scan(&eligible); err != nil {
+		return err
+	}
+	if !eligible {
+		return nil
+	}
+	var overlap bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM assignments WHERE character_id=$1::uuid
+		  AND status IN ('planned','active') AND starts_tick <= $3 AND ends_tick >= $2
+	)`, characterID, startsTick, endsTick).Scan(&overlap); err != nil {
+		return err
+	}
+	if overlap {
+		return nil
+	}
+	var assignmentID string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE((SELECT id::text FROM assignments
+		 WHERE character_id=$1::uuid AND starts_tick=$2 AND ends_tick=$2
+		   AND status IN ('planned','active') AND metadata->>'source'='emergency'
+		 ORDER BY id LIMIT 1), '')`, characterID, startsTick).Scan(&assignmentID); err != nil {
+		return err
+	}
+	if assignmentID != "" {
+		return nil
+	}
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO assignments(household_id, character_id, activity_type, intensity, starts_tick, ends_tick, status, metadata)
+		VALUES ($1::uuid,$2::uuid,$3,'normal',$4,$5,'planned',jsonb_build_object('source','emergency','reason','supply_emergency','created_tick',$6))
+		RETURNING id::text`, householdID, characterID, activity, startsTick, endsTick, startsTick-1).Scan(&assignmentID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type, subject_character_id, related_assignment_id, data)
+		VALUES ($1::uuid,$2,'emergency_food_work_scheduled',$3::uuid,$4::uuid,
+			jsonb_build_object('character_id',$3::text,'activity',$5::text,'starts_tick',$6::bigint,'ends_tick',$7::bigint,'reason','supply_emergency','supply_days',$8::numeric))
+		ON CONFLICT (related_assignment_id, entry_type) DO NOTHING`, householdID, startsTick-1, characterID, assignmentID, activity, startsTick, endsTick, supplyDays)
+	return err
+}
+
 func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim, tick int64) error {
 	worldID, err := uuidParam(world.ID)
 	if err != nil {
@@ -750,10 +805,11 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	var snap HouseholdSnapshot
 	err := tx.QueryRow(ctx, `
         SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
-               w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den, COALESCE(h.specialization, '')
+               w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
+               w.tick_duration_seconds, COALESCE(h.specialization, '')
         FROM households h JOIN worlds w ON w.id=h.world_id
         WHERE h.id=$1::uuid
-    `, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.CurrentTick, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen, &snap.Specialization)
+    `, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.CurrentTick, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization)
 	if err != nil {
 		return snap, nil, err
 	}
@@ -855,21 +911,41 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 		return AssignmentRecord{}, fmt.Errorf("starts_tick must be greater than current tick %d", currentTick)
 	}
 
-	var overlap bool
-	err = tx.QueryRow(ctx, `
-        SELECT EXISTS(
-          SELECT 1 FROM assignments
-          WHERE character_id=$1::uuid
-            AND status IN ('planned','active')
-            AND starts_tick <= $3
-            AND ends_tick >= $2
-        )
-    `, characterID, startsTick, endsTick).Scan(&overlap)
+	type emergencyOverlap struct{ id, activity string }
+	emergency := make([]emergencyOverlap, 0)
+	rows, err := tx.Query(ctx, `
+		SELECT id::text, activity_type, starts_tick, metadata->>'source'
+		FROM assignments
+		WHERE character_id=$1::uuid AND status IN ('planned','active')
+		  AND starts_tick <= $3 AND ends_tick >= $2`, characterID, startsTick, endsTick)
 	if err != nil {
 		return AssignmentRecord{}, err
 	}
-	if overlap {
+	blocking := false
+	for rows.Next() {
+		var id, activity, source string
+		var existingStart int64
+		if err := rows.Scan(&id, &activity, &existingStart, &source); err != nil {
+			rows.Close()
+			return AssignmentRecord{}, err
+		}
+		if source == "emergency" && existingStart > currentTick {
+			emergency = append(emergency, emergencyOverlap{id: id, activity: activity})
+		} else {
+			blocking = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return AssignmentRecord{}, err
+	}
+	if blocking {
 		return AssignmentRecord{}, fmt.Errorf("assignment overlaps existing work plan")
+	}
+	for _, value := range emergency {
+		if _, err := tx.Exec(ctx, `DELETE FROM assignments WHERE id=$1::uuid AND status='planned'`, value.id); err != nil {
+			return AssignmentRecord{}, err
+		}
 	}
 
 	var out AssignmentRecord
@@ -896,8 +972,17 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
                 'ends_tick', $8::bigint
             )
         )
-    `, householdID, currentTick, characterID, out.ID, activity, intensity, startsTick, endsTick); err != nil {
+	`, householdID, currentTick, characterID, out.ID, activity, intensity, startsTick, endsTick); err != nil {
 		return AssignmentRecord{}, err
+	}
+	for _, value := range emergency {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type, subject_character_id, data)
+			VALUES ($1::uuid,$2,'emergency_work_overridden',$3::uuid,
+				jsonb_build_object('character_id',$3::text,'emergency_activity',$4::text,'replacement_activity',$5::text,'starts_tick',$6::bigint))
+			ON CONFLICT DO NOTHING`, householdID, currentTick, characterID, value.activity, activity, startsTick); err != nil {
+			return AssignmentRecord{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return AssignmentRecord{}, err

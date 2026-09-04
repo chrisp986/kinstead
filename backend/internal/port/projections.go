@@ -62,16 +62,20 @@ type MarketOfferRecord struct {
 }
 
 type ChronicleEntryRecord struct {
-	ID                   string         `json:"id"`
-	OccurredTick         int64          `json:"occurred_tick"`
-	EntryType            string         `json:"entry_type"`
-	SubjectCharacterID   *string        `json:"subject_character_id,omitempty"`
-	SubjectCharacterName *string        `json:"subject_character_name,omitempty"`
-	RelatedHouseholdID   *string        `json:"related_household_id,omitempty"`
-	RelatedHouseholdName *string        `json:"related_household_name,omitempty"`
-	RelatedShipmentID    *string        `json:"related_shipment_id,omitempty"`
-	RelatedAssignmentID  *string        `json:"related_assignment_id,omitempty"`
-	Data                 map[string]any `json:"data"`
+	ID                         string         `json:"id"`
+	OccurredTick               int64          `json:"occurred_tick"`
+	EntryType                  string         `json:"entry_type"`
+	SubjectCharacterID         *string        `json:"subject_character_id,omitempty"`
+	SubjectCharacterName       *string        `json:"subject_character_name,omitempty"`
+	RelatedHouseholdID         *string        `json:"related_household_id,omitempty"`
+	RelatedHouseholdName       *string        `json:"related_household_name,omitempty"`
+	RelatedShipmentID          *string        `json:"related_shipment_id,omitempty"`
+	RelatedAssignmentID        *string        `json:"related_assignment_id,omitempty"`
+	RelatedContractID          *string        `json:"related_contract_id,omitempty"`
+	RelatedObligationID        *string        `json:"related_obligation_id,omitempty"`
+	RelatedHouseholdDecisionID *string        `json:"related_household_decision_id,omitempty"`
+	RelatedPoliticalActorID    *string        `json:"related_political_actor_id,omitempty"`
+	Data                       map[string]any `json:"data"`
 }
 
 type HouseholdSnapshot struct {
@@ -83,6 +87,7 @@ type HouseholdSnapshot struct {
 	HistoricalStart          time.Time
 	HistoricalDaysPerTickNum int32
 	HistoricalDaysPerTickDen int32
+	TickDurationSeconds      int32
 	Specialization           string
 	State                    simulation.HouseholdState
 	Characters               []CharacterRecord
@@ -93,6 +98,29 @@ type HouseholdSnapshot struct {
 // PostgreSQL and allow deterministic service tests without a database.
 type ReportReader interface {
 	GetHouseholdReport(context.Context, string) (HouseholdSnapshot, error)
+}
+
+type PoliticalReportDemand struct {
+	ID          string
+	ActorName   string
+	ExpiresTick int64
+}
+
+type ContractReportObligation struct {
+	ID                  string
+	ResourceType        string
+	QuantityMilli       int64
+	DueArrivalTick      int64
+	ExpectedArrivalTick *int64
+}
+
+// FarmReportReader is the narrow read model port used to enrich the household
+// snapshot with recent facts and actionable obligations.
+type FarmReportReader interface {
+	ReportReader
+	ListRecentChronicleForReport(context.Context, string, int64, int) ([]ChronicleEntryRecord, error)
+	ListPendingPoliticalDemandsForReport(context.Context, string) ([]PoliticalReportDemand, error)
+	ListContractObligationsForReport(context.Context, string) ([]ContractReportObligation, error)
 }
 
 type ShipmentRepository interface {
@@ -160,6 +188,7 @@ type WorldTickTransaction interface {
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult) error
+	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, float64) error
 	FinishWorldTick(context.Context, WorldClaim, int64) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
