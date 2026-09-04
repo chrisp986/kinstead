@@ -478,7 +478,7 @@ WHERE c.world_id = $1::uuid
   AND c.status IN ('active', 'broken')
   AND o.status IN ('pending', 'dispatched', 'late', 'broken')
   AND ((c.game_day_schedule AND (o.due_game_day <= $2 OR s.actual_arrival_game_day IS NOT NULL))
-       OR (NOT c.game_day_schedule AND (o.due_arrival_tick <= w.current_tick OR s.actual_arrival_tick IS NOT NULL)))
+       OR (NOT c.game_day_schedule AND (o.due_arrival_tick <= $3 OR s.actual_arrival_tick IS NOT NULL)))
   AND ((c.game_day_schedule AND (o.status <> 'broken' OR (o.fulfilled_game_day IS NULL AND s.actual_arrival_game_day IS NOT NULL)))
        OR (NOT c.game_day_schedule AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))))
   AND (c.status = 'active' OR o.status = 'broken')
@@ -487,8 +487,9 @@ FOR UPDATE OF o
 `
 
 type LoadContractObligationsForTickParams struct {
-	Column1    pgtype.UUID
-	DueGameDay int64
+	Column1 pgtype.UUID
+	GameDay int64
+	Tick    int64
 }
 
 type LoadContractObligationsForTickRow struct {
@@ -511,7 +512,7 @@ type LoadContractObligationsForTickRow struct {
 }
 
 func (q *Queries) LoadContractObligationsForTick(ctx context.Context, arg LoadContractObligationsForTickParams) ([]LoadContractObligationsForTickRow, error) {
-	rows, err := q.db.Query(ctx, loadContractObligationsForTick, arg.Column1, arg.DueGameDay)
+	rows, err := q.db.Query(ctx, loadContractObligationsForTick, arg.Column1, arg.GameDay, arg.Tick)
 	if err != nil {
 		return nil, err
 	}
@@ -553,7 +554,8 @@ SELECT c.id::text AS id, c.world_id::text AS world_id,
        c.party_b_household_id::text AS party_b_household_id,
        c.starts_tick, c.ends_tick, c.interval_ticks,
        c.start_game_day, c.end_game_day, c.interval_days, c.game_day_schedule, c.status,
-       w.current_tick, w.current_game_day
+       w.current_tick, w.current_game_day, w.calendar_remainder,
+       w.game_days_per_tick_num, w.game_days_per_tick_den
 FROM contracts c
 JOIN worlds w ON w.id = c.world_id
 WHERE c.id = $1::uuid
@@ -561,20 +563,23 @@ FOR UPDATE OF c, w
 `
 
 type LockContractForResponseRow struct {
-	ID                string
-	WorldID           string
-	PartyAHouseholdID string
-	PartyBHouseholdID string
-	StartsTick        int64
-	EndsTick          int64
-	IntervalTicks     int32
-	StartGameDay      int64
-	EndGameDay        int64
-	IntervalDays      int32
-	GameDaySchedule   bool
-	Status            string
-	CurrentTick       int64
-	CurrentGameDay    int64
+	ID                 string
+	WorldID            string
+	PartyAHouseholdID  string
+	PartyBHouseholdID  string
+	StartsTick         int64
+	EndsTick           int64
+	IntervalTicks      int32
+	StartGameDay       int64
+	EndGameDay         int64
+	IntervalDays       int32
+	GameDaySchedule    bool
+	Status             string
+	CurrentTick        int64
+	CurrentGameDay     int64
+	CalendarRemainder  int64
+	GameDaysPerTickNum int64
+	GameDaysPerTickDen int64
 }
 
 func (q *Queries) LockContractForResponse(ctx context.Context, dollar_1 pgtype.UUID) (LockContractForResponseRow, error) {
@@ -595,6 +600,9 @@ func (q *Queries) LockContractForResponse(ctx context.Context, dollar_1 pgtype.U
 		&i.Status,
 		&i.CurrentTick,
 		&i.CurrentGameDay,
+		&i.CalendarRemainder,
+		&i.GameDaysPerTickNum,
+		&i.GameDaysPerTickDen,
 	)
 	return i, err
 }
@@ -609,7 +617,8 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        c.world_id::text AS world_id, c.status AS contract_status,
        debtor.location_id::text AS origin_location_id,
        creditor.location_id::text AS destination_location_id,
-       w.current_tick, w.current_game_day, w.game_days_per_tick_num, w.game_days_per_tick_den,
+       w.current_tick, w.current_game_day, w.calendar_remainder,
+       w.game_days_per_tick_num, w.game_days_per_tick_den,
        c.game_day_schedule, gen_random_uuid()::text AS proposed_shipment_id
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
@@ -641,6 +650,7 @@ type LockContractObligationForDispatchRow struct {
 	DestinationLocationID string
 	CurrentTick           int64
 	CurrentGameDay        int64
+	CalendarRemainder     int64
 	GameDaysPerTickNum    int64
 	GameDaysPerTickDen    int64
 	GameDaySchedule       bool
@@ -669,6 +679,7 @@ func (q *Queries) LockContractObligationForDispatch(ctx context.Context, dollar_
 		&i.DestinationLocationID,
 		&i.CurrentTick,
 		&i.CurrentGameDay,
+		&i.CalendarRemainder,
 		&i.GameDaysPerTickNum,
 		&i.GameDaysPerTickDen,
 		&i.GameDaySchedule,

@@ -38,7 +38,7 @@ func (s *Store) ListHouseholdChronicle(ctx context.Context, householdID string) 
         LEFT JOIN characters subject ON subject.id = e.subject_character_id
         LEFT JOIN households related ON related.id = e.related_household_id
         WHERE e.household_id = $1::uuid
-        ORDER BY e.occurred_tick DESC, e.created_at DESC, e.id DESC
+        ORDER BY e.occurred_game_day DESC, e.occurred_tick DESC, e.created_at DESC, e.id DESC
         LIMIT $2
     `, householdID, householdChronicleLimit)
 	if err != nil {

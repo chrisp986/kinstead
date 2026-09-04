@@ -313,7 +313,7 @@ func TestPoliticalExpiryUsesSnapshottedRefusalExactlyOnce(t *testing.T) {
 	if err := store.Pool.QueryRow(ctx, `INSERT INTO world_events(world_id,location_id,political_actor_id,event_type,starts_tick,ends_tick) VALUES ($1::uuid,$2::uuid,$3::uuid,'political_levy',0,1) RETURNING id::text`, world, location, actor).Scan(&event); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Pool.QueryRow(ctx, `INSERT INTO household_decisions(household_id,world_id,world_event_id,decision_type,available_from_tick,expires_tick,default_option,parameters) VALUES ($1::uuid,$2::uuid,$3::uuid,'political_levy',0,1,'refuse',$4::jsonb) RETURNING id::text`, household, world, event, terms).Scan(&decision); err != nil {
+	if err := store.Pool.QueryRow(ctx, `INSERT INTO household_decisions(household_id,world_id,world_event_id,decision_type,available_from_tick,expires_tick,available_from_game_day,expires_game_day,default_option,parameters) VALUES ($1::uuid,$2::uuid,$3::uuid,'political_levy',0,1,0,7,'refuse',$4::jsonb) RETURNING id::text`, household, world, event, terms).Scan(&decision); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at = now() - interval '1 hour' WHERE id=$1::uuid`, world); err != nil {
@@ -397,7 +397,7 @@ func createAdditionalPoliticalDecision(t *testing.T, ctx context.Context, store 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Pool.QueryRow(ctx, `INSERT INTO household_decisions(household_id,world_id,world_event_id,decision_type,available_from_tick,expires_tick,default_option,parameters) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,1,5,'refuse',$5::jsonb) RETURNING id::text`, household, world, event, demand, data).Scan(&decision); err != nil {
+	if err := store.Pool.QueryRow(ctx, `INSERT INTO household_decisions(household_id,world_id,world_event_id,decision_type,available_from_tick,expires_tick,available_from_game_day,expires_game_day,default_option,parameters) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,1,5,7,37,'refuse',$5::jsonb) RETURNING id::text`, household, world, event, demand, data).Scan(&decision); err != nil {
 		t.Fatal(err)
 	}
 	return decision
@@ -410,7 +410,7 @@ func createPoliticsFixture(t *testing.T, ctx context.Context, store *Store) (wor
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if err := tx.QueryRow(ctx, `INSERT INTO worlds(name,historical_start_date,tick_duration_seconds,next_tick_at) VALUES ('politics integration',DATE '0980-01-01',3600,now() + interval '100 years') RETURNING id::text`).Scan(&world); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO worlds(name,historical_start_date,current_game_day,calendar_remainder,tick_duration_seconds,next_tick_at) VALUES ('politics integration',DATE '0980-01-01',0,0,3600,now() + interval '100 years') RETURNING id::text`).Scan(&world); err != nil {
 		t.Fatal(err)
 	}
 	var location string
@@ -434,7 +434,7 @@ func createPoliticsFixture(t *testing.T, ctx context.Context, store *Store) (wor
 		t.Fatal(err)
 	}
 	terms, _ := json.Marshal(map[string]any{"wood_cost_milli": 18000, "silver_cost_milli": 6000, "honor_standing_delta": 10, "refuse_standing_delta": -5})
-	if err := tx.QueryRow(ctx, `INSERT INTO household_decisions(household_id,world_id,world_event_id,decision_type,available_from_tick,expires_tick,default_option,parameters) VALUES ($1::uuid,$2::uuid,$3::uuid,'political_levy',1,5,'refuse',$4::jsonb) RETURNING id::text`, household, world, event, terms).Scan(&decision); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO household_decisions(household_id,world_id,world_event_id,decision_type,available_from_tick,expires_tick,available_from_game_day,expires_game_day,default_option,parameters) VALUES ($1::uuid,$2::uuid,$3::uuid,'political_levy',1,5,7,37,'refuse',$4::jsonb) RETURNING id::text`, household, world, event, terms).Scan(&decision); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {

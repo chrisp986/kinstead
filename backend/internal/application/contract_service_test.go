@@ -115,7 +115,7 @@ func TestProposeContractUsesAuthoritativeWorldAndTick(t *testing.T) {
 }
 
 func TestProposeContractUsesCalendarSchedule(t *testing.T) {
-	tx := &contractProposalTxStub{snapshot: port.ContractPartiesSnapshot{WorldID: "world", CurrentTick: 5, CurrentGameDay: 10}}
+	tx := &contractProposalTxStub{snapshot: port.ContractPartiesSnapshot{WorldID: "world", CurrentTick: 5, CurrentGameDay: 10, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12}}
 	service := NewContractService(contractRepositoryStub{tx: tx})
 	created, err := service.Propose(context.Background(), ProposeContractCommand{
 		ProposerHouseholdID: "a", CounterpartyHouseholdID: "b", StartGameDay: 17, IntervalDays: 7,
@@ -244,7 +244,7 @@ func dispatchSnapshot() port.ContractDispatchSnapshot {
 			WorldID: "world", OriginLocationID: "origin", DestinationLocationID: "destination",
 			DistanceClass: geography.DistanceLocal, TravelTicks: 2, TransportCostMilli: 1_000,
 		},
-		CurrentTick: 5, ProposedShipmentID: "shipment",
+		CurrentTick: 5, CurrentGameDay: 38, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12, ProposedShipmentID: "shipment",
 	}
 }
 

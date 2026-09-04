@@ -61,6 +61,10 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 		return PurchaseOfferResult{}, err
 	}
 
+	expectedArrivalGameDay, err := gameDayAfterTicks(snapshot.CurrentGameDay, snapshot.CalendarRemainder, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, int64(snapshot.Route.TravelTicks))
+	if err != nil {
+		return PurchaseOfferResult{}, err
+	}
 	prepared := shipmentdomain.Shipment{
 		WorldID:                shipmentdomain.WorldID(snapshot.Offer.WorldID),
 		SenderHouseholdID:      shipmentdomain.HouseholdID(snapshot.Offer.SellerHouseholdID),
@@ -72,7 +76,7 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 		DepartureTick:          shipmentdomain.Tick(purchase.CurrentTick),
 		ExpectedArrivalTick:    shipmentdomain.Tick(arrivalTick),
 		DepartureGameDay:       shipmentdomain.GameDay(snapshot.CurrentGameDay),
-		ExpectedArrivalGameDay: shipmentdomain.GameDay(snapshot.CurrentGameDay + travelDays(int64(snapshot.Route.TravelTicks), snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)),
+		ExpectedArrivalGameDay: shipmentdomain.GameDay(expectedArrivalGameDay),
 		TransportCostMilli:     shipmentdomain.MoneyMilli(purchase.TransportCostMilli),
 		Status:                 shipmentdomain.StatusPrepared,
 	}
@@ -92,13 +96,6 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 		return PurchaseOfferResult{}, fmt.Errorf("commit market purchase: %w", err)
 	}
 	return PurchaseOfferResult{CostMilli: int64(purchase.TotalCostMilli), GoodsCostMilli: int64(purchase.GoodsCostMilli), TransportCostMilli: int64(purchase.TransportCostMilli), Offer: offerRecord, Shipment: shipmentRecord}, nil
-}
-
-func travelDays(ticks int64, numerator, denominator int64) int64 {
-	if ticks <= 0 || numerator <= 0 || denominator <= 0 {
-		return 0
-	}
-	return (ticks*numerator + denominator - 1) / denominator
 }
 
 func (s *MarketService) ListActiveOffers(ctx context.Context, worldID string) ([]port.MarketOfferRecord, error) {

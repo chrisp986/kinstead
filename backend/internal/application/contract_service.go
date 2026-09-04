@@ -29,6 +29,7 @@ type ProposeContractCommand struct {
 	ProposerHouseholdID     string
 	CounterpartyHouseholdID string
 	StartGameDay            int64
+	EndGameDay              int64
 	IntervalDays            int64
 	EndCondition            ContractEndCondition
 	StartsTick              int64
@@ -115,7 +116,7 @@ func (s *ContractService) Propose(ctx context.Context, cmd ProposeContractComman
 	if err != nil {
 		return contractdomain.Contract{}, err
 	}
-	proposalSchedule, err := resolveContractSchedule(cmd, snapshot.CurrentGameDay)
+	proposalSchedule, err := resolveContractSchedule(cmd, snapshot)
 	if err != nil {
 		return contractdomain.Contract{}, err
 	}
@@ -265,7 +266,12 @@ func (s *ContractService) Respond(ctx context.Context, cmd RespondContractComman
 		return contractdomain.Contract{}, err
 	}
 	if cmd.Accept {
-		obligations, err := contractdomain.GenerateObligations(updated)
+		var obligations []contractdomain.Obligation
+		if value.GameDaySchedule {
+			obligations, err = contractdomain.GenerateObligationsAt(updated, int64(snapshot.CurrentTick), snapshot.CurrentGameDay, snapshot.CalendarRemainder, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)
+		} else {
+			obligations, err = contractdomain.GenerateObligations(updated)
+		}
 		if err != nil {
 			return contractdomain.Contract{}, err
 		}
@@ -306,6 +312,10 @@ func (s *ContractService) DispatchObligation(ctx context.Context, cmd DispatchCo
 	if err != nil {
 		return DispatchContractObligationResult{}, err
 	}
+	expectedArrivalGameDay, err := gameDayAfterTicks(int64(snapshot.CurrentGameDay), snapshot.CalendarRemainder, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, int64(snapshot.Route.TravelTicks))
+	if err != nil {
+		return DispatchContractObligationResult{}, err
+	}
 	prepared := shipmentdomain.Shipment{
 		ID:                     snapshot.ProposedShipmentID,
 		WorldID:                shipmentdomain.WorldID(snapshot.WorldID),
@@ -318,7 +328,7 @@ func (s *ContractService) DispatchObligation(ctx context.Context, cmd DispatchCo
 		DepartureTick:          shipmentdomain.Tick(snapshot.CurrentTick),
 		ExpectedArrivalTick:    shipmentdomain.Tick(arrival),
 		DepartureGameDay:       shipmentdomain.GameDay(snapshot.CurrentGameDay),
-		ExpectedArrivalGameDay: shipmentdomain.GameDay(int64(snapshot.CurrentGameDay) + travelDays(int64(snapshot.Route.TravelTicks), snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)),
+		ExpectedArrivalGameDay: shipmentdomain.GameDay(expectedArrivalGameDay),
 		TransportCostMilli:     shipmentdomain.MoneyMilli(snapshot.Route.TransportCostMilli),
 		Status:                 shipmentdomain.StatusPrepared,
 	}
@@ -347,27 +357,48 @@ type resolvedContractSchedule struct {
 	dayBased                            bool
 }
 
-func resolveContractSchedule(cmd ProposeContractCommand, currentDay contractdomain.GameDay) (resolvedContractSchedule, error) {
+func resolveContractSchedule(cmd ProposeContractCommand, snapshot port.ContractPartiesSnapshot) (resolvedContractSchedule, error) {
 	if cmd.IntervalDays == 0 {
 		// The old command path is used by compatibility fixtures and is
 		// validated by the domain below. It is intentionally not converted
 		// based on the current game day.
 		return resolvedContractSchedule{startsTick: cmd.StartsTick, endsTick: cmd.EndsTick, intervalTicks: cmd.IntervalTicks}, nil
 	}
-	if cmd.StartGameDay <= int64(currentDay) || (cmd.IntervalDays != 7 && cmd.IntervalDays != 14 && cmd.IntervalDays != 28) {
+	if cmd.StartGameDay <= int64(snapshot.CurrentGameDay) || (cmd.IntervalDays != 7 && cmd.IntervalDays != 14 && cmd.IntervalDays != 28) {
 		return resolvedContractSchedule{}, ErrInvalidContractSchedule
 	}
-	endDay, err := resolveEndCondition(cmd.StartGameDay, cmd.IntervalDays, cmd.EndCondition)
+	endDay := cmd.EndGameDay
+	var err error
+	if endDay <= 0 {
+		endDay, err = resolveEndCondition(cmd.StartGameDay, cmd.IntervalDays, cmd.EndCondition)
+	}
 	if err != nil {
 		return resolvedContractSchedule{}, err
 	}
 	if endDay < cmd.StartGameDay {
 		return resolvedContractSchedule{}, ErrInvalidContractSchedule
 	}
+	startTick, err := calendar.TicksUntilGameDay(calendar.GameDay(snapshot.CurrentGameDay), snapshot.CalendarRemainder,
+		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, calendar.GameDay(cmd.StartGameDay))
+	if err != nil {
+		return resolvedContractSchedule{}, err
+	}
+	endTick, err := calendar.TicksUntilGameDay(calendar.GameDay(snapshot.CurrentGameDay), snapshot.CalendarRemainder,
+		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, calendar.GameDay(endDay))
+	if err != nil {
+		return resolvedContractSchedule{}, err
+	}
+	intervalTicks, err := calendar.TicksUntilGameDay(0, 0, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, calendar.GameDay(cmd.IntervalDays))
+	if err != nil {
+		return resolvedContractSchedule{}, err
+	}
+	if intervalTicks < 1 {
+		intervalTicks = 1
+	}
 	return resolvedContractSchedule{
 		startDay: cmd.StartGameDay, endDay: endDay, intervalDays: cmd.IntervalDays,
-		startsTick: gameDayToTick(cmd.StartGameDay), endsTick: gameDayToTick(endDay),
-		intervalTicks: gameDayIntervalToTicks(cmd.IntervalDays), dayBased: true,
+		startsTick: int64(snapshot.CurrentTick) + startTick, endsTick: int64(snapshot.CurrentTick) + endTick,
+		intervalTicks: intervalTicks, dayBased: true,
 	}, nil
 }
 
@@ -411,21 +442,6 @@ func nextSeasonBoundary(start int64, season calendar.ProductionSeason) (int64, e
 		year++
 	}
 	return 0, ErrInvalidContractSchedule
-}
-
-func gameDayToTick(day int64) int64 {
-	if day <= 0 {
-		return 0
-	}
-	return (day*12 + 90) / 91
-}
-
-func gameDayIntervalToTicks(days int64) int64 {
-	ticks := gameDayToTick(days)
-	if ticks < 1 {
-		return 1
-	}
-	return ticks
 }
 
 func formatContractInterval(days int64) string {

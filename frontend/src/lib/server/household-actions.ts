@@ -123,7 +123,7 @@ export async function proposeContract({ fetch, params, request }: ActionContext)
 			body: {
 				proposer_household_id: params.householdId,
 				counterparty_household_id: counterpartyHouseholdId,
-				first_due_game_day: firstDueGameDay,
+				start_game_day: firstDueGameDay,
 				interval_days: intervalDays as 7 | 14 | 28,
 				end_condition: endCondition,
 				terms: [

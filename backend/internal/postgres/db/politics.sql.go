@@ -185,29 +185,31 @@ func (q *Queries) InsertHouseholdDecision(ctx context.Context, arg InsertHouseho
 
 const insertPoliticalChronicle = `-- name: InsertPoliticalChronicle :execrows
 INSERT INTO chronicle_entries(
- household_id, occurred_tick, entry_type, related_household_decision_id,
+ household_id, occurred_tick, occurred_game_day, entry_type, related_household_decision_id,
  related_political_actor_id, related_assignment_id, data
-) VALUES ($1::uuid, $2, $3,
-          $4::uuid, $5::uuid,
-          NULLIF($6::text, '')::uuid, $7::jsonb)
+) VALUES ($1::uuid, $2, $3, $4,
+          $5::uuid, $6::uuid,
+          NULLIF($7::text, '')::uuid, $8::jsonb)
 ON CONFLICT (household_id, related_household_decision_id, entry_type)
 WHERE related_household_decision_id IS NOT NULL DO NOTHING
 `
 
 type InsertPoliticalChronicleParams struct {
-	HouseholdID  pgtype.UUID
-	OccurredTick int64
-	EntryType    string
-	DecisionID   pgtype.UUID
-	ActorID      pgtype.UUID
-	AssignmentID string
-	Data         []byte
+	HouseholdID     pgtype.UUID
+	OccurredTick    int64
+	OccurredGameDay int64
+	EntryType       string
+	DecisionID      pgtype.UUID
+	ActorID         pgtype.UUID
+	AssignmentID    string
+	Data            []byte
 }
 
 func (q *Queries) InsertPoliticalChronicle(ctx context.Context, arg InsertPoliticalChronicleParams) (int64, error) {
 	result, err := q.db.Exec(ctx, insertPoliticalChronicle,
 		arg.HouseholdID,
 		arg.OccurredTick,
+		arg.OccurredGameDay,
 		arg.EntryType,
 		arg.DecisionID,
 		arg.ActorID,
@@ -221,28 +223,30 @@ func (q *Queries) InsertPoliticalChronicle(ctx context.Context, arg InsertPoliti
 }
 
 const insertPoliticalReceivedChronicle = `-- name: InsertPoliticalReceivedChronicle :exec
-INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type,
+INSERT INTO chronicle_entries(household_id, occurred_tick, occurred_game_day, entry_type,
   related_household_decision_id, related_political_actor_id, data)
-SELECT d.household_id, $1, 'political_demand_received', d.id,
-       $2::uuid, $3::jsonb
+SELECT d.household_id, $1, $2, 'political_demand_received', d.id,
+       $3::uuid, $4::jsonb
 FROM household_decisions d
-WHERE d.household_id = $4::uuid
-  AND d.world_event_id = $5::uuid
+WHERE d.household_id = $5::uuid
+  AND d.world_event_id = $6::uuid
 ON CONFLICT (household_id, related_household_decision_id, entry_type)
 WHERE related_household_decision_id IS NOT NULL DO NOTHING
 `
 
 type InsertPoliticalReceivedChronicleParams struct {
-	OccurredTick int64
-	ActorID      pgtype.UUID
-	Data         []byte
-	HouseholdID  pgtype.UUID
-	WorldEventID pgtype.UUID
+	OccurredTick    int64
+	OccurredGameDay int64
+	ActorID         pgtype.UUID
+	Data            []byte
+	HouseholdID     pgtype.UUID
+	WorldEventID    pgtype.UUID
 }
 
 func (q *Queries) InsertPoliticalReceivedChronicle(ctx context.Context, arg InsertPoliticalReceivedChronicleParams) error {
 	_, err := q.db.Exec(ctx, insertPoliticalReceivedChronicle,
 		arg.OccurredTick,
+		arg.OccurredGameDay,
 		arg.ActorID,
 		arg.Data,
 		arg.HouseholdID,
@@ -539,11 +543,13 @@ func (q *Queries) LoadPoliticalCharacter(ctx context.Context, arg LoadPoliticalC
 const loadPoliticalEventsStartingTick = `-- name: LoadPoliticalEventsStartingTick :many
 SELECT e.id::text AS id, e.world_id::text AS world_id, e.location_id::text AS location_id,
        e.political_actor_id::text AS political_actor_id, e.event_type, e.starts_tick,
-       e.ends_tick, ((e.starts_tick * 91) / 12)::bigint AS starts_game_day,
-       COALESCE((e.ends_tick * 91) / 12, 0)::bigint AS expires_game_day,
+       e.ends_tick,
+       w.current_tick, w.current_game_day, w.calendar_remainder,
+       w.game_days_per_tick_num, w.game_days_per_tick_den,
        e.parameters, a.name AS actor_name, a.actor_type
 FROM world_events e
 JOIN political_actors a ON a.id = e.political_actor_id
+JOIN worlds w ON w.id = e.world_id
 WHERE e.world_id = $1::uuid
   AND e.starts_tick = $2
   AND e.event_type IN ('political_labor_service','political_levy')
@@ -557,18 +563,21 @@ type LoadPoliticalEventsStartingTickParams struct {
 }
 
 type LoadPoliticalEventsStartingTickRow struct {
-	ID               string
-	WorldID          string
-	LocationID       string
-	PoliticalActorID string
-	EventType        string
-	StartsTick       int64
-	EndsTick         pgtype.Int8
-	StartsGameDay    int64
-	ExpiresGameDay   int64
-	Parameters       []byte
-	ActorName        string
-	ActorType        string
+	ID                 string
+	WorldID            string
+	LocationID         string
+	PoliticalActorID   string
+	EventType          string
+	StartsTick         int64
+	EndsTick           pgtype.Int8
+	CurrentTick        int64
+	CurrentGameDay     int64
+	CalendarRemainder  int64
+	GameDaysPerTickNum int64
+	GameDaysPerTickDen int64
+	Parameters         []byte
+	ActorName          string
+	ActorType          string
 }
 
 func (q *Queries) LoadPoliticalEventsStartingTick(ctx context.Context, arg LoadPoliticalEventsStartingTickParams) ([]LoadPoliticalEventsStartingTickRow, error) {
@@ -588,8 +597,11 @@ func (q *Queries) LoadPoliticalEventsStartingTick(ctx context.Context, arg LoadP
 			&i.EventType,
 			&i.StartsTick,
 			&i.EndsTick,
-			&i.StartsGameDay,
-			&i.ExpiresGameDay,
+			&i.CurrentTick,
+			&i.CurrentGameDay,
+			&i.CalendarRemainder,
+			&i.GameDaysPerTickNum,
+			&i.GameDaysPerTickDen,
 			&i.Parameters,
 			&i.ActorName,
 			&i.ActorType,

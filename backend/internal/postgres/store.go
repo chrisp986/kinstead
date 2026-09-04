@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"game/backend/internal/calendar"
 	contractdomain "game/backend/internal/domain/contract"
 	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
@@ -72,8 +73,8 @@ func (t *worldTickTx) LoadDueShipments(ctx context.Context, worldID string, tick
 func (t *worldTickTx) PersistShipmentArrival(ctx context.Context, value shipmentdomain.Shipment) (bool, error) {
 	return t.store.PersistShipmentArrival(ctx, t.tx, value)
 }
-func (t *worldTickTx) LoadContractObligationsForTick(ctx context.Context, worldID string, tick int64) ([]port.ContractObligationAssessment, error) {
-	return t.store.LoadContractObligationsForTick(ctx, t.tx, worldID, tick)
+func (t *worldTickTx) LoadContractObligationsForTick(ctx context.Context, worldID string, tick, gameDay int64) ([]port.ContractObligationAssessment, error) {
+	return t.store.LoadContractObligationsForTick(ctx, t.tx, worldID, tick, gameDay)
 }
 func (t *worldTickTx) PersistContractObligationAssessment(ctx context.Context, before, after contractdomain.Obligation, event *relationshipdomain.Event) (bool, error) {
 	return t.store.PersistContractObligationAssessment(ctx, t.tx, before, after, event)
@@ -90,11 +91,11 @@ func (t *worldTickTx) ListHouseholdIDs(ctx context.Context, worldID string) ([]s
 func (t *worldTickTx) LoadHouseholdForTick(ctx context.Context, householdID string, tick int64) (port.HouseholdSnapshot, []simulation.Assignment, error) {
 	return t.store.LoadHouseholdForTick(ctx, t.tx, householdID, tick)
 }
-func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string, result simulation.TickResult) error {
-	return t.store.SaveHouseholdTick(ctx, t.tx, householdID, result)
+func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string, result simulation.TickResult, effectiveGameDay int64) error {
+	return t.store.SaveHouseholdTick(ctx, t.tx, householdID, result, effectiveGameDay)
 }
-func (t *worldTickTx) ScheduleEmergencyFoodWork(ctx context.Context, householdID, characterID, activity string, startsTick, endsTick int64, supplyDays float64) (bool, error) {
-	return t.store.ScheduleEmergencyFoodWork(ctx, t.tx, householdID, characterID, activity, startsTick, endsTick, supplyDays)
+func (t *worldTickTx) ScheduleEmergencyFoodWork(ctx context.Context, householdID, characterID, activity string, startsTick, endsTick, effectiveGameDay int64, supplyDays float64) (bool, error) {
+	return t.store.ScheduleEmergencyFoodWork(ctx, t.tx, householdID, characterID, activity, startsTick, endsTick, effectiveGameDay, supplyDays)
 }
 func (t *worldTickTx) FinishWorldTick(ctx context.Context, world port.WorldClaim, tick, gameDay, remainder int64) error {
 	return t.store.FinishWorldTick(ctx, t.tx, world, tick, gameDay, remainder)
@@ -188,6 +189,9 @@ func (s *Store) PersistShipmentArrival(ctx context.Context, tx pgx.Tx, value shi
 	if value.Status != shipmentdomain.StatusArrived || value.ActualArrivalTick == nil {
 		return false, shipmentdomain.ErrInvalidTransition
 	}
+	if value.ActualArrivalGameDay == nil {
+		return false, shipmentdomain.ErrInvalidTransition
+	}
 
 	shipmentID, err := uuidParam(string(value.ID))
 	if err != nil {
@@ -219,15 +223,15 @@ func (s *Store) PersistShipmentArrival(ctx context.Context, tx pgx.Tx, value shi
 	}
 
 	if _, err := tx.Exec(ctx, `
-        INSERT INTO chronicle_entries(
-            household_id, occurred_tick, entry_type, related_household_id,
+	        INSERT INTO chronicle_entries(
+	            household_id, occurred_tick, occurred_game_day, entry_type, related_household_id,
             related_shipment_id, data
         ) VALUES (
-            $1::uuid, $2, 'shipment_arrived', $3::uuid, $4::uuid,
-            jsonb_build_object('resource_type', $5::text, 'quantity_milli', $6::bigint)
+	            $1::uuid, $2, $3, 'shipment_arrived', $4::uuid, $5::uuid,
+	            jsonb_build_object('resource_type', $6::text, 'quantity_milli', $7::bigint)
         )
-    `, value.ReceiverHouseholdID, *value.ActualArrivalTick, value.SenderHouseholdID,
-		value.ID, value.ResourceType, value.QuantityMilli); err != nil {
+	    `, value.ReceiverHouseholdID, *value.ActualArrivalTick, *value.ActualArrivalGameDay,
+		value.SenderHouseholdID, value.ID, value.ResourceType, value.QuantityMilli); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -247,9 +251,9 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
 	}
 	defer tx.Rollback(ctx)
 
-	var currentTick, currentGameDay, rateNumerator, rateDenominator int64
+	var currentTick, currentGameDay, calendarRemainder, rateNumerator, rateDenominator int64
 	err = tx.QueryRow(ctx, `
-        SELECT w.current_tick, w.current_game_day, w.game_days_per_tick_num, w.game_days_per_tick_den
+        SELECT w.current_tick, w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num, w.game_days_per_tick_den
         FROM worlds w
         JOIN households sender
           ON sender.id = $2::uuid AND sender.world_id = w.id AND sender.location_id = $4::uuid
@@ -257,12 +261,12 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
           ON receiver.id = $3::uuid AND receiver.world_id = w.id AND receiver.location_id = $5::uuid
         JOIN locations origin ON origin.id = $4::uuid AND origin.world_id = w.id
         JOIN locations destination ON destination.id = $5::uuid AND destination.world_id = w.id
-        JOIN resource_types resource ON resource.code = $6
+        JOIN resource_types resource ON resource.code = $6::text
         WHERE w.id = $1::uuid
         FOR UPDATE OF w, sender, receiver
 	`, value.WorldID, value.SenderHouseholdID, value.ReceiverHouseholdID,
 		value.OriginLocationID, value.DestinationLocationID, value.ResourceType).Scan(
-		&currentTick, &currentGameDay, &rateNumerator, &rateDenominator)
+		&currentTick, &currentGameDay, &calendarRemainder, &rateNumerator, &rateDenominator)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return shipmentdomain.Shipment{}, ErrInvalidShipmentReferences
 	}
@@ -272,17 +276,13 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
 	if shipmentdomain.Tick(currentTick) != value.DepartureTick {
 		return shipmentdomain.Shipment{}, ErrShipmentTickConflict
 	}
-	if value.DepartureGameDay == 0 && currentGameDay != 0 {
-		value.DepartureGameDay = shipmentdomain.GameDay(currentGameDay)
+	expectedArrivalGameDay, err := calendar.GameDayAfterTicks(calendar.GameDay(currentGameDay), calendarRemainder, rateNumerator, rateDenominator,
+		int64(value.ExpectedArrivalTick-value.DepartureTick))
+	if err != nil {
+		return shipmentdomain.Shipment{}, err
 	}
-	if value.ExpectedArrivalGameDay == 0 {
-		travelTicks := int64(value.ExpectedArrivalTick - value.DepartureTick)
-		if travelTicks > 0 && rateNumerator > 0 && rateDenominator > 0 {
-			travelDays := (travelTicks*rateNumerator + rateDenominator - 1) / rateDenominator
-			value.ExpectedArrivalGameDay = shipmentdomain.GameDay(currentGameDay + travelDays)
-		} else {
-			value.ExpectedArrivalGameDay = shipmentdomain.GameDay(currentGameDay)
-		}
+	if value.DepartureGameDay != shipmentdomain.GameDay(currentGameDay) || value.ExpectedArrivalGameDay != shipmentdomain.GameDay(expectedArrivalGameDay) {
+		return shipmentdomain.Shipment{}, ErrShipmentGameDayConflict
 	}
 
 	tag, err := tx.Exec(ctx, `
@@ -369,7 +369,7 @@ func (s *Store) CancelShipment(ctx context.Context, shipmentID shipmentdomain.ID
 	}
 	defer tx.Rollback(ctx)
 
-	var currentTick int64
+	var currentTick, currentGameDay int64
 	value, err := scanShipment(tx.QueryRow(ctx, `
 		SELECT s.id::text, s.world_id::text, s.sender_household_id::text, s.receiver_household_id::text,
 		       s.origin_location_id::text, s.destination_location_id::text, s.resource_code,
@@ -384,7 +384,7 @@ func (s *Store) CancelShipment(ctx context.Context, shipmentID shipmentdomain.ID
 	if err != nil {
 		return shipmentdomain.Shipment{}, err
 	}
-	if err := tx.QueryRow(ctx, `SELECT current_tick FROM worlds WHERE id = $1::uuid`, value.WorldID).Scan(&currentTick); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT current_tick, current_game_day FROM worlds WHERE id = $1::uuid`, value.WorldID).Scan(&currentTick, &currentGameDay); err != nil {
 		return shipmentdomain.Shipment{}, err
 	}
 	if value.SenderHouseholdID != senderID {
@@ -436,12 +436,12 @@ func (s *Store) CancelShipment(ctx context.Context, shipmentID shipmentdomain.ID
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO chronicle_entries(
-			household_id, occurred_tick, entry_type, related_household_id, related_shipment_id, data
+			household_id, occurred_tick, occurred_game_day, entry_type, related_household_id, related_shipment_id, data
 		) VALUES (
-			$1::uuid, $2, 'shipment_cancelled', $3::uuid, $4::uuid,
-			jsonb_build_object('resource_type', $5::text, 'quantity_milli', $6::bigint)
+			$1::uuid, $2, $3, 'shipment_cancelled', $4::uuid, $5::uuid,
+			jsonb_build_object('resource_type', $6::text, 'quantity_milli', $7::bigint)
 		)
-	`, cancelled.SenderHouseholdID, currentTick, cancelled.ReceiverHouseholdID,
+	`, cancelled.SenderHouseholdID, currentTick, currentGameDay, cancelled.ReceiverHouseholdID,
 		cancelled.ID, cancelled.ResourceType, cancelled.QuantityMilli); err != nil {
 		return shipmentdomain.Shipment{}, err
 	}
@@ -459,6 +459,7 @@ var (
 	ErrInvalidShipmentReferences = errors.New("invalid shipment references")
 	ErrInsufficientResources     = errors.New("insufficient resources for shipment")
 	ErrShipmentTickConflict      = errors.New("shipment departure tick is not current")
+	ErrShipmentGameDayConflict   = errors.New("shipment game-day projection is not current")
 )
 
 type rowScanner interface {
@@ -706,7 +707,7 @@ func dbFarmSpecialization(v string) simulation.Activity {
 	}
 }
 
-func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID string, result simulation.TickResult) error {
+func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID string, result simulation.TickResult, effectiveGameDay int64) error {
 	stocks := map[string]int64{
 		"provisions":  result.State.ProvisionsMilli,
 		"wood":        result.State.WoodMilli,
@@ -735,10 +736,10 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
 
 	if _, err := tx.Exec(ctx, `
         INSERT INTO chronicle_entries(
-            household_id, occurred_tick, entry_type, subject_character_id,
+	            household_id, occurred_tick, occurred_game_day, entry_type, subject_character_id,
             related_assignment_id, data
         )
-        SELECT a.household_id, $2, 'assignment_completed', a.character_id, a.id,
+	        SELECT a.household_id, $2, $3, 'assignment_completed', a.character_id, a.id,
                jsonb_build_object(
                    'activity', a.activity_type,
                    'intensity', a.intensity,
@@ -750,7 +751,7 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
           AND a.status IN ('planned','active')
           AND a.ends_tick <= $2
         ON CONFLICT DO NOTHING
-    `, householdID, result.State.Tick); err != nil {
+	    `, householdID, result.State.Tick, effectiveGameDay); err != nil {
 		return err
 	}
 
@@ -767,7 +768,7 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
 	return err
 }
 
-func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, householdID, characterID, activity string, startsTick, endsTick int64, supplyDays float64) (bool, error) {
+func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, householdID, characterID, activity string, startsTick, endsTick, effectiveGameDay int64, supplyDays float64) (bool, error) {
 	if supplyDays >= 7 || (activity != string(simulation.Agriculture) && activity != string(simulation.Fishing)) || startsTick != endsTick {
 		return false, nil
 	}
@@ -811,12 +812,12 @@ func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, househ
 		return false, err
 	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type, subject_character_id, related_assignment_id, data)
-		VALUES ($1::uuid,$2,'emergency_food_work_scheduled',$3::uuid,$4::uuid,
-			jsonb_build_object('character_id',$3::text,'activity',$5::text,'starts_tick',$6::bigint,'ends_tick',$7::bigint,'reason','supply_emergency','supply_days',$8::numeric))
+		INSERT INTO chronicle_entries(household_id, occurred_tick, occurred_game_day, entry_type, subject_character_id, related_assignment_id, data)
+		VALUES ($1::uuid,$2,$5,'emergency_food_work_scheduled',$3::uuid,$4::uuid,
+			jsonb_build_object('character_id',$3::text,'activity',$6::text,'starts_tick',$7::bigint,'ends_tick',$8::bigint,'reason','supply_emergency','supply_days',$9::numeric))
 		ON CONFLICT (related_assignment_id, entry_type)
 		WHERE related_assignment_id IS NOT NULL
-		DO NOTHING`, householdID, startsTick-1, characterID, assignmentID, activity, startsTick, endsTick, supplyDays)
+		DO NOTHING`, householdID, startsTick-1, characterID, assignmentID, effectiveGameDay, activity, startsTick, endsTick, supplyDays)
 	return err == nil, err
 }
 
@@ -967,14 +968,15 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 }
 
 func gameDayAtTick(snap HouseholdSnapshot, tick int64) int64 {
-	delta := tick - snap.CurrentTick
 	if snap.GameDaysPerTickNum <= 0 || snap.GameDaysPerTickDen <= 0 {
 		return snap.CurrentGameDay
 	}
-	if delta >= 0 {
-		return snap.CurrentGameDay + (snap.CalendarRemainder+delta*snap.GameDaysPerTickNum)/snap.GameDaysPerTickDen
+	day, err := calendar.GameDayAtTick(calendar.GameDay(snap.CurrentGameDay), snap.CalendarRemainder,
+		snap.GameDaysPerTickNum, snap.GameDaysPerTickDen, tick-snap.CurrentTick)
+	if err != nil {
+		return snap.CurrentGameDay
 	}
-	return snap.CurrentGameDay - ((-delta)*snap.GameDaysPerTickNum-snap.CalendarRemainder+snap.GameDaysPerTickDen-1)/snap.GameDaysPerTickDen
+	return int64(day)
 }
 
 func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, activity, intensity string, startsTick, endsTick int64) (AssignmentRecord, error) {
@@ -1055,27 +1057,27 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 	out.StartsGameDay = gameDayAtTick(snap, out.StartsTick)
 	out.EndsGameDay = gameDayAtTick(snap, out.EndsTick)
 	if _, err := tx.Exec(ctx, `
-        INSERT INTO chronicle_entries(
-            household_id, occurred_tick, entry_type, subject_character_id,
+		INSERT INTO chronicle_entries(
+			household_id, occurred_tick, occurred_game_day, entry_type, subject_character_id,
             related_assignment_id, data
         ) VALUES (
-            $1::uuid, $2, 'assignment_scheduled', $3::uuid, $4::uuid,
-            jsonb_build_object(
-                'activity', $5::text,
-                'intensity', $6::text,
-                'starts_tick', $7::bigint,
-                'ends_tick', $8::bigint
-            )
-        )
-	`, householdID, snap.CurrentTick, characterID, out.ID, activity, intensity, startsTick, endsTick); err != nil {
+			$1::uuid, $2, $9, 'assignment_scheduled', $3::uuid, $4::uuid,
+			jsonb_build_object(
+				'activity', $5::text,
+				'intensity', $6::text,
+				'starts_tick', $7::bigint,
+				'ends_tick', $8::bigint
+			)
+		)
+		`, householdID, snap.CurrentTick, characterID, out.ID, activity, intensity, startsTick, endsTick, snap.CurrentGameDay); err != nil {
 		return AssignmentRecord{}, err
 	}
 	for _, value := range emergency {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type, subject_character_id, data)
-			VALUES ($1::uuid,$2,'emergency_work_overridden',$3::uuid,
-				jsonb_build_object('character_id',$3::text,'emergency_activity',$4::text,'replacement_activity',$5::text,'starts_tick',$6::bigint))
-			ON CONFLICT DO NOTHING`, householdID, snap.CurrentTick, characterID, value.activity, activity, startsTick); err != nil {
+				INSERT INTO chronicle_entries(household_id, occurred_tick, occurred_game_day, entry_type, subject_character_id, data)
+				VALUES ($1::uuid,$2,$7,'emergency_work_overridden',$3::uuid,
+					jsonb_build_object('character_id',$3::text,'emergency_activity',$4::text,'replacement_activity',$5::text,'starts_tick',$6::bigint))
+				ON CONFLICT DO NOTHING`, householdID, snap.CurrentTick, characterID, value.activity, activity, startsTick, snap.CurrentGameDay); err != nil {
 			return AssignmentRecord{}, err
 		}
 	}

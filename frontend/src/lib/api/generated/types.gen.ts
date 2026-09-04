@@ -56,6 +56,7 @@ export type HouseholdReport = {
 	household_id: string;
 	household_name: string;
 	world_id: string;
+	setting_start_year: number;
 	tick: number;
 	game_day: number;
 	calendar: CalendarBreakdown;
@@ -89,7 +90,7 @@ export type CalendarBreakdown = {
 export type CalendarEvent = {
 	id: string;
 	game_day: number;
-	category: string;
+	category: 'season' | 'shipment' | 'contract' | 'politics' | 'world' | 'farm';
 	kind:
 		| 'season_start'
 		| 'festival'
@@ -282,14 +283,34 @@ export type Contract = {
 export type ProposeContractIntent = {
 	proposer_household_id: string;
 	counterparty_household_id: string;
-	first_due_game_day: number;
+	start_game_day: number;
+	/**
+	 * Optional explicit end; otherwise the server resolves end_condition.
+	 */
+	end_game_day?: number;
 	interval_days: 7 | 14 | 28;
-	end_condition: {
+	end_condition?: {
 		type: 'fixed_delivery_count' | 'fixed_game_day' | 'winter_start' | 'summer_start';
 		game_day?: number;
 		delivery_count?: number;
 	};
 	terms: Array<ContractTerm>;
+	/**
+	 * @deprecated
+	 */
+	first_due_game_day?: number;
+	/**
+	 * @deprecated
+	 */
+	starts_tick?: number;
+	/**
+	 * @deprecated
+	 */
+	ends_tick?: number;
+	/**
+	 * @deprecated
+	 */
+	interval_ticks?: number;
 };
 
 export type RespondContractIntent = {

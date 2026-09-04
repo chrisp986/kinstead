@@ -4,6 +4,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/');
 	await expect(page.getByRole('heading', { level: 1, name: 'Bjornvik' })).toBeVisible();
+	await expect(page.getByText('980 CE · Spring · first week')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Farm report' }).first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Decide now' })).toBeVisible();
 	await expect(page.getByRole('navigation', { name: 'Household sections' })).toBeVisible();

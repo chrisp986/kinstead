@@ -8,17 +8,19 @@ import (
 )
 
 type CreateShipmentCommand struct {
-	ID                    shipmentdomain.ID
-	WorldID               shipmentdomain.WorldID
-	SenderHouseholdID     shipmentdomain.HouseholdID
-	ReceiverHouseholdID   shipmentdomain.HouseholdID
-	OriginLocationID      shipmentdomain.LocationID
-	DestinationLocationID shipmentdomain.LocationID
-	ResourceType          shipmentdomain.ResourceType
-	QuantityMilli         shipmentdomain.QuantityMilli
-	DepartureTick         shipmentdomain.Tick
-	ExpectedArrivalTick   shipmentdomain.Tick
-	TransportCostMilli    shipmentdomain.MoneyMilli
+	ID                     shipmentdomain.ID
+	WorldID                shipmentdomain.WorldID
+	SenderHouseholdID      shipmentdomain.HouseholdID
+	ReceiverHouseholdID    shipmentdomain.HouseholdID
+	OriginLocationID       shipmentdomain.LocationID
+	DestinationLocationID  shipmentdomain.LocationID
+	ResourceType           shipmentdomain.ResourceType
+	QuantityMilli          shipmentdomain.QuantityMilli
+	DepartureTick          shipmentdomain.Tick
+	ExpectedArrivalTick    shipmentdomain.Tick
+	DepartureGameDay       shipmentdomain.GameDay
+	ExpectedArrivalGameDay shipmentdomain.GameDay
+	TransportCostMilli     shipmentdomain.MoneyMilli
 }
 
 type CancelShipmentCommand struct {
@@ -44,7 +46,10 @@ func (s *ShipmentService) Cancel(ctx context.Context, cmd CancelShipmentCommand)
 		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
 		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
 		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
-		TransportCostMilli: int64(value.TransportCostMilli), Status: string(value.Status),
+		DepartureGameDay: int64(value.DepartureGameDay), ExpectedArrivalGameDay: int64(value.ExpectedArrivalGameDay),
+		ActualArrivalGameDay: gameDayPointer(value.ActualArrivalGameDay),
+		ActualArrivalTick:    tickPointer(value.ActualArrivalTick),
+		TransportCostMilli:   int64(value.TransportCostMilli), Status: string(value.Status),
 	}, nil
 }
 
@@ -60,6 +65,7 @@ func (s *ShipmentService) Create(ctx context.Context, cmd CreateShipmentCommand)
 		OriginLocationID: cmd.OriginLocationID, DestinationLocationID: cmd.DestinationLocationID,
 		ResourceType: cmd.ResourceType, QuantityMilli: cmd.QuantityMilli,
 		DepartureTick: cmd.DepartureTick, ExpectedArrivalTick: cmd.ExpectedArrivalTick,
+		DepartureGameDay: cmd.DepartureGameDay, ExpectedArrivalGameDay: cmd.ExpectedArrivalGameDay,
 		TransportCostMilli: cmd.TransportCostMilli, Status: shipmentdomain.StatusPrepared,
 	}
 	if err := prepared.Validate(); err != nil {
@@ -70,6 +76,22 @@ func (s *ShipmentService) Create(ctx context.Context, cmd CreateShipmentCommand)
 		return shipmentdomain.Shipment{}, err
 	}
 	return s.Store.CreateShipment(ctx, dispatched)
+}
+
+func tickPointer(value *shipmentdomain.Tick) *int64 {
+	if value == nil {
+		return nil
+	}
+	converted := int64(*value)
+	return &converted
+}
+
+func gameDayPointer(value *shipmentdomain.GameDay) *int64 {
+	if value == nil {
+		return nil
+	}
+	converted := int64(*value)
+	return &converted
 }
 
 func (s *ShipmentService) ListForHousehold(ctx context.Context, householdID string) ([]port.ShipmentRecord, error) {

@@ -9,7 +9,8 @@ relationships** under asynchronous time.
 
 -   pgx upgraded to the current supported v5 line
 -   production historical calendar separated from the synthetic v0.3 calendar
--   character birth dates normalized and ages derived from historical dates
+-   character birth dates normalized and ages derived from the authoritative
+    364-day game calendar
 -   v0.3 seed, strategies, events, and 48-tick calendar isolated under the
     balancing scenario package
 -   frozen v0.3 design reference preserved; current Go-runner divergence is
@@ -19,7 +20,8 @@ relationships** under asynchronous time.
 -   existing world/market/shipment SQL migrated toward generated `sqlc` queries
 -   CI added for backend, PostgreSQL integration, frontend, and Playwright
 
-Next: begin Chronicle + Farm Report after the completed Politics milestone.
+The completed Chronicle, Farm Report, and SvelteKit milestones now feed the
+calendar/time-model hardening work below.
 
 ## Implementation order
 
@@ -71,9 +73,11 @@ acceptance/rejection, arrival-based fulfillment, late/broken outcomes,
 shipment-linked dispatch, deterministic contract rollups, relationship history,
 explicit directional trust deltas, exactly-once trust application with clamps,
 REST/OpenAPI projections, generated frontend types, and the household
-contract/relationship UI. Trust outcomes are +2 on time/early, -1 one tick
-late, -2 two ticks late, and -8 broken/3+ ticks late; the creditor's trust in
-the debtor changes and no reverse relationship is modified automatically.
+contract/relationship UI. Calendar-scheduled trust outcomes are +2 on
+time/early, -1 at 1--7 days late, -2 at 8--14 days late, and -8 when broken
+at 15+ days late. Legacy tick-backed contracts retain the frozen v0.3 buckets;
+the creditor's trust in the debtor changes and no reverse relationship is
+modified automatically.
 
 ### 5. Politics --- complete
 
@@ -109,6 +113,20 @@ chronicle surfaces; accessible feedback and mobile workflow coverage.
 Generate API client/types from OpenAPI.
 
 The final Vertical Slice UI organization is now the next product-polish focus.
+
+### 8. Game-Time Model Migration --- complete
+
+The authoritative `game_day` transition is complete for the current vertical
+slice: production seasons and character ages use the deterministic 364-day
+calendar; contract deadlines use game days with server-derived execution ticks;
+shipment and Chronicle projections persist game-day snapshots; the calendar
+read model covers seasonal boundaries, obligations, shipment arrivals, farm
+markers, and political deadlines; and the setting-aware UI renders historical
+years and relative calendar language. Goose upgrade/fresh equivalence coverage,
+tick-boundary tests, contract day-bucket tests, shipment projections, and the
+existing Farm Report accelerated-world cap prove that wall-clock tick duration
+does not change calendar results. Tick fields retained in the schema are
+execution, compatibility, or diagnostic projections only.
 
 ## First end-to-end economic scenario
 

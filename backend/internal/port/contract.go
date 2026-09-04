@@ -9,9 +9,12 @@ import (
 )
 
 type ContractPartiesSnapshot struct {
-	WorldID        contractdomain.WorldID
-	CurrentTick    contractdomain.Tick
-	CurrentGameDay contractdomain.GameDay
+	WorldID            contractdomain.WorldID
+	CurrentTick        contractdomain.Tick
+	CurrentGameDay     contractdomain.GameDay
+	CalendarRemainder  int64
+	GameDaysPerTickNum int64
+	GameDaysPerTickDen int64
 }
 
 type ContractProposalTransaction interface {
@@ -22,9 +25,12 @@ type ContractProposalTransaction interface {
 }
 
 type ContractResponseSnapshot struct {
-	Contract       contractdomain.Contract
-	CurrentTick    contractdomain.Tick
-	CurrentGameDay contractdomain.GameDay
+	Contract           contractdomain.Contract
+	CurrentTick        contractdomain.Tick
+	CurrentGameDay     contractdomain.GameDay
+	CalendarRemainder  int64
+	GameDaysPerTickNum int64
+	GameDaysPerTickDen int64
 }
 
 type ContractResponseTransaction interface {
@@ -44,6 +50,7 @@ type ContractDispatchSnapshot struct {
 	Route                 geography.Route
 	CurrentTick           contractdomain.Tick
 	CurrentGameDay        contractdomain.GameDay
+	CalendarRemainder     int64
 	GameDaysPerTickNum    int64
 	GameDaysPerTickDen    int64
 	GameDaySchedule       bool

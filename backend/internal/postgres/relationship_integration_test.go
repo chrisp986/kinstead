@@ -128,8 +128,8 @@ func createRelationshipTrustFixture(t *testing.T, ctx context.Context, store *St
 	t.Helper()
 	var fixture relationshipTrustFixture
 	if err := store.Pool.QueryRow(ctx, `
-		INSERT INTO worlds(name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
-		VALUES ('relationship trust integration test', DATE '0980-01-01', 0, 3600, now() + interval '1 day')
+		INSERT INTO worlds(name, historical_start_date, current_tick, current_game_day, calendar_remainder, tick_duration_seconds, next_tick_at)
+		VALUES ('relationship trust integration test', DATE '0980-01-01', 0, 0, 0, 3600, now() + interval '1 day')
 		RETURNING id::text
 	`).Scan(&fixture.worldID); err != nil {
 		t.Fatal(err)
@@ -148,8 +148,8 @@ func createRelationshipTrustFixture(t *testing.T, ctx context.Context, store *St
 		t.Fatal(err)
 	}
 	if err := store.Pool.QueryRow(ctx, `
-		INSERT INTO contracts(world_id, party_a_household_id, party_b_household_id, starts_tick, ends_tick, interval_ticks, status)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, 10, 12, 1, 'active')
+		INSERT INTO contracts(world_id, party_a_household_id, party_b_household_id, starts_tick, ends_tick, interval_ticks, start_game_day, end_game_day, interval_days, game_day_schedule, status)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, 10, 12, 1, 75, 91, 1, false, 'active')
 		RETURNING id::text
 	`, fixture.worldID, fixture.debtorID, fixture.creditorID).Scan(&fixture.contractID); err != nil {
 		t.Fatal(err)
@@ -171,8 +171,8 @@ func createRelationshipTrustFixture(t *testing.T, ctx context.Context, store *St
 				INSERT INTO shipments(
 					world_id, sender_household_id, receiver_household_id,
 					origin_location_id, destination_location_id, resource_code,
-					quantity_milli, departure_tick, expected_arrival_tick, actual_arrival_tick, status
-				) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, 1000, 0, $7, $7, 'arrived')
+					quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, actual_arrival_tick, actual_arrival_game_day, status
+				) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::text, 1000, 0, $7::bigint, 0, ($7::bigint * 91) / 12, $7::bigint, ($7::bigint * 91) / 12, 'arrived')
 				RETURNING id::text
 			`, fixture.worldID, fixture.debtorID, fixture.creditorID, originID, destinationID, value.resource, *value.arrival).Scan(&id); err != nil {
 				t.Fatal(err)
@@ -187,8 +187,8 @@ func createRelationshipTrustFixture(t *testing.T, ctx context.Context, store *St
 		if err := store.Pool.QueryRow(ctx, `
 			INSERT INTO contract_obligations(
 				contract_id, debtor_household_id, creditor_household_id,
-				resource_code, quantity_milli, due_arrival_tick, shipment_id, status, fulfilled_tick
-			) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 1000, $5, $6::uuid, $7, $8)
+				resource_code, quantity_milli, due_arrival_tick, due_game_day, shipment_id, status, fulfilled_tick, fulfilled_game_day
+			) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, 1000, $5::bigint, ($5::bigint * 91) / 12, $6::uuid, $7::text, $8::bigint, CASE WHEN $8::bigint IS NULL THEN NULL ELSE ($8::bigint * 91) / 12 END)
 			RETURNING id::text
 		`, fixture.contractID, fixture.debtorID, fixture.creditorID, value.resource, value.due, shipmentID, status, value.arrival).Scan(&obligationID); err != nil {
 			t.Fatalf("obligation %d: %v", i, err)

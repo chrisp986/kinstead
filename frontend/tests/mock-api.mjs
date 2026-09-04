@@ -147,7 +147,7 @@ function calendarEvents() {
 		{
 			id: 'calendar-summer',
 			kind: 'season_start',
-			category: 'world',
+			category: 'season',
 			game_day: 91,
 			importance: 'important',
 			action_required: false,
@@ -156,7 +156,7 @@ function calendarEvents() {
 		{
 			id: 'calendar-midsummer',
 			kind: 'festival',
-			category: 'festivals',
+			category: 'world',
 			game_day: 121,
 			importance: 'context',
 			action_required: false,
@@ -179,7 +179,7 @@ function calendarEvents() {
 			events.push({
 				id: `dispatch-${obligation.id}`,
 				kind: 'dispatch_deadline',
-				category: 'trade',
+				category: 'contract',
 				game_day: obligation.latest_dispatch_game_day ?? 12,
 				importance: 'critical',
 				action_required: true,
@@ -192,7 +192,7 @@ function calendarEvents() {
 		events.push({
 			id: `obligation-${obligation.id}`,
 			kind: 'delivery_due',
-			category: 'trade',
+			category: 'contract',
 			game_day: obligation.due_game_day,
 			importance: 'important',
 			action_required: false,
@@ -209,7 +209,7 @@ function calendarEvents() {
 		events.push({
 			id: `shipment-${contractShipment.id}`,
 			kind: 'shipment_arrival',
-			category: 'trade',
+			category: 'shipment',
 			game_day: contractShipment.expected_arrival_game_day,
 			importance: 'important',
 			action_required: false,
@@ -240,6 +240,7 @@ createServer(async (request, response) => {
 			household_id: householdId,
 			household_name: 'Bjornvik',
 			world_id: worldId,
+			setting_start_year: 980,
 			tick: 0,
 			game_day: 0,
 			calendar,
@@ -519,14 +520,15 @@ createServer(async (request, response) => {
 	if (request.method === 'POST' && url.pathname === '/api/contracts') {
 		const body = await readBody(request);
 		const term = body.terms[0];
-		const deliveryCount = body.end_condition.delivery_count ?? 6;
+		const deliveryCount = body.end_condition?.delivery_count ?? 6;
 		const created = {
 			...contracts[0],
 			id: '00000000-0000-0000-0000-000000000607',
 			party_a_household_id: body.proposer_household_id,
 			party_b_household_id: body.counterparty_household_id,
-			start_game_day: body.first_due_game_day,
-			end_game_day: body.first_due_game_day + (deliveryCount - 1) * body.interval_days,
+			start_game_day: body.start_game_day,
+			end_game_day:
+				body.end_game_day ?? body.start_game_day + (deliveryCount - 1) * body.interval_days,
 			interval_days: body.interval_days,
 			status: 'proposed',
 			terms: [term],

@@ -37,7 +37,7 @@ func TestContractProposalPersistenceAndRollback(t *testing.T) {
 
 	command := ProposeContractCommand{
 		ProposerHouseholdID: fixture.partyA, CounterpartyHouseholdID: fixture.partyB,
-		StartsTick: 7, EndsTick: 13, IntervalTicks: 3,
+		StartGameDay: 45, EndGameDay: 73, IntervalDays: 14,
 		Terms: []ContractTermIntent{{DebtorHouseholdID: fixture.partyA, CreditorHouseholdID: fixture.partyB, ResourceType: "provisions", QuantityMilli: 10_000}},
 	}
 	created, err := service.Propose(ctx, command)
@@ -93,7 +93,8 @@ func TestContractProposalPersistenceAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(obligations) != 3 || obligations[0].DueArrivalTick != 7 || obligations[1].DueArrivalTick != 10 || obligations[2].DueArrivalTick != 13 {
+	if len(obligations) != 3 || obligations[0].DueArrivalTick != 6 || obligations[1].DueArrivalTick != 8 || obligations[2].DueArrivalTick != 10 ||
+		obligations[0].DueGameDay != 45 || obligations[1].DueGameDay != 59 || obligations[2].DueGameDay != 73 {
 		t.Fatalf("obligations = %+v", obligations)
 	}
 	if _, err := service.DispatchObligation(ctx, DispatchContractObligationCommand{
@@ -173,8 +174,8 @@ func createContractFixture(t *testing.T, ctx context.Context, store *postgres.St
 	t.Helper()
 	var fixture contractFixture
 	if err := store.Pool.QueryRow(ctx, `
-		INSERT INTO worlds(name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
-		VALUES ('contract integration test', DATE '0980-01-01', 5, 3600, now() + interval '1 day')
+		INSERT INTO worlds(name, historical_start_date, current_tick, current_game_day, calendar_remainder, tick_duration_seconds, next_tick_at)
+		VALUES ('contract integration test', DATE '0980-01-01', 5, (5 * 91) / 12, (5 * 91) % 12, 3600, now() + interval '1 day')
 		RETURNING id::text
 	`).Scan(&fixture.worldID); err != nil {
 		t.Fatal(err)

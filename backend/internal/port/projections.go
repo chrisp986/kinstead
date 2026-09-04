@@ -157,6 +157,7 @@ type MarketPurchaseSnapshot struct {
 	SellerStockMilli   marketdomain.QuantityMilli
 	CurrentTick        int64
 	CurrentGameDay     int64
+	CalendarRemainder  int64
 	GameDaysPerTickNum int64
 	GameDaysPerTickDen int64
 }
@@ -207,14 +208,14 @@ type WorldTickTransaction interface {
 	IsTickProcessed(context.Context, string, int64) (bool, error)
 	LoadDueShipments(context.Context, string, int64) ([]shipmentdomain.Shipment, error)
 	PersistShipmentArrival(context.Context, shipmentdomain.Shipment) (bool, error)
-	LoadContractObligationsForTick(context.Context, string, int64) ([]ContractObligationAssessment, error)
+	LoadContractObligationsForTick(context.Context, string, int64, int64) ([]ContractObligationAssessment, error)
 	PersistContractObligationAssessment(context.Context, contractdomain.Obligation, contractdomain.Obligation, *relationshipdomain.Event) (bool, error)
 	LoadActiveContractsForRollup(context.Context, string) ([]ContractRollupSnapshot, error)
 	PersistContractRollup(context.Context, contractdomain.Contract, contractdomain.Contract) (bool, error)
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
-	SaveHouseholdTick(context.Context, string, simulation.TickResult) error
-	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, float64) (bool, error)
+	SaveHouseholdTick(context.Context, string, simulation.TickResult, int64) error
+	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, int64, float64) (bool, error)
 	FinishWorldTick(context.Context, WorldClaim, int64, int64, int64) error
 	Commit(context.Context) error
 	Rollback(context.Context) error

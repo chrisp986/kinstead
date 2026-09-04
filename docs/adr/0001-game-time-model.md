@@ -37,6 +37,15 @@ The authoritative simulated calendar uses an absolute integer `game_day`.
 - The v0.3 `48 ticks/year, 12 ticks/season` model remains synthetic balancing
   data and does not define the production calendar.
 
+The committed clock has an explicit interval rule. `current_tick` counts fully
+committed execution steps and `current_game_day` is the calendar position
+after them. A tick begins at the current game day, uses that day's production
+season, and commits its effects at the next game day. Player actions between
+ticks use the current day; tick-generated effects use the next day. With the
+default `91 / 12` pacing this means ticks 1--12 use spring, tick 12 ends at
+day 91, tick 13 uses summer, and tick 48 ends at day 364. Wall-clock tick
+duration is only scheduling and is not an input to this model.
+
 The gameplay calendar is a deliberate abstraction. It is not presented as an
 exact reconstruction of a single medieval Swedish calendar.
 
@@ -64,6 +73,13 @@ Calendar contracts classify lateness as 1--7 days, 8--14 days, and 15+ days;
 legacy v0.3 tick-backed contracts retain their frozen tick outcomes. Political
 demand service duration remains tick-based, while the response deadline is
 snapshotted in game days when the demand is issued.
+
+For calendar contracts, `due_game_day` is the business deadline and any
+`due_arrival_tick` is a derived worker/execution projection. Arrival lateness
+is 0 days (+2 trust), 1--7 days (-1), 8--14 days (-2), and 15+ days broken
+(-8). Shipment and Chronicle game-day fields follow the same effective-day
+rule: dispatch/player actions use the current day, while arrivals and other
+tick consequences use the next day.
 
 Season-bound and domain-event schedules may be added explicitly when useful,
 for example `spring start` or a future market/assembly event. These rules must

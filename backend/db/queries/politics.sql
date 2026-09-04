@@ -1,11 +1,13 @@
 -- name: LoadPoliticalEventsStartingTick :many
 SELECT e.id::text AS id, e.world_id::text AS world_id, e.location_id::text AS location_id,
        e.political_actor_id::text AS political_actor_id, e.event_type, e.starts_tick,
-       e.ends_tick, ((e.starts_tick * 91) / 12)::bigint AS starts_game_day,
-       COALESCE((e.ends_tick * 91) / 12, 0)::bigint AS expires_game_day,
+       e.ends_tick,
+       w.current_tick, w.current_game_day, w.calendar_remainder,
+       w.game_days_per_tick_num, w.game_days_per_tick_den,
        e.parameters, a.name AS actor_name, a.actor_type
 FROM world_events e
 JOIN political_actors a ON a.id = e.political_actor_id
+JOIN worlds w ON w.id = e.world_id
 WHERE e.world_id = sqlc.arg(world_id)::uuid
   AND e.starts_tick = sqlc.arg(tick)
   AND e.event_type IN ('political_labor_service','political_levy')
@@ -114,18 +116,18 @@ RETURNING id::text AS id;
 
 -- name: InsertPoliticalChronicle :execrows
 INSERT INTO chronicle_entries(
- household_id, occurred_tick, entry_type, related_household_decision_id,
+ household_id, occurred_tick, occurred_game_day, entry_type, related_household_decision_id,
  related_political_actor_id, related_assignment_id, data
-) VALUES (sqlc.arg(household_id)::uuid, sqlc.arg(occurred_tick), sqlc.arg(entry_type),
+) VALUES (sqlc.arg(household_id)::uuid, sqlc.arg(occurred_tick), sqlc.arg(occurred_game_day), sqlc.arg(entry_type),
           sqlc.arg(decision_id)::uuid, sqlc.arg(actor_id)::uuid,
           NULLIF(sqlc.arg(assignment_id)::text, '')::uuid, sqlc.arg(data)::jsonb)
 ON CONFLICT (household_id, related_household_decision_id, entry_type)
 WHERE related_household_decision_id IS NOT NULL DO NOTHING;
 
 -- name: InsertPoliticalReceivedChronicle :exec
-INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type,
+INSERT INTO chronicle_entries(household_id, occurred_tick, occurred_game_day, entry_type,
   related_household_decision_id, related_political_actor_id, data)
-SELECT d.household_id, sqlc.arg(occurred_tick), 'political_demand_received', d.id,
+SELECT d.household_id, sqlc.arg(occurred_tick), sqlc.arg(occurred_game_day), 'political_demand_received', d.id,
        sqlc.arg(actor_id)::uuid, sqlc.arg(data)::jsonb
 FROM household_decisions d
 WHERE d.household_id = sqlc.arg(household_id)::uuid

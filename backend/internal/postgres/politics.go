@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"game/backend/internal/calendar"
 	politicsdomain "game/backend/internal/domain/politics"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
@@ -35,7 +36,14 @@ func politicalEvent(row sqlcdb.LoadPoliticalEventsStartingTickRow) port.Politica
 	if row.EndsTick.Valid {
 		expires = row.EndsTick.Int64
 	}
-	return port.PoliticalEventRecord{ID: row.ID, WorldID: row.WorldID, LocationID: row.LocationID, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType, StartsTick: row.StartsTick, ExpiresTick: expires, StartsGameDay: row.StartsGameDay, ExpiresGameDay: row.ExpiresGameDay, Parameters: row.Parameters, ActorName: row.ActorName, ActorType: row.ActorType}
+	startDay, startErr := calendar.GameDayAtTick(calendar.GameDay(row.CurrentGameDay), row.CalendarRemainder,
+		row.GameDaysPerTickNum, row.GameDaysPerTickDen, row.StartsTick-row.CurrentTick)
+	endDay, endErr := calendar.GameDayAtTick(calendar.GameDay(row.CurrentGameDay), row.CalendarRemainder,
+		row.GameDaysPerTickNum, row.GameDaysPerTickDen, expires-row.CurrentTick)
+	if startErr != nil || endErr != nil {
+		startDay, endDay = 0, 0
+	}
+	return port.PoliticalEventRecord{ID: row.ID, WorldID: row.WorldID, LocationID: row.LocationID, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType, StartsTick: row.StartsTick, ExpiresTick: expires, StartsGameDay: int64(startDay), ExpiresGameDay: int64(endDay), Parameters: row.Parameters, ActorName: row.ActorName, ActorType: row.ActorType}
 }
 func politicalDecision(row sqlcdb.LoadExpiringPoliticalDecisionsRow) port.PoliticalDecisionRecord {
 	var selected *string
@@ -125,10 +133,10 @@ func (t *worldTickTx) AutoResolvePoliticalDecision(ctx context.Context, d port.P
 func (t *worldTickTx) ApplyPoliticalScoreDelta(ctx context.Context, w, h, a string, delta int) error {
 	return applyPoliticalScore(ctx, t.tx, w, h, a, delta)
 }
-func (t *worldTickTx) InsertPoliticalChronicle(ctx context.Context, h string, tick int64, entry, decision, actor, assignment string, data []byte) error {
-	return insertPoliticalChronicle(ctx, t.tx, h, tick, entry, decision, actor, assignment, data)
+func (t *worldTickTx) InsertPoliticalChronicle(ctx context.Context, h string, tick, gameDay int64, entry, decision, actor, assignment string, data []byte) error {
+	return insertPoliticalChronicle(ctx, t.tx, h, tick, gameDay, entry, decision, actor, assignment, data)
 }
-func (t *worldTickTx) InsertPoliticalReceivedChronicle(ctx context.Context, h string, tick int64, event, actor string, data []byte) error {
+func (t *worldTickTx) InsertPoliticalReceivedChronicle(ctx context.Context, h string, tick, gameDay int64, event, actor string, data []byte) error {
 	hi, e := uuidParam(h)
 	if e != nil {
 		return e
@@ -141,7 +149,7 @@ func (t *worldTickTx) InsertPoliticalReceivedChronicle(ctx context.Context, h st
 	if e != nil {
 		return e
 	}
-	return normalizeTransactionError(sqlcdb.New(t.tx).InsertPoliticalReceivedChronicle(ctx, sqlcdb.InsertPoliticalReceivedChronicleParams{HouseholdID: hi, OccurredTick: tick, WorldEventID: ei, ActorID: ai, Data: data}))
+	return normalizeTransactionError(sqlcdb.New(t.tx).InsertPoliticalReceivedChronicle(ctx, sqlcdb.InsertPoliticalReceivedChronicleParams{OccurredTick: tick, OccurredGameDay: gameDay, ActorID: ai, Data: data, HouseholdID: hi, WorldEventID: ei}))
 }
 
 type politicsTx struct{ tx pgx.Tx }
@@ -246,8 +254,8 @@ func (t *politicsTx) ResolvePoliticalDecision(ctx context.Context, d, opt string
 func (t *politicsTx) ApplyPoliticalScoreDelta(ctx context.Context, w, h, a string, delta int) error {
 	return applyPoliticalScore(ctx, t.tx, w, h, a, delta)
 }
-func (t *politicsTx) InsertPoliticalChronicle(ctx context.Context, h string, tick int64, entry, decision, actor, assignment string, data []byte) error {
-	return insertPoliticalChronicle(ctx, t.tx, h, tick, entry, decision, actor, assignment, data)
+func (t *politicsTx) InsertPoliticalChronicle(ctx context.Context, h string, tick, gameDay int64, entry, decision, actor, assignment string, data []byte) error {
+	return insertPoliticalChronicle(ctx, t.tx, h, tick, gameDay, entry, decision, actor, assignment, data)
 }
 func (t *politicsTx) InsertPoliticalReceivedChronicle(ctx context.Context, h string, tick int64, event, actor string, data []byte) error {
 	return fmt.Errorf("received chronicle is tick-owned")
@@ -272,7 +280,7 @@ func applyPoliticalScore(ctx context.Context, tx pgx.Tx, w, h, a string, delta i
 	}
 	return normalizeTransactionError(sqlcdb.New(tx).ApplyPoliticalScoreDelta(ctx, sqlcdb.ApplyPoliticalScoreDeltaParams{WorldID: wi, HouseholdID: hi, PoliticalActorID: ai, ScoreDelta: delta}))
 }
-func insertPoliticalChronicle(ctx context.Context, tx pgx.Tx, h string, tick int64, entry, decision, actor, assignment string, data []byte) error {
+func insertPoliticalChronicle(ctx context.Context, tx pgx.Tx, h string, tick, gameDay int64, entry, decision, actor, assignment string, data []byte) error {
 	hi, e := uuidParam(h)
 	if e != nil {
 		return e
@@ -285,7 +293,7 @@ func insertPoliticalChronicle(ctx context.Context, tx pgx.Tx, h string, tick int
 	if e != nil {
 		return e
 	}
-	_, e = sqlcdb.New(tx).InsertPoliticalChronicle(ctx, sqlcdb.InsertPoliticalChronicleParams{HouseholdID: hi, OccurredTick: tick, EntryType: entry, DecisionID: di, ActorID: ai, AssignmentID: assignment, Data: data})
+	_, e = sqlcdb.New(tx).InsertPoliticalChronicle(ctx, sqlcdb.InsertPoliticalChronicleParams{HouseholdID: hi, OccurredTick: tick, OccurredGameDay: gameDay, EntryType: entry, DecisionID: di, ActorID: ai, AssignmentID: assignment, Data: data})
 	return normalizeTransactionError(e)
 }
 

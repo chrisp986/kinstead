@@ -51,11 +51,25 @@ Each world tick is sequential and transactional:
 Idempotency key: `(world_id, tick)`. A retry must not duplicate effects.
 Process missed ticks one-by-one.
 
+The committed world clock has two distinct coordinates: `current_tick` is the
+number of fully committed execution steps, while `current_game_day` is the
+calendar position after those steps. Processing tick `current_tick + 1` starts
+at the current game day and ends at the next game day. Production uses the
+season at the start day; calendar effects that become true during the tick
+use the end day. Player actions submitted between ticks use the world's
+current game day.
+
 Ticks are execution cadence, not calendar units. The production clock
 advances simulated time deterministically after each processed tick according
 to the world's pacing policy. The synthetic v0.3 `48 ticks/year,
 12 ticks/season` values remain balancing inputs and do not define production
 calendar semantics.
+
+The default production pacing is `91 / 12` game days per tick: ticks 1--12
+produce in spring, ticks 13--24 in summer, ticks 25--36 in autumn, and ticks
+37--48 in winter. After tick 48 the committed clock is day 364, the start of
+year 2 and spring. `tick_duration_seconds` is only the worker's wall-clock
+wait between execution attempts and cannot change these results.
 
 Use PostgreSQL row locking/`FOR UPDATE SKIP LOCKED` for worker
 coordination. Avoid long-lived in-memory authoritative state.
@@ -154,6 +168,18 @@ use tick-based travel balance values; expected arrival and lateness are resolved
 server-side from authoritative tick/game-clock state rather than client date
 arithmetic.
 
+Calendar contract deadlines are absolute `due_game_day` values. Any
+`due_arrival_tick` retained in storage is a derived execution projection, not
+a player-authoritative deadline. Calendar lateness is 0 days on time (+2
+trust), 1--7 days (-1), 8--14 days (-2), and 15 or more days broken (-8).
+
+For temporal writes, player actions between ticks record the current game day;
+tick-generated effects record the next game day. This applies to shipment
+departure versus arrival, contract assessment, assignment consequences, and
+Chronicle entries. PostgreSQL stores these values and validates them; calendar
+rules and tick/game-day conversion live in `internal/calendar` and the
+application/domain layers.
+
 Contract dispatch reserves the exact obligated goods, derives travel time and
 transport cost from directed geography, creates the physical shipment, and
 links it to the obligation in one transaction.
@@ -182,6 +208,12 @@ such as harvest, Jól, and Þing. The default range is the current day through
 the next 182 days. Political response deadlines snapshot their game day when a
 demand is issued; their service duration remains a tick-based balancing
 mechanic.
+
+Calendar ranges distinguish omitted parameters from an explicit day zero,
+accept at most 364 days, and reject unknown event categories. Events are
+structured facts (season, shipment, contract, politics, world, or farm) so
+the frontend can render setting-appropriate language without duplicating
+calendar arithmetic.
 
 Prefer DB transactions/constraints to application mutexes.
 

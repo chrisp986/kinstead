@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"game/backend/internal/port"
@@ -58,13 +59,51 @@ func TestCalendarProjectionIncludesAnchorsAndHouseholdEvents(t *testing.T) {
 		t.Fatalf("projection kinds = %v", seen)
 	}
 
-	trade, err := NewCalendarService(reader).Household(context.Background(), "household", 0, 182, "trade")
+	shipment, err := NewCalendarService(reader).Household(context.Background(), "household", 0, 182, "shipment")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range trade.Events {
-		if event.Category != "trade" {
-			t.Fatalf("trade filter returned %q event", event.Category)
+	for _, event := range shipment.Events {
+		if event.Category != "shipment" {
+			t.Fatalf("shipment filter returned %q event", event.Category)
 		}
+	}
+}
+
+func TestCalendarRangePresenceAndValidation(t *testing.T) {
+	snapshot := port.HouseholdSnapshot{HouseholdID: "household", WorldID: "world", CurrentGameDay: 45, SettingStartYear: 980}
+	reader := calendarReaderStub{snapshot: snapshot, value: port.CalendarContext{Snapshot: snapshot}}
+	service := NewCalendarService(reader)
+	zero := int64(0)
+	projection, err := service.HouseholdRange(context.Background(), "household", &zero, &zero, "season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.FromGameDay != 0 || projection.ToGameDay != 0 {
+		t.Fatalf("explicit zero range = %d..%d", projection.FromGameDay, projection.ToGameDay)
+	}
+	from := int64(45)
+	to := int64(100)
+	projection, err = service.HouseholdRange(context.Background(), "household", &from, &to, "season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range projection.Events {
+		if event.GameDay == 45 {
+			t.Fatal("range start created a false season event")
+		}
+	}
+	if len(projection.Events) != 1 || projection.Events[0].GameDay != 91 || projection.Events[0].Kind != CalendarSeasonStart {
+		t.Fatalf("season events for 45..100 = %+v", projection.Events)
+	}
+	if _, err := service.HouseholdRange(context.Background(), "household", nil, &to, "season"); err == nil {
+		t.Fatal("to-only calendar range was accepted")
+	}
+	if _, err := service.HouseholdRange(context.Background(), "household", &zero, &to, "unknown"); !errors.Is(err, ErrInvalidCalendarCategory) {
+		t.Fatalf("unknown category error = %v", err)
+	}
+	tooFar := int64(365)
+	if _, err := service.HouseholdRange(context.Background(), "household", &zero, &tooFar, "season"); err == nil {
+		t.Fatal("365-day calendar range was accepted")
 	}
 }

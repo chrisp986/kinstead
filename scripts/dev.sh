@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# cleanup and process helpers are called through traps/dynamic wait handling;
-# ShellCheck cannot follow those indirect call paths for SC2317.
-# shellcheck disable=SC2317
-
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -246,6 +242,9 @@ wait_for_process_group_exit() {
   force_process_group_stop "$pid"
 }
 
+# cleanup is invoked indirectly through traps; ShellCheck cannot follow that
+# control flow and otherwise reports SC2317 for the cleanup commands.
+# shellcheck disable=SC2317
 cleanup() {
   local status=$?
   trap - EXIT INT TERM

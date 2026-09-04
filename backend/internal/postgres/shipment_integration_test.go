@@ -47,6 +47,7 @@ func TestShipmentArrivalPersistence(t *testing.T) {
 		DestinationLocationID: shipmentdomain.LocationID(fixture.destinationID),
 		ResourceType:          "provisions", QuantityMilli: 12_000,
 		DepartureTick: 1, ExpectedArrivalTick: 3,
+		DepartureGameDay: 7, ExpectedArrivalGameDay: 22,
 		Status: shipmentdomain.StatusInTransit,
 	})
 	if err != nil {
@@ -173,7 +174,7 @@ func TestCancelDirectShipmentRefundsReservationExactlyOnce(t *testing.T) {
 		WorldID: shipmentdomain.WorldID(fixture.worldID), SenderHouseholdID: shipmentdomain.HouseholdID(fixture.senderID),
 		ReceiverHouseholdID: shipmentdomain.HouseholdID(fixture.receiverID), OriginLocationID: shipmentdomain.LocationID(fixture.originID),
 		DestinationLocationID: shipmentdomain.LocationID(fixture.destinationID), ResourceType: "provisions", QuantityMilli: 10_000,
-		DepartureTick: 1, ExpectedArrivalTick: 3, Status: shipmentdomain.StatusPrepared,
+		DepartureTick: 1, ExpectedArrivalTick: 3, DepartureGameDay: 7, ExpectedArrivalGameDay: 22, Status: shipmentdomain.StatusPrepared,
 	}
 	dispatched, err := prepared.Transition(shipmentdomain.StatusInTransit)
 	if err != nil {
@@ -228,8 +229,8 @@ func createShipmentFixture(t *testing.T, ctx context.Context, store *Store) ship
 
 	var f shipmentFixture
 	if err := tx.QueryRow(ctx, `
-        INSERT INTO worlds(name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
-        VALUES ('shipment integration test', DATE '0980-01-01', 1, 3600, $1)
+        INSERT INTO worlds(name, historical_start_date, current_tick, current_game_day, calendar_remainder, tick_duration_seconds, next_tick_at)
+        VALUES ('shipment integration test', DATE '0980-01-01', 1, 7, 7, 3600, $1)
         RETURNING id::text
     `, time.Now().Add(time.Hour)).Scan(&f.worldID); err != nil {
 		t.Fatal(err)
@@ -271,8 +272,8 @@ func createShipmentFixture(t *testing.T, ctx context.Context, store *Store) ship
             INSERT INTO shipments(
                 world_id, sender_household_id, receiver_household_id,
                 origin_location_id, destination_location_id, resource_code,
-                quantity_milli, departure_tick, expected_arrival_tick, status
-            ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',$6,1,2,'in_transit')
+                quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, status
+            ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',$6,1,2,7,15,'in_transit')
             RETURNING id::text
         `, f.worldID, f.senderID, f.receiverID, f.originID, f.destinationID, quantity).Scan(&id); err != nil {
 			t.Fatal(err)
@@ -283,8 +284,8 @@ func createShipmentFixture(t *testing.T, ctx context.Context, store *Store) ship
         INSERT INTO shipments(
             world_id, sender_household_id, receiver_household_id,
             origin_location_id, destination_location_id, resource_code,
-            quantity_milli, departure_tick, expected_arrival_tick, status
-        ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',7000,1,2,'cancelled')
+            quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, status
+        ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',7000,1,2,7,15,'cancelled')
         RETURNING id::text
     `, f.worldID, f.senderID, f.receiverID, f.originID, f.destinationID).Scan(&f.cancelled); err != nil {
 		t.Fatal(err)

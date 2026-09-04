@@ -76,8 +76,9 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 		JOIN households sender ON sender.id = s.sender_household_id
 		JOIN households receiver ON receiver.id = s.receiver_household_id
 		WHERE (s.sender_household_id = $1::uuid OR s.receiver_household_id = $1::uuid)
-		  AND s.expected_arrival_game_day BETWEEN $2 AND $3
-		ORDER BY s.expected_arrival_game_day, s.id
+		  AND (s.expected_arrival_game_day BETWEEN $2 AND $3
+		       OR s.actual_arrival_game_day BETWEEN $2 AND $3)
+		ORDER BY COALESCE(s.actual_arrival_game_day, s.expected_arrival_game_day), s.id
 	`, id, from, to)
 	if err != nil {
 		return port.CalendarContext{}, err

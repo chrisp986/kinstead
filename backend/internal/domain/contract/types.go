@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 
+	"game/backend/internal/calendar"
 	shipmentdomain "game/backend/internal/domain/shipment"
 )
 
@@ -14,7 +15,7 @@ type HouseholdID string
 type ResourceType string
 type QuantityMilli int64
 type Tick int64
-type GameDay int64
+type GameDay = calendar.GameDay
 type Status string
 type ObligationStatus string
 
@@ -193,34 +194,56 @@ func obligationDue(o Obligation) int64 {
 	return int64(o.DueArrivalTick)
 }
 
-// GenerateObligations expands every active contract term at starts_tick and
-// each inclusive interval through ends_tick. IDs are assigned by persistence.
+// GenerateObligations expands an active contract using its authoritative
+// game-day schedule. The zero-origin clock is retained for compatibility with
+// pure domain callers; persistence-backed application code should call
+// GenerateObligationsAt with the world's current clock state.
 func GenerateObligations(c Contract) ([]Obligation, error) {
+	if !c.GameDaySchedule || c.IntervalDays <= 0 {
+		if err := c.Validate(); err != nil || c.ID == "" || c.Status != StatusActive {
+			return nil, ErrInvalidContract
+		}
+		obligations := make([]Obligation, 0)
+		for due := c.StartsTick; due <= c.EndsTick; {
+			for _, term := range c.Terms {
+				obligations = append(obligations, Obligation{
+					ContractID: c.ID, DebtorHouseholdID: term.DebtorHouseholdID, CreditorHouseholdID: term.CreditorHouseholdID,
+					ResourceType: term.ResourceType, QuantityMilli: term.QuantityMilli,
+					DueArrivalTick: due, Status: ObligationPending,
+				})
+			}
+			if due > c.EndsTick-Tick(c.IntervalTicks) {
+				break
+			}
+			due += Tick(c.IntervalTicks)
+		}
+		return obligations, nil
+	}
+	return GenerateObligationsAt(c, 0, 0, 0, calendar.DaysPerSeason, 12)
+}
+
+// GenerateObligationsAt expands a contract and derives execution ticks from
+// the supplied world clock. DueGameDay is the business deadline; DueArrivalTick
+// is only an execution/index projection for the tick worker.
+func GenerateObligationsAt(c Contract, currentTick int64, currentDay GameDay, remainder, numerator, denominator int64) ([]Obligation, error) {
 	if err := c.Validate(); err != nil || c.ID == "" || c.Status != StatusActive {
 		return nil, ErrInvalidContract
 	}
-	obligations := make([]Obligation, 0)
-	start, end, interval := int64(c.StartsTick), int64(c.EndsTick), c.IntervalTicks
-	// Contracts created by the new API may contain only the day schedule. A
-	// legacy row, however, contains both the original tick schedule and a
-	// migration-derived day projection; keep its tick cadence when expanding
-	// obligations so existing v0.3 data remains stable.
-	gameDays := c.GameDaySchedule || (c.IntervalDays > 0 && c.IntervalTicks <= 0)
-	if gameDays {
-		start, end, interval = int64(c.StartGameDay), int64(c.EndGameDay), c.IntervalDays
+	if c.IntervalDays <= 0 || currentTick < 0 || currentDay < 0 {
+		return nil, ErrInvalidContract
 	}
+	obligations := make([]Obligation, 0)
+	start, end, interval := int64(c.StartGameDay), int64(c.EndGameDay), c.IntervalDays
 	for due := start; due <= end; {
+		dueTickOffset, err := calendar.TicksUntilGameDay(currentDay, remainder, numerator, denominator, GameDay(due))
+		if err != nil || dueTickOffset > math.MaxInt64-currentTick {
+			return nil, ErrInvalidContract
+		}
 		for _, term := range c.Terms {
 			obligation := Obligation{
 				ContractID: c.ID, DebtorHouseholdID: term.DebtorHouseholdID, CreditorHouseholdID: term.CreditorHouseholdID,
 				ResourceType: term.ResourceType, QuantityMilli: term.QuantityMilli,
-				DueArrivalTick: Tick(due), Status: ObligationPending,
-			}
-			if gameDays {
-				obligation.DueGameDay = GameDay(due)
-				obligation.DueArrivalTick = Tick(gameDayToTick(GameDay(due)))
-			} else if c.GameDaySchedule && c.IntervalDays > 0 {
-				obligation.DueGameDay = GameDay(due * 91 / 12)
+				DueArrivalTick: Tick(currentTick + dueTickOffset), DueGameDay: GameDay(due), Status: ObligationPending,
 			}
 			obligations = append(obligations, obligation)
 		}
@@ -382,11 +405,4 @@ func (o Obligation) AssessGameDay(current GameDay, actual *GameDay) (Obligation,
 		o.Status = ObligationBroken
 	}
 	return o, nil
-}
-
-func gameDayToTick(day GameDay) int64 {
-	if day <= 0 {
-		return 0
-	}
-	return (int64(day)*12 + 90) / 91
 }

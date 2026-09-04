@@ -36,7 +36,7 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 		LEFT JOIN characters subject ON subject.id=e.subject_character_id
 		LEFT JOIN households related ON related.id=e.related_household_id
 		WHERE e.household_id=$1::uuid AND e.occurred_tick >= $2
-		ORDER BY e.occurred_tick DESC, e.created_at DESC, e.id DESC
+		ORDER BY e.occurred_game_day DESC, e.occurred_tick DESC, e.created_at DESC, e.id DESC
 		LIMIT $3`, householdID, fromTick, limit)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (s *Store) ListPendingPoliticalDemandsForReport(ctx context.Context, househ
 		JOIN world_events e ON e.id=d.world_event_id
 		JOIN political_actors a ON a.id=e.political_actor_id
 		WHERE d.household_id=$1::uuid AND d.status='pending'
-		ORDER BY d.expires_tick, d.id`, householdID)
+		ORDER BY d.expires_game_day, d.expires_tick, d.id`, householdID)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (s *Store) ListContractObligationsForReport(ctx context.Context, householdI
 		JOIN contracts c ON c.id=o.contract_id
 		LEFT JOIN shipments s ON s.id=o.shipment_id
 		WHERE o.debtor_household_id=$1::uuid AND o.status IN ('pending','dispatched','late')
-		ORDER BY o.due_arrival_tick, o.id`, householdID)
+		ORDER BY o.due_game_day, o.due_arrival_tick, o.id`, householdID)
 	if err != nil {
 		return nil, err
 	}

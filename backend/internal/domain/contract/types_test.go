@@ -44,6 +44,7 @@ func TestGenerateGameDayObligationsAtSupportedIntervals(t *testing.T) {
 		value := activeContract()
 		value.StartsTick, value.EndsTick, value.IntervalTicks = 0, 0, 0
 		value.StartGameDay, value.EndGameDay, value.IntervalDays = 7, 28, interval
+		value.GameDaySchedule = true
 		got, err := GenerateObligations(value)
 		if err != nil {
 			t.Fatal(err)
@@ -55,6 +56,27 @@ func TestGenerateGameDayObligationsAtSupportedIntervals(t *testing.T) {
 			if obligation.DueGameDay < 7 || obligation.DueGameDay > 28 {
 				t.Fatalf("interval %d due day = %d", interval, obligation.DueGameDay)
 			}
+		}
+	}
+}
+
+func TestGenerateGameDayObligationsDerivesExecutionTicksFromWorldClock(t *testing.T) {
+	value := activeContract()
+	value.StartsTick, value.EndsTick, value.IntervalTicks = 0, 0, 0
+	value.StartGameDay, value.EndGameDay, value.IntervalDays = 110, 138, 14
+	value.GameDaySchedule = true
+	got, err := GenerateObligationsAt(value, 4, 100, 0, 91, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDays := []GameDay{110, 124, 138}
+	wantTicks := []Tick{6, 8, 10}
+	if len(got) != len(wantDays) {
+		t.Fatalf("obligations = %d, want %d", len(got), len(wantDays))
+	}
+	for i := range wantDays {
+		if got[i].DueGameDay != wantDays[i] || got[i].DueArrivalTick != wantTicks[i] {
+			t.Fatalf("obligation %d = day %d/tick %d, want day %d/tick %d", i, got[i].DueGameDay, got[i].DueArrivalTick, wantDays[i], wantTicks[i])
 		}
 	}
 }

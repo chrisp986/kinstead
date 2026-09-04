@@ -408,11 +408,12 @@ components:
     HouseholdReport:
       type: object
       required:
-        [household_id, household_name, world_id, tick, game_day, calendar, supply_days, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
+        [household_id, household_name, world_id, setting_start_year, tick, game_day, calendar, supply_days, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
       properties:
         household_id: { type: string, format: uuid }
         household_name: { type: string }
         world_id: { type: string, format: uuid }
+        setting_start_year: { type: integer }
         tick: { type: integer, format: int64 }
         game_day: { type: integer, format: int64 }
         calendar: { $ref: '#/components/schemas/CalendarBreakdown' }
@@ -460,7 +461,7 @@ components:
       properties:
         id: { type: string }
         game_day: { type: integer, format: int64 }
-        category: { type: string }
+        category: { type: string, enum: [season, shipment, contract, politics, world, farm] }
         kind:
           type: string
           enum: [season_start, festival, harvest, delivery_due, dispatch_deadline, shipment_arrival, political_deadline, assignment_end, assembly]
@@ -468,7 +469,7 @@ components:
         end_game_day: { type: integer, format: int64 }
         importance: { type: string, enum: [critical, important, context] }
         action_required: { type: boolean }
-        related_id: { type: string, format: uuid }
+        related_id: { type: string }
         resource_type: { type: string }
         quantity_milli: { type: integer, format: int64 }
         counterparty_household_id: { type: string, format: uuid }
@@ -678,11 +679,12 @@ components:
           items: { $ref: '#/components/schemas/ContractObligation' }
     ProposeContractIntent:
       type: object
-      required: [proposer_household_id, counterparty_household_id, first_due_game_day, interval_days, end_condition, terms]
+      required: [proposer_household_id, counterparty_household_id, start_game_day, interval_days, terms]
       properties:
         proposer_household_id: { type: string, format: uuid }
         counterparty_household_id: { type: string, format: uuid }
-        first_due_game_day: { type: integer, format: int64, minimum: 1 }
+        start_game_day: { type: integer, format: int64, minimum: 1 }
+        end_game_day: { type: integer, format: int64, minimum: 1, description: Optional explicit end; otherwise the server resolves end_condition. }
         interval_days: { type: integer, format: int64, enum: [7, 14, 28] }
         end_condition:
           type: object
@@ -695,6 +697,12 @@ components:
           type: array
           minItems: 1
           items: { $ref: '#/components/schemas/ContractTerm' }
+        # Deprecated execution-only compatibility fields. New clients must
+        # use the game-day schedule above.
+        first_due_game_day: { type: integer, format: int64, minimum: 1, deprecated: true }
+        starts_tick: { type: integer, format: int64, deprecated: true }
+        ends_tick: { type: integer, format: int64, deprecated: true }
+        interval_ticks: { type: integer, format: int64, deprecated: true }
     RespondContractIntent:
       type: object
       required: [counterparty_household_id, decision]
