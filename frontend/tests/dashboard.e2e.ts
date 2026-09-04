@@ -58,3 +58,23 @@ test('mobile navigation leaves room for the final controls', async ({ page }) =>
 	expect(buttonBox).not.toBeNull();
 	if (navBox && buttonBox) expect(buttonBox.y + buttonBox.height).toBeLessThanOrEqual(navBox.y + 1);
 });
+
+test('household surfaces fit the supported viewport range', async ({ page }) => {
+	for (const viewport of [
+		{ width: 320, height: 568 },
+		{ width: 375, height: 667 },
+		{ width: 390, height: 844 },
+		{ width: 430, height: 932 },
+		{ width: 768, height: 1024 },
+		{ width: 1280, height: 800 },
+		{ width: 1440, height: 900 }
+	]) {
+		await page.setViewportSize(viewport);
+		await page.goto('/households/00000000-0000-0000-0000-000000000020');
+		await expect(page.getByRole('heading', { name: 'Farm report' }).first()).toBeVisible();
+		const overflow = await page.evaluate(
+			() => document.documentElement.scrollWidth > window.innerWidth + 1
+		);
+		expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBe(false);
+	}
+});
