@@ -123,22 +123,24 @@ type HouseholdBuilding struct {
 }
 
 type HouseholdDecision struct {
-	ID                  pgtype.UUID
-	HouseholdID         pgtype.UUID
-	WorldEventID        pgtype.UUID
-	DecisionType        string
-	AvailableFromTick   int64
-	ExpiresTick         int64
-	Status              string
-	SelectedOption      pgtype.Text
-	DefaultOption       string
-	Parameters          []byte
-	ResolvedTick        pgtype.Int8
-	CreatedAt           pgtype.Timestamptz
-	WorldID             pgtype.UUID
-	StandingDelta       pgtype.Int4
-	RelatedAssignmentID pgtype.UUID
-	UpdatedAt           pgtype.Timestamptz
+	ID                   pgtype.UUID
+	HouseholdID          pgtype.UUID
+	WorldEventID         pgtype.UUID
+	DecisionType         string
+	AvailableFromTick    int64
+	ExpiresTick          int64
+	Status               string
+	SelectedOption       pgtype.Text
+	DefaultOption        string
+	Parameters           []byte
+	ResolvedTick         pgtype.Int8
+	CreatedAt            pgtype.Timestamptz
+	WorldID              pgtype.UUID
+	StandingDelta        pgtype.Int4
+	RelatedAssignmentID  pgtype.UUID
+	UpdatedAt            pgtype.Timestamptz
+	AvailableFromGameDay int64
+	ExpiresGameDay       int64
 }
 
 type Location struct {

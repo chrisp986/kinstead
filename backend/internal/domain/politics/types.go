@@ -152,6 +152,16 @@ func ResponseAllowed(currentTick, expiresTick int64) error {
 	return nil
 }
 
+// ResponseAllowedGameDay applies the same exclusive deadline rule to the
+// immutable calendar snapshot shown to players. Service duration and other
+// execution mechanics remain tick-based.
+func ResponseAllowedGameDay(currentGameDay, expiresGameDay int64) error {
+	if currentGameDay >= expiresGameDay {
+		return ErrExpired
+	}
+	return nil
+}
+
 func ClampScore(score Score) Score {
 	if score < -100 {
 		return -100

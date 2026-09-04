@@ -81,6 +81,9 @@ Persist simulated temporal values as integer game-day values, for example:
 - `end_game_day`
 - `due_game_day`
 - `next_delivery_game_day`
+- `available_from_game_day` and `expires_game_day` for issued political demands
+- `departure_game_day`, `expected_arrival_game_day`, and
+  `actual_arrival_game_day` for shipment calendar snapshots
 
 Do not use SQL `DATE`, `TIME`, or `TIMESTAMP` for simulated dates or
 simulation deadlines. Real-world operational/audit fields such as
@@ -155,13 +158,30 @@ Contract dispatch reserves the exact obligated goods, derives travel time and
 transport cost from directed geography, creates the physical shipment, and
 links it to the obligation in one transaction.
 
+Calendar-based contract obligations use immutable lateness buckets: arrival on
+or before the due game day is fulfilled; 1--7 days late is the first late
+bucket (-1 trust); 8--14 days late is the second late bucket (-2 trust); and
+15 or more days late is broken (-8 trust). Legacy tick-backed contracts retain
+the frozen v0.3 tick buckets until they are explicitly replaced by a calendar
+schedule.
+
 Final contract-obligation outcomes append directed relationship events in the
-same tick transaction. Fulfilled obligations on time or early apply +2 trust;
-one tick late applies -1; two ticks late applies -2; and broken or 3+ ticks
-late applies -8. The event source is the creditor and the target is the debtor.
-The current relationship row is an exactly-once projection of those event
-deltas, clamped to -100..100. Temporary overdue states produce no event, and
-each obligation produces at most one final consequence.
+same tick transaction. Calendar-scheduled obligations use the day buckets
+above; the event source is the creditor and the target is the debtor. The
+legacy tick path continues to apply the frozen v0.3 outcomes: fulfilled on time
+or early +2, one tick late -1, two ticks late -2, and broken/3+ ticks -8. The
+current relationship row is an exactly-once projection of those event deltas,
+clamped to -100..100. Temporary overdue states produce no event, and each
+obligation produces at most one final consequence.
+
+The calendar projection is assembled from authoritative sources rather than
+stored as a duplicate event table. `GET /api/households/{id}/calendar`
+range-reads contract obligations, dispatch deadlines, shipment arrivals,
+political deadlines, assignments, seasonal boundaries, and recurring anchors
+such as harvest, Jól, and Þing. The default range is the current day through
+the next 182 days. Political response deadlines snapshot their game day when a
+demand is issued; their service duration remains a tick-based balancing
+mechanic.
 
 Prefer DB transactions/constraints to application mutexes.
 

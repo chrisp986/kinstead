@@ -16,7 +16,12 @@
 		<p class="eyebrow">Household seat</p>
 		<h1>{report.household_name}</h1>
 		<p class="date">
-			{formatCalendarPosition(report.calendar.phase, report.calendar.week_of_half)}
+			{formatCalendarPosition(
+				report.calendar.phase ||
+					report.calendar.seasonal_phase ||
+					report.calendar.production_season,
+				report.calendar.week_of_half
+			)}
 		</p>
 		<p class="next-half">
 			{formatRelativeGameDay(report.calendar.game_day, nextHalfDay(report.calendar.game_day))} until {report

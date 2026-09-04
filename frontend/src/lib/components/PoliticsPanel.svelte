@@ -40,7 +40,7 @@
 					{#if demand.demand_type === 'political_labor_service'}
 						{@const serve = option(demand, 'serve')}
 						<p>
-							Serve for one service period · {formatStandingDelta(serve?.standing_delta ?? 0)} standing
+							Serve for about four weeks · {formatStandingDelta(serve?.standing_delta ?? 0)} standing
 						</p>
 						<form method="POST" action="?/respondPoliticalDemand">
 							<input type="hidden" name="decision_id" value={demand.id} />

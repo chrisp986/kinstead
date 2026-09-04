@@ -56,7 +56,11 @@ func (s *PoliticsService) respondOnce(ctx context.Context, cmd RespondPoliticalD
 	if d.Status != string(politics.StatusPending) {
 		return ErrPoliticalDemandResolved
 	}
-	if err := politics.ResponseAllowed(d.CurrentTick, d.ExpiresTick); err != nil {
+	if d.ExpiresGameDay > 0 || d.AvailableFromGameDay > 0 {
+		if err := politics.ResponseAllowedGameDay(d.CurrentGameDay, d.ExpiresGameDay); err != nil {
+			return err
+		}
+	} else if err := politics.ResponseAllowed(d.CurrentTick, d.ExpiresTick); err != nil {
 		return err
 	}
 	demand := politics.DemandType(d.EventType)
@@ -107,7 +111,7 @@ func (s *PoliticsService) respondOnce(ctx context.Context, cmd RespondPoliticalD
 	if e := tx.ApplyPoliticalScoreDelta(ctx, d.WorldID, cmd.HouseholdID, d.PoliticalActorID, r.StandingDelta); e != nil {
 		return e
 	}
-	data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": cmd.Option, "standing_delta": r.StandingDelta, "resource_code": r.ResourceCode, "resource_milli": r.ResourceMilli, "service_character_id": cmd.CharacterID, "service_assignment_id": assignment, "deadline_tick": d.ExpiresTick})
+	data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": cmd.Option, "standing_delta": r.StandingDelta, "resource_code": r.ResourceCode, "resource_milli": r.ResourceMilli, "service_character_id": cmd.CharacterID, "service_assignment_id": assignment, "deadline_tick": d.ExpiresTick, "deadline_game_day": d.ExpiresGameDay})
 	if e := tx.InsertPoliticalChronicle(ctx, cmd.HouseholdID, d.CurrentTick, "political_demand_resolved", cmd.DecisionID, d.PoliticalActorID, assignment, data); e != nil {
 		return e
 	}

@@ -283,11 +283,13 @@ func contractObligationsFromRows(rows []sqlcdb.ListContractObligationsRow) ([]co
 		if row.GameDaySchedule {
 			value.DueGameDay = contractdomain.GameDay(row.DueGameDay)
 		}
+		if row.GameDaySchedule {
+			latest := contractdomain.GameDay(row.LatestDispatchGameDay)
+			value.LatestDispatchGameDay = &latest
+		}
 		if row.ExpectedArrivalGameDay.Valid {
 			arrival := contractdomain.GameDay(row.ExpectedArrivalGameDay.Int64)
 			value.ExpectedArrivalGameDay = &arrival
-			latest := contractdomain.GameDay(row.DueGameDay - (row.ExpectedArrivalGameDay.Int64 - row.DepartureGameDay.Int64))
-			value.LatestDispatchGameDay = &latest
 		}
 		if row.ShipmentID != "" {
 			value.ShipmentID = shipmentdomain.ID(row.ShipmentID)

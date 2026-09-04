@@ -153,7 +153,11 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 		}
 	}
 	for _, d := range political {
-		attentionInput.PoliticalDemands = append(attentionInput.PoliticalDemands, reportdomain.PoliticalDemand{ID: d.ID, ActorName: d.ActorName, ExpiresTick: d.ExpiresTick, ExpiresGameDay: tickGameDay(snap, d.ExpiresTick)})
+		expiresGameDay := d.ExpiresGameDay
+		if expiresGameDay == 0 {
+			expiresGameDay = tickGameDay(snap, d.ExpiresTick)
+		}
+		attentionInput.PoliticalDemands = append(attentionInput.PoliticalDemands, reportdomain.PoliticalDemand{ID: d.ID, ActorName: d.ActorName, ExpiresTick: d.ExpiresTick, ExpiresGameDay: expiresGameDay})
 	}
 	for _, o := range obligations {
 		attentionInput.ContractObligations = append(attentionInput.ContractObligations, reportdomain.ContractObligation{ID: o.ID, ResourceType: o.ResourceType, QuantityMilli: o.QuantityMilli, DueArrivalTick: o.DueArrivalTick, ExpectedArrivalTick: o.ExpectedArrivalTick, DueGameDay: o.DueGameDay, ExpectedArrivalGameDay: o.ExpectedArrivalGameDay})

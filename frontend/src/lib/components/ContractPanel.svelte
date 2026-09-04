@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { Contract, MarketOffer, Relationship } from '$lib/api/generated';
 	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
-	import { formatInterval, formatRelativeGameDay } from '$lib/domain/time';
+	import { calendarForGameDay, formatInterval, formatRelativeGameDay } from '$lib/domain/time';
 	import StatusBadge from './StatusBadge.svelte';
 	import ActionFeedback from './shell/ActionFeedback.svelte';
 
@@ -59,6 +59,13 @@
 			? contract.party_b_household_id
 			: contract.party_a_household_id;
 	}
+
+	function agreementEnd(contract: Contract): string {
+		const date = calendarForGameDay(contract.end_game_day);
+		if (date.day_of_year === 91) return 'until summer begins';
+		if (date.day_of_year === 273) return 'until winter begins';
+		return `ends ${formatRelativeGameDay(currentGameDay, contract.end_game_day)}`;
+	}
 </script>
 
 <section class="panel contract-panel" aria-labelledby="contracts-heading">
@@ -99,6 +106,12 @@
 							</li>
 						{/each}
 					</ul>
+					<div class="contract-meta">
+						<div>
+							<span>Agreement</span><strong>{formatInterval(contract.interval_days)}</strong>
+						</div>
+						<div><span>Duration</span><strong>{agreementEnd(contract)}</strong></div>
+					</div>
 
 					{#if contract.status === 'proposed' && contract.party_b_household_id === householdId}
 						<form method="POST" action="?/respondContract" class="response-actions" use:enhance>
@@ -114,12 +127,25 @@
 							{#each contract.obligations as obligation (obligation.id)}
 								<div class="obligation">
 									<div>
-										<strong>{formatRelativeGameDay(currentGameDay, obligation.due_game_day)}</strong
+										<strong
+											>Next delivery {formatRelativeGameDay(
+												currentGameDay,
+												obligation.due_game_day
+											)}</strong
 										>
 										<span
 											>{formatMilli(obligation.quantity_milli)}
 											{labelResource(obligation.resource_type)}</span
 										>
+										{#if obligation.latest_dispatch_game_day !== undefined}
+											<small
+												>Latest safe dispatch
+												{formatRelativeGameDay(
+													currentGameDay,
+													obligation.latest_dispatch_game_day
+												)}</small
+											>
+										{/if}
 									</div>
 									<StatusBadge status={obligation.status} />
 									{#if obligation.debtor_household_id === householdId && !obligation.shipment_id && ['pending', 'late'].includes(obligation.status)}
@@ -210,20 +236,18 @@
 					>
 					<label
 						><span>Ends at</span><select name="end_condition_type" required
-							><option value="fixed_delivery_count">Six deliveries</option><option
+							><option value="fixed_delivery_count">After the delivery count</option><option
 								value="winter_start">Winter begins</option
 							><option value="summer_start">Summer begins</option></select
 						>
 						/></label
 					>
 					<label
-						><span>Delivery count</span><input
-							name="delivery_count"
-							type="number"
-							min="1"
-							value="6"
-							required
-						/></label
+						><span>Delivery count</span><select name="delivery_count" required
+							><option value="4">After 4 deliveries</option><option value="8"
+								>After 8 deliveries</option
+							></select
+						></label
 					>
 					<button type="submit">Send proposal</button>
 				</form>
@@ -286,8 +310,28 @@
 		font-size: 0.83rem;
 	}
 	.terms span,
-	.obligation span {
+	.obligation span,
+	.contract-meta span,
+	.obligation small {
 		color: var(--ink-soft);
+	}
+	.contract-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1.25rem;
+		margin-top: 0.85rem;
+		padding-top: 0.7rem;
+		border-top: 1px solid var(--line-light);
+	}
+	.contract-meta > div {
+		display: grid;
+		gap: 0.15rem;
+		font-size: 0.78rem;
+	}
+	.contract-meta span {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
 	}
 	.response-actions {
 		display: flex;
@@ -315,6 +359,9 @@
 	.obligation > div {
 		display: grid;
 		font-size: 0.8rem;
+	}
+	.obligation small {
+		font-size: 0.72rem;
 	}
 	.obligation button {
 		min-height: 2.1rem;

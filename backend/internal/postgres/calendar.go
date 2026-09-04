@@ -98,7 +98,7 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	}
 
 	deadlineRows, err := s.Pool.Query(ctx, `
-		SELECT d.id::text, d.decision_type, d.expires_tick
+		SELECT d.id::text, d.decision_type, d.expires_game_day
 		FROM household_decisions d
 		WHERE d.household_id = $1::uuid AND d.status = 'pending'
 		ORDER BY d.expires_tick, d.id
@@ -108,7 +108,7 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	}
 	for deadlineRows.Next() {
 		var item port.CalendarDeadlineRecord
-		if err := deadlineRows.Scan(&item.ID, &item.Title, &item.DeadlineTick); err != nil {
+		if err := deadlineRows.Scan(&item.ID, &item.Title, &item.DeadlineGameDay); err != nil {
 			deadlineRows.Close()
 			return port.CalendarContext{}, err
 		}

@@ -1,7 +1,9 @@
 -- name: LoadPoliticalEventsStartingTick :many
 SELECT e.id::text AS id, e.world_id::text AS world_id, e.location_id::text AS location_id,
        e.political_actor_id::text AS political_actor_id, e.event_type, e.starts_tick,
-       e.ends_tick, e.parameters, a.name AS actor_name, a.actor_type
+       e.ends_tick, ((e.starts_tick * 91) / 12)::bigint AS starts_game_day,
+       COALESCE((e.ends_tick * 91) / 12, 0)::bigint AS expires_game_day,
+       e.parameters, a.name AS actor_name, a.actor_type
 FROM world_events e
 JOIN political_actors a ON a.id = e.political_actor_id
 WHERE e.world_id = sqlc.arg(world_id)::uuid
@@ -20,10 +22,12 @@ ORDER BY h.id;
 -- name: InsertHouseholdDecision :execrows
 INSERT INTO household_decisions(
   household_id, world_id, world_event_id, decision_type,
-  available_from_tick, expires_tick, status, default_option, parameters
+  available_from_tick, expires_tick, available_from_game_day, expires_game_day,
+  status, default_option, parameters
 ) VALUES (
   sqlc.arg(household_id)::uuid, sqlc.arg(world_id)::uuid, sqlc.arg(world_event_id)::uuid,
   sqlc.arg(decision_type), sqlc.arg(available_from_tick), sqlc.arg(expires_tick),
+  sqlc.arg(available_from_game_day), sqlc.arg(expires_game_day),
   'pending', 'refuse', sqlc.arg(parameters)::jsonb
 )
 ON CONFLICT (household_id, world_event_id) WHERE world_event_id IS NOT NULL DO NOTHING;
@@ -31,7 +35,8 @@ ON CONFLICT (household_id, world_event_id) WHERE world_event_id IS NOT NULL DO N
 -- name: LoadExpiringPoliticalDecisions :many
 SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text AS world_id,
        d.world_event_id::text AS world_event_id, d.decision_type, d.available_from_tick,
-       d.expires_tick, d.status, d.selected_option, d.default_option, d.standing_delta, d.parameters,
+       d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
+       d.selected_option, d.default_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, e.event_type
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
@@ -43,9 +48,10 @@ FOR UPDATE OF d;
 -- name: LockPoliticalDecision :one
 SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text AS world_id,
        d.world_event_id::text AS world_event_id, d.decision_type, d.available_from_tick,
-       d.expires_tick, d.status, d.selected_option, d.default_option, d.standing_delta, d.parameters,
+       d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
+       d.selected_option, d.default_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, e.event_type,
-       w.current_tick
+       w.current_tick, w.current_game_day
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
 JOIN worlds w ON w.id = d.world_id
@@ -136,7 +142,7 @@ WHERE r.world_id = (SELECT world_id FROM households WHERE id = sqlc.arg(househol
 
 -- name: ListPoliticalDecisionsForHousehold :many
 SELECT d.id::text AS id, d.decision_type, d.available_from_tick, d.expires_tick, d.status,
-       d.selected_option, d.standing_delta, d.parameters,
+       d.available_from_game_day, d.expires_game_day, d.selected_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, a.name AS actor_name, a.actor_type
 FROM household_decisions d JOIN world_events e ON e.id = d.world_event_id
 JOIN political_actors a ON a.id = e.political_actor_id
