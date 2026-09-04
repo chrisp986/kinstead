@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 test('manages work and purchases a shipment from the household dashboard', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.getByRole('heading', { level: 1, name: 'Bjornvik' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Farm report' })).toBeVisible();
 	await expect(page.getByText('150', { exact: true })).toBeVisible();
 	await expect(page.getByText('30 Provisions')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'What happened' })).toBeVisible();
@@ -11,7 +12,7 @@ test('manages work and purchases a shipment from the household dashboard', async
 	await expect(page.getByText('+2 trust', { exact: true })).toBeVisible();
 	await expect(page.getByText('Due tick 20 · arrived tick 21', { exact: true })).toBeVisible();
 	await expect(page.getByText('-8 trust', { exact: true })).toBeVisible();
-	await expect(page.getByText('Bjorn completed agriculture.')).toBeVisible();
+	await expect(page.getByText('Bjorn completed agriculture.').first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Jarl demands' })).toBeVisible();
 	await expect(page.getByText(/18\s+wood → \+10 standing/)).toBeVisible();
 	await expect(page.getByText(/6\s+silver → \+10 standing/)).toBeVisible();
@@ -40,11 +41,15 @@ test('manages work and purchases a shipment from the household dashboard', async
 	await page.getByRole('button', { name: 'Schedule work' }).click();
 	await expect(page.getByRole('status')).toContainText("Astrid's work was scheduled");
 	await expect(page.getByText('Fishing, ticks 1–3')).toBeVisible();
-	await expect(page.getByText('Astrid was assigned to fishing for ticks 1–3.')).toBeVisible();
+	await expect(
+		page.getByText('Astrid was assigned to fishing for ticks 1–3.').first()
+	).toBeVisible();
 
 	await page.getByRole('button', { name: 'Buy for delivery' }).click();
 	await expect(page.getByRole('status')).toContainText('Shipment is expected at tick 2');
 	await expect(page.getByText('5 Provisions', { exact: true })).toBeVisible();
 	await expect(page.getByText('In transit').first()).toBeVisible();
-	await expect(page.getByText('Bought 5 provisions from Hrafnstead for 7.5 silver.')).toBeVisible();
+	await expect(
+		page.getByText('Bought 5 provisions from Hrafnstead for 7.5 silver.').first()
+	).toBeVisible();
 });

@@ -15,6 +15,22 @@ export type Alert = {
 	message: string;
 };
 
+export type ReportItem = {
+	code: string;
+	severity: 'info' | 'warning' | 'critical';
+	target?: 'work' | 'trade' | 'contracts' | 'politics' | 'farm';
+	related_id?: string;
+	due_tick?: number;
+	data?: {
+		[key: string]: unknown;
+	};
+};
+
+export type ReportChangeWindow = {
+	from_tick: number;
+	to_tick: number;
+};
+
 export type Character = {
 	id: string;
 	name: string;
@@ -50,6 +66,10 @@ export type HouseholdReport = {
 	characters: Array<Character>;
 	assignments: Array<Assignment>;
 	alerts: Array<Alert>;
+	change_window: ReportChangeWindow;
+	recent_changes: Array<ChronicleEntry>;
+	attention: Array<ReportItem>;
+	decisions: Array<ReportItem>;
 };
 
 export type Shipment = {
@@ -78,6 +98,10 @@ export type ChronicleEntry = {
 	related_household_name?: string;
 	related_shipment_id?: string;
 	related_assignment_id?: string;
+	related_contract_id?: string;
+	related_obligation_id?: string;
+	related_household_decision_id?: string;
+	related_political_actor_id?: string;
 	data: {
 		[key: string]: unknown;
 	};

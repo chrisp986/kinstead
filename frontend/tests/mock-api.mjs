@@ -136,7 +136,11 @@ createServer(async (request, response) => {
 			resources: { provisions: 150, wood: 20, trade_goods: 4, silver: 30 },
 			characters,
 			assignments,
-			alerts: []
+			alerts: [],
+			change_window: { from_tick: 0, to_tick: 0 },
+			recent_changes: chronicleEntries,
+			attention: [],
+			decisions: []
 		});
 	}
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/shipments`) {

@@ -7,6 +7,7 @@
 	import RelationshipPanel from '$lib/components/RelationshipPanel.svelte';
 	import ShipmentList from '$lib/components/ShipmentList.svelte';
 	import PoliticsPanel from '$lib/components/PoliticsPanel.svelte';
+	import FarmReportPanel from '$lib/components/FarmReportPanel.svelte';
 	import { resolve } from '$app/paths';
 	let { data, form } = $props();
 </script>
@@ -28,6 +29,8 @@
 	<div class="tick"><span>World tick</span><strong>{data.report.tick}</strong></div>
 </header>
 
+<FarmReportPanel report={data.report} />
+
 {#if data.report.alerts.length > 0}
 	<section class="alerts" aria-labelledby="alerts-heading">
 		<h2 id="alerts-heading">Needs attention</h2>
@@ -43,24 +46,36 @@
 
 <main class="dashboard">
 	<ResourceSummary resources={data.report.resources} supplyDays={data.report.supply_days} />
-	<PoliticsPanel politics={data.politics} householdId={data.report.household_id} feedback={form} />
-	<MarketPanel offers={data.offers} householdId={data.report.household_id} feedback={form} />
-	<ContractPanel
-		contracts={data.contracts}
-		relationships={data.relationships}
-		offers={data.offers}
-		householdId={data.report.household_id}
-		currentTick={data.report.tick}
-		feedback={form}
-	/>
-	<AssignmentPanel
-		characters={data.report.characters}
-		assignments={data.report.assignments}
-		feedback={form}
-	/>
+	<div id="politics">
+		<PoliticsPanel
+			politics={data.politics}
+			householdId={data.report.household_id}
+			feedback={form}
+		/>
+	</div>
+	<div id="trade">
+		<MarketPanel offers={data.offers} householdId={data.report.household_id} feedback={form} />
+	</div>
+	<div id="contracts">
+		<ContractPanel
+			contracts={data.contracts}
+			relationships={data.relationships}
+			offers={data.offers}
+			householdId={data.report.household_id}
+			currentTick={data.report.tick}
+			feedback={form}
+		/>
+	</div>
+	<div id="work">
+		<AssignmentPanel
+			characters={data.report.characters}
+			assignments={data.report.assignments}
+			feedback={form}
+		/>
+	</div>
 	<ShipmentList shipments={data.shipments} householdId={data.report.household_id} />
 	<RelationshipPanel relationships={data.relationships} householdId={data.report.household_id} />
-	<ChronicleLog entries={data.chronicle} />
+	<div id="chronicle"><ChronicleLog entries={data.chronicle} /></div>
 </main>
 
 <footer class="page-footer">

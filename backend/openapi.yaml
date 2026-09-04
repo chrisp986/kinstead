@@ -344,6 +344,22 @@ components:
         level: { type: string }
         code: { type: string }
         message: { type: string }
+    ReportItem:
+      type: object
+      required: [code, severity]
+      properties:
+        code: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        target: { type: string, enum: [work, trade, contracts, politics, farm] }
+        related_id: { type: string }
+        due_tick: { type: integer, format: int64 }
+        data: { type: object, additionalProperties: true }
+    ReportChangeWindow:
+      type: object
+      required: [from_tick, to_tick]
+      properties:
+        from_tick: { type: integer, format: int64 }
+        to_tick: { type: integer, format: int64 }
     Character:
       type: object
       required: [id, name, birth_date, age, labor_permille, fatigue]
@@ -370,7 +386,7 @@ components:
     HouseholdReport:
       type: object
       required:
-        [household_id, household_name, world_id, tick, historical_date, season, supply_days, resources, characters, assignments, alerts]
+        [household_id, household_name, world_id, tick, historical_date, season, supply_days, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
       properties:
         household_id: { type: string, format: uuid }
         household_name: { type: string }
@@ -391,6 +407,16 @@ components:
         alerts:
           type: array
           items: { $ref: '#/components/schemas/Alert' }
+        change_window: { $ref: '#/components/schemas/ReportChangeWindow' }
+        recent_changes:
+          type: array
+          items: { $ref: '#/components/schemas/ChronicleEntry' }
+        attention:
+          type: array
+          items: { $ref: '#/components/schemas/ReportItem' }
+        decisions:
+          type: array
+          items: { $ref: '#/components/schemas/ReportItem' }
     Shipment:
       type: object
       required:
@@ -422,6 +448,10 @@ components:
         related_household_name: { type: string }
         related_shipment_id: { type: string, format: uuid }
         related_assignment_id: { type: string, format: uuid }
+        related_contract_id: { type: string, format: uuid }
+        related_obligation_id: { type: string, format: uuid }
+        related_household_decision_id: { type: string, format: uuid }
+        related_political_actor_id: { type: string, format: uuid }
         data:
           type: object
           additionalProperties: true

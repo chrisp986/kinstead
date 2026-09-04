@@ -110,6 +110,8 @@ export type {
 	PurchaseResult,
 	Relationship,
 	RelationshipEvent,
+	ReportChangeWindow,
+	ReportItem,
 	RespondContractIntent,
 	RespondPoliticalDemandIntent,
 	RespondToContractData,

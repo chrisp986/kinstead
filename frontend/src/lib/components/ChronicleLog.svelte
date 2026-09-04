@@ -3,6 +3,10 @@
 	import { describeChronicleEntry } from '$lib/domain/chronicle';
 
 	let { entries }: { entries: ChronicleEntry[] } = $props();
+	function delta(entry: ChronicleEntry): number {
+		const value = entry.data.trust_delta ?? entry.data.standing_delta;
+		return typeof value === 'number' ? value : 0;
+	}
 </script>
 
 <section class="panel chronicle-panel" aria-labelledby="chronicle-heading">
@@ -20,7 +24,7 @@
 		<ol class="timeline">
 			{#each entries as entry (entry.id)}
 				{@const description = describeChronicleEntry(entry)}
-				<li>
+				<li class:positive={delta(entry) > 0} class:negative={delta(entry) < 0}>
 					<div class="tick-marker"><span>Tick</span><strong>{entry.occurred_tick}</strong></div>
 					<div class="event-copy">
 						<h3>{description.title}</h3>
@@ -96,5 +100,11 @@
 		margin: 0.2rem 0 0;
 		color: var(--ink-soft);
 		font-size: 0.84rem;
+	}
+	.timeline li.positive h3 {
+		color: var(--positive);
+	}
+	.timeline li.negative h3 {
+		color: var(--critical);
 	}
 </style>
