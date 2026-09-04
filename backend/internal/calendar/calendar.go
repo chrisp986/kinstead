@@ -67,7 +67,7 @@ func Breakdown(day GameDay) Date {
 	return Date{
 		GameDay: day, YearIndex: year, DayOfYear: dayOfYear,
 		WeekOfYear: dayOfYear/DaysPerWeek + 1, WeekOfHalf: weekOfHalf + 1,
-		DayOfWeek: dayOfYear%DaysPerWeek + 1,
+		DayOfWeek:        dayOfYear%DaysPerWeek + 1,
 		ProductionSeason: ProductionSeasonAt(day), HalfYear: HalfYearAt(day),
 		SeasonalPhase: phase, Phase: phase,
 	}
