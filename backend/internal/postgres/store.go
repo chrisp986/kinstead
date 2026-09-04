@@ -739,7 +739,7 @@ func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, househ
 	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO assignments(household_id, character_id, activity_type, intensity, starts_tick, ends_tick, status, metadata)
-		VALUES ($1::uuid,$2::uuid,$3,'normal',$4,$5,'planned',jsonb_build_object('source','emergency','reason','supply_emergency','created_tick',$6))
+		VALUES ($1::uuid,$2::uuid,$3,'normal',$4,$5,'planned',jsonb_build_object('source','emergency','reason','supply_emergency','created_tick',$6::bigint))
 		RETURNING id::text`, householdID, characterID, activity, startsTick, endsTick, startsTick-1).Scan(&assignmentID); err != nil {
 		return false, err
 	}
@@ -747,7 +747,9 @@ func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, househ
 		INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type, subject_character_id, related_assignment_id, data)
 		VALUES ($1::uuid,$2,'emergency_food_work_scheduled',$3::uuid,$4::uuid,
 			jsonb_build_object('character_id',$3::text,'activity',$5::text,'starts_tick',$6::bigint,'ends_tick',$7::bigint,'reason','supply_emergency','supply_days',$8::numeric))
-		ON CONFLICT (related_assignment_id, entry_type) DO NOTHING`, householdID, startsTick-1, characterID, assignmentID, activity, startsTick, endsTick, supplyDays)
+		ON CONFLICT (related_assignment_id, entry_type)
+		WHERE related_assignment_id IS NOT NULL
+		DO NOTHING`, householdID, startsTick-1, characterID, assignmentID, activity, startsTick, endsTick, supplyDays)
 	return err == nil, err
 }
 
