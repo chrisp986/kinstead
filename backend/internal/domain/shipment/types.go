@@ -69,6 +69,9 @@ func (s Shipment) Validate() error {
 		if s.ActualArrivalTick == nil || *s.ActualArrivalTick < s.ExpectedArrivalTick || s.ActualArrivalGameDay == nil || *s.ActualArrivalGameDay < s.ExpectedArrivalGameDay {
 			return ErrInvalidShipment
 		}
+		if s.ActualArrivalGameDay != nil && *s.ActualArrivalGameDay < s.ExpectedArrivalGameDay {
+			return ErrInvalidShipment
+		}
 	default:
 		return ErrInvalidShipment
 	}
