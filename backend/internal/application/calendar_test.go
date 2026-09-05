@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"game/backend/internal/port"
@@ -58,6 +59,11 @@ func TestCalendarProjectionIncludesAnchorsAndHouseholdEvents(t *testing.T) {
 	if !seen[CalendarFestival] || !seen[CalendarDeliveryDue] || !seen[CalendarDispatchDeadline] {
 		t.Fatalf("projection kinds = %v", seen)
 	}
+	for _, event := range projection.Events {
+		if event.Kind == CalendarSeasonStart && event.GameDay == 91 && event.Code != "summer" {
+			t.Fatalf("summer season event code = %q", event.Code)
+		}
+	}
 
 	shipment, err := NewCalendarService(reader).Household(context.Background(), "household", 0, 182, "shipment")
 	if err != nil {
@@ -105,5 +111,17 @@ func TestCalendarRangePresenceAndValidation(t *testing.T) {
 	tooFar := int64(365)
 	if _, err := service.HouseholdRange(context.Background(), "household", &zero, &tooFar, "season"); err == nil {
 		t.Fatal("365-day calendar range was accepted")
+	}
+	max := int64(math.MaxInt64)
+	if _, err := service.HouseholdRange(context.Background(), "household", &max, nil, "season"); !errors.Is(err, ErrInvalidCalendarRange) {
+		t.Fatalf("overflowing open-ended calendar range error = %v", err)
+	}
+	overflowingSnapshot := snapshot
+	overflowingSnapshot.CurrentGameDay = max
+	if _, err := NewCalendarService(calendarReaderStub{snapshot: overflowingSnapshot}).HouseholdRange(context.Background(), "household", nil, nil, "season"); !errors.Is(err, ErrInvalidCalendarRange) {
+		t.Fatalf("overflowing default calendar range error = %v", err)
+	}
+	if _, err := NewCalendarService(calendarReaderStub{snapshot: overflowingSnapshot, value: port.CalendarContext{Snapshot: overflowingSnapshot}}).HouseholdRange(context.Background(), "household", &zero, &zero, "season"); !errors.Is(err, ErrInvalidCalendarRange) {
+		t.Fatalf("overflowing next half-year error = %v", err)
 	}
 }

@@ -43,7 +43,6 @@ type CalendarShipmentRecord struct {
 type CalendarDeadlineRecord struct {
 	ID              string
 	Kind            string
-	Title           string
 	DeadlineGameDay int64
 	Category        string
 	Importance      string

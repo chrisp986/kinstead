@@ -4,6 +4,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"math"
+	"math/big"
 
 	"game/backend/internal/port"
 )
@@ -46,7 +50,7 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 		  AND o.due_game_day BETWEEN $2 AND $3
 		  AND o.status IN ('pending', 'dispatched', 'late')
 		ORDER BY o.due_game_day, o.id
-	`, id, from, to+91)
+	`, id, from, calendarQueryEnd(to))
 	if err != nil {
 		return port.CalendarContext{}, err
 	}
@@ -59,7 +63,16 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 			rows.Close()
 			return port.CalendarContext{}, err
 		}
-		item.LatestDispatchGameDay = item.DueGameDay - ceilTravelDays(travelTicks, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)
+		travelDays, err := ceilTravelDays(travelTicks, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)
+		if err != nil {
+			rows.Close()
+			return port.CalendarContext{}, fmt.Errorf("calculate calendar dispatch deadline: %w", err)
+		}
+		if travelDays > 0 && item.DueGameDay < math.MinInt64+travelDays {
+			rows.Close()
+			return port.CalendarContext{}, fmt.Errorf("calculate calendar dispatch deadline: %w", ErrCalendarArithmetic)
+		}
+		item.LatestDispatchGameDay = item.DueGameDay - travelDays
 		contextValue.Obligations = append(contextValue.Obligations, item)
 	}
 	rows.Close()
@@ -99,7 +112,7 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	}
 
 	deadlineRows, err := s.Pool.Query(ctx, `
-		SELECT d.id::text, d.decision_type, d.expires_game_day
+		SELECT d.id::text, d.expires_game_day
 		FROM household_decisions d
 		WHERE d.household_id = $1::uuid AND d.status = 'pending'
 		ORDER BY d.expires_tick, d.id
@@ -109,12 +122,11 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	}
 	for deadlineRows.Next() {
 		var item port.CalendarDeadlineRecord
-		if err := deadlineRows.Scan(&item.ID, &item.Title, &item.DeadlineGameDay); err != nil {
+		if err := deadlineRows.Scan(&item.ID, &item.DeadlineGameDay); err != nil {
 			deadlineRows.Close()
 			return port.CalendarContext{}, err
 		}
 		item.Kind, item.Category, item.Importance = "political_deadline", "politics", "critical"
-		item.Title = "Answer the Jarl"
 		contextValue.Deadlines = append(contextValue.Deadlines, item)
 	}
 	deadlineRows.Close()
@@ -147,11 +159,26 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	return contextValue, nil
 }
 
-func ceilTravelDays(ticks, numerator, denominator int64) int64 {
-	if ticks <= 0 || numerator <= 0 || denominator <= 0 {
-		return 0
+var ErrCalendarArithmetic = errors.New("calendar arithmetic overflow")
+
+func calendarQueryEnd(to int64) int64 {
+	if to <= math.MaxInt64-91 {
+		return to + 91
 	}
-	return (ticks*numerator + denominator - 1) / denominator
+	return to
+}
+
+func ceilTravelDays(ticks, numerator, denominator int64) (int64, error) {
+	if ticks <= 0 || numerator <= 0 || denominator <= 0 {
+		return 0, nil
+	}
+	value := new(big.Int).Mul(new(big.Int).SetInt64(ticks), new(big.Int).SetInt64(numerator))
+	value.Add(value, new(big.Int).Sub(new(big.Int).SetInt64(denominator), big.NewInt(1)))
+	value.Quo(value, new(big.Int).SetInt64(denominator))
+	if !value.IsInt64() {
+		return 0, ErrCalendarArithmetic
+	}
+	return value.Int64(), nil
 }
 
 var _ port.CalendarReader = (*Store)(nil)

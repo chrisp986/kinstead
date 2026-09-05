@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 
 	"game/backend/internal/calendar"
@@ -53,7 +54,7 @@ type CalendarEvent struct {
 	CounterpartyHouseholdID   string            `json:"counterparty_household_id,omitempty"`
 	CounterpartyHouseholdName string            `json:"counterparty_household_name,omitempty"`
 	Status                    string            `json:"status,omitempty"`
-	Title                     string            `json:"title"`
+	Code                      string            `json:"code,omitempty"`
 }
 
 type NextHalfYear struct {
@@ -109,13 +110,18 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	switch {
 	case useDefault:
 		from = snap.CurrentGameDay
-		to = from + 182
-	case fromValue != nil && toValue == nil:
-		from = *fromValue
-		if from > 0 && from > int64(^uint64(0)>>1)-182 {
+		var ok bool
+		to, ok = addCalendarDays(from, 182)
+		if !ok {
 			return CalendarProjection{}, fmt.Errorf("%w: range is too large", ErrInvalidCalendarRange)
 		}
-		to = from + 182
+	case fromValue != nil && toValue == nil:
+		from = *fromValue
+		var ok bool
+		to, ok = addCalendarDays(from, 182)
+		if !ok {
+			return CalendarProjection{}, fmt.Errorf("%w: range is too large", ErrInvalidCalendarRange)
+		}
 	case fromValue != nil && toValue != nil:
 		from, to = *fromValue, *toValue
 	default:
@@ -151,7 +157,10 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 		}
 		return events[i].ID < events[j].ID
 	})
-	next := calendar.StartOfNextHalfYear(current)
+	next, ok := nextHalfYearGameDay(current)
+	if !ok {
+		return CalendarProjection{}, fmt.Errorf("%w: next half-year is outside the supported range", ErrInvalidCalendarRange)
+	}
 	return CalendarProjection{
 		HouseholdID: householdID, WorldID: snap.WorldID, StartYear: snap.SettingStartYear,
 		CurrentGameDay: snap.CurrentGameDay, Current: calendar.Breakdown(current),
@@ -162,8 +171,8 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 
 func seasonalEvents(from, to int64) []CalendarEvent {
 	var events []CalendarEvent
-	firstYear := calendar.YearIndex(calendar.GameDay(from)) - 1
-	lastYear := calendar.YearIndex(calendar.GameDay(to)) + 1
+	firstYear := calendar.YearIndex(calendar.GameDay(from))
+	lastYear := calendar.YearIndex(calendar.GameDay(to))
 	starts := []struct {
 		season calendar.ProductionSeason
 		day    int64
@@ -173,11 +182,11 @@ func seasonalEvents(from, to int64) []CalendarEvent {
 	}
 	for year := firstYear; year <= lastYear; year++ {
 		for _, start := range starts {
-			day := year*calendar.DaysPerYear + start.day
-			if day < from || day > to {
+			day, ok := recurringGameDay(year, start.day)
+			if !ok || day < from || day > to {
 				continue
 			}
-			events = append(events, CalendarEvent{ID: fmt.Sprintf("season-%d", day), Kind: CalendarSeasonStart, Category: CalendarCategorySeason, GameDay: day, Importance: "important", Title: fmt.Sprintf("%s begins", start.season)})
+			events = append(events, CalendarEvent{ID: fmt.Sprintf("season-%d", day), Kind: CalendarSeasonStart, Category: CalendarCategorySeason, GameDay: day, Importance: "important", Code: string(start.season)})
 		}
 	}
 	return events
@@ -185,17 +194,16 @@ func seasonalEvents(from, to int64) []CalendarEvent {
 
 func anchorEvents(from, to int64) []CalendarEvent {
 	var events []CalendarEvent
-	firstYear := calendar.YearIndex(calendar.GameDay(from)) - 1
-	lastYear := calendar.YearIndex(calendar.GameDay(to)) + 1
+	firstYear := calendar.YearIndex(calendar.GameDay(from))
+	lastYear := calendar.YearIndex(calendar.GameDay(to))
 	for _, rule := range calendar.DefaultAnchors() {
 		for year := firstYear; year <= lastYear; year++ {
-			day := int64(calendar.AnchorGameDay(rule, year))
-			if day < from || day > to {
+			day, ok := recurringGameDay(year, rule.DayOfYear)
+			if !ok || day < from || day > to {
 				continue
 			}
 			kind := CalendarEventKind(rule.Kind)
 			category, importance := CalendarCategoryWorld, "context"
-			title := anchorTitle(rule.Code)
 			if rule.Kind == calendar.AnchorSeasonStart {
 				continue
 			} else if rule.Kind == calendar.AnchorHarvest {
@@ -203,7 +211,7 @@ func anchorEvents(from, to int64) []CalendarEvent {
 			} else if rule.Kind == calendar.AnchorAssembly {
 				category, kind = CalendarCategoryWorld, CalendarAssembly
 			}
-			events = append(events, CalendarEvent{ID: fmt.Sprintf("anchor-%s-%d", rule.Code, year), Kind: kind, Category: category, GameDay: day, Importance: importance, Title: title})
+			events = append(events, CalendarEvent{ID: fmt.Sprintf("anchor-%s-%d", rule.Code, year), Kind: kind, Category: category, GameDay: day, Importance: importance, Code: rule.Code})
 		}
 	}
 	return events
@@ -213,36 +221,36 @@ func sourceEvents(value port.CalendarContext, from, to int64) []CalendarEvent {
 	var events []CalendarEvent
 	for _, item := range value.Obligations {
 		if item.DueGameDay >= from && item.DueGameDay <= to {
-			events = append(events, CalendarEvent{ID: "obligation-" + item.ID, Kind: CalendarDeliveryDue, Category: CalendarCategoryContract, GameDay: item.DueGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdID: oppositeHousehold(value.Snapshot.HouseholdID, item.DebtorHouseholdID, item.CreditorHouseholdID), CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status, Title: "Delivery due"})
+			events = append(events, CalendarEvent{ID: "obligation-" + item.ID, Kind: CalendarDeliveryDue, Category: CalendarCategoryContract, GameDay: item.DueGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdID: oppositeHousehold(value.Snapshot.HouseholdID, item.DebtorHouseholdID, item.CreditorHouseholdID), CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status})
 		}
 		if item.ShipmentID == "" && item.DebtorHouseholdID == value.Snapshot.HouseholdID {
 			deadline := item.LatestDispatchGameDay
 			if deadline >= from && deadline <= to {
-				events = append(events, CalendarEvent{ID: "dispatch-" + item.ID, Kind: CalendarDispatchDeadline, Category: CalendarCategoryContract, GameDay: deadline, Importance: "critical", ActionRequired: true, RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status, Title: "Dispatch shipment"})
+				events = append(events, CalendarEvent{ID: "dispatch-" + item.ID, Kind: CalendarDispatchDeadline, Category: CalendarCategoryContract, GameDay: deadline, Importance: "critical", ActionRequired: true, RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status})
 			}
 		}
 	}
 	for _, item := range value.Shipments {
 		if item.ActualArrivalGameDay != nil {
 			if *item.ActualArrivalGameDay >= from && *item.ActualArrivalGameDay <= to {
-				events = append(events, CalendarEvent{ID: "shipment-arrived-" + item.ID, Kind: CalendarShipmentArrival, Category: CalendarCategoryShipment, GameDay: *item.ActualArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status, Title: "Shipment arrived"})
+				events = append(events, CalendarEvent{ID: "shipment-arrived-" + item.ID, Kind: CalendarShipmentArrival, Category: CalendarCategoryShipment, GameDay: *item.ActualArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status})
 			}
 			continue
 		}
 		if item.ExpectedArrivalGameDay >= from && item.ExpectedArrivalGameDay <= to {
-			events = append(events, CalendarEvent{ID: "shipment-" + item.ID, Kind: CalendarShipmentArrival, Category: CalendarCategoryShipment, GameDay: item.ExpectedArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status, Title: "Shipment expected"})
+			events = append(events, CalendarEvent{ID: "shipment-" + item.ID, Kind: CalendarShipmentArrival, Category: CalendarCategoryShipment, GameDay: item.ExpectedArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status})
 		}
 	}
 	for _, item := range value.Deadlines {
 		day := item.DeadlineGameDay
 		if day >= from && day <= to {
-			events = append(events, CalendarEvent{ID: item.ID, Kind: CalendarEventKind(item.Kind), Category: item.Category, GameDay: day, Importance: item.Importance, ActionRequired: true, RelatedID: item.ID, Title: item.Title})
+			events = append(events, CalendarEvent{ID: item.ID, Kind: CalendarEventKind(item.Kind), Category: item.Category, GameDay: day, Importance: item.Importance, ActionRequired: true, RelatedID: item.ID})
 		}
 	}
 	for _, item := range value.Assignments {
 		day := tickGameDay(value.Snapshot, item.EndsTick)
 		if day >= from && day <= to {
-			events = append(events, CalendarEvent{ID: "assignment-" + item.ID, Kind: CalendarAssignmentEnd, Category: CalendarCategoryFarm, GameDay: day, Importance: item.Importance, RelatedID: item.ID, Title: "Work plan ends"})
+			events = append(events, CalendarEvent{ID: "assignment-" + item.ID, Kind: CalendarAssignmentEnd, Category: CalendarCategoryFarm, GameDay: day, Importance: item.Importance, RelatedID: item.ID})
 		}
 	}
 	return events
@@ -253,27 +261,6 @@ func oppositeHousehold(current, debtor, creditor string) string {
 		return creditor
 	}
 	return debtor
-}
-
-func anchorTitle(code string) string {
-	switch code {
-	case "jol":
-		return "Jól"
-	case "thing":
-		return "Þing"
-	case "midsummer":
-		return "Midsummer"
-	case "harvest_start":
-		return "Harvest begins"
-	case "summer_start":
-		return "Summer begins"
-	case "winter_start":
-		return "Winter begins"
-	case "midwinter":
-		return "Midwinter"
-	default:
-		return code
-	}
 }
 
 func filterCalendarEvents(events []CalendarEvent, category string) []CalendarEvent {
@@ -334,4 +321,37 @@ func calendarEventPriority(kind CalendarEventKind) int {
 	default:
 		return 5
 	}
+}
+
+func addCalendarDays(value, days int64) (int64, bool) {
+	if days > 0 && value > math.MaxInt64-days {
+		return 0, false
+	}
+	if days < 0 && value < math.MinInt64-days {
+		return 0, false
+	}
+	return value + days, true
+}
+
+func recurringGameDay(year, dayOfYear int64) (int64, bool) {
+	if year < 0 || dayOfYear < 0 || dayOfYear >= calendar.DaysPerYear {
+		return 0, false
+	}
+	if year > (math.MaxInt64-dayOfYear)/calendar.DaysPerYear {
+		return 0, false
+	}
+	return year*calendar.DaysPerYear + dayOfYear, true
+}
+
+func nextHalfYearGameDay(day calendar.GameDay) (calendar.GameDay, bool) {
+	base, ok := recurringGameDay(calendar.YearIndex(day), 0)
+	if !ok {
+		return 0, false
+	}
+	offset := int64(182)
+	if calendar.DayOfYear(day) >= 182 {
+		offset = calendar.DaysPerYear
+	}
+	next, ok := addCalendarDays(base, offset)
+	return calendar.GameDay(next), ok
 }
