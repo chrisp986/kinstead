@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { HouseholdReport } from '$lib/api/generated';
-	import { formatProjectedUnits } from '$lib/domain/format';
 	import {
 		formatCalendarPosition,
 		formatRelativeGameDay,
@@ -29,21 +28,22 @@
 		report.characters.filter((character) => character.fatigue >= 50).length
 	);
 	let matterCount = $derived(report.attention.length + report.decisions.length);
+	let supplyDays = $derived(Math.max(0, Math.floor(report.supply_days)));
 	let supplyTone = $derived(
-		report.supply_days < 7
+		supplyDays < 7
 			? 'emergency'
-			: report.supply_days < 15
+			: supplyDays < 15
 				? 'critical'
-				: report.supply_days <= 30
+				: supplyDays <= 30
 					? 'warning'
 					: 'safe'
 	);
 	let supplyState = $derived(
-		report.supply_days < 7
+		supplyDays < 7
 			? 'Emergency'
-			: report.supply_days < 15
+			: supplyDays < 15
 				? 'Critical'
-				: report.supply_days <= 30
+				: supplyDays <= 30
 					? 'Strained'
 					: 'Secure'
 	);
@@ -74,7 +74,7 @@
 	<div class="status-strip" aria-label="Household status">
 		<a class={`status ${supplyTone}`} href={resolve(householdPath('/farm'))}>
 			<span>Provisions</span>
-			<strong>{formatProjectedUnits(report.supply_days)} days</strong>
+			<strong>{supplyDays} days</strong>
 			<small>{supplyState}</small>
 		</a>
 		<a class="status" href={resolve(householdPath('/work'))}>
