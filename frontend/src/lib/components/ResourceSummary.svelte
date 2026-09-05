@@ -3,10 +3,22 @@
 	let { resources, supplyDays }: { resources: Record<string, number>; supplyDays: number } =
 		$props();
 	let supplyTone = $derived(
-		supplyDays < 7 ? 'emergency' : supplyDays < 15 ? 'critical' : supplyDays <= 30 ? 'warning' : 'safe'
+		supplyDays < 7
+			? 'emergency'
+			: supplyDays < 15
+				? 'critical'
+				: supplyDays <= 30
+					? 'warning'
+					: 'safe'
 	);
 	let supplyState = $derived(
-		supplyDays < 7 ? 'Emergency' : supplyDays < 15 ? 'Critical' : supplyDays <= 30 ? 'Strained' : 'Secure'
+		supplyDays < 7
+			? 'Emergency'
+			: supplyDays < 15
+				? 'Critical'
+				: supplyDays <= 30
+					? 'Strained'
+					: 'Secure'
 	);
 	let supplyMessage = $derived(
 		supplyDays < 7
