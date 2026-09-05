@@ -6,15 +6,15 @@
 </script>
 
 <svelte:head>
-	<title>{data.report.household_name} · Farm report</title>
-	<meta name="description" content={`Return briefing for ${data.report.household_name}.`} />
+	<title>{data.report.household_name} · Household report</title>
+	<meta name="description" content={`Decision briefing for ${data.report.household_name}.`} />
 </svelte:head>
 
 <main class="report-page">
 	<PageHeader
 		eyebrow="Return briefing"
-		title="Farm report"
-		description="See what changed, what needs attention, and which decisions matter now."
+		title="Household report"
+		description="Start with the decisions that matter, then check risks, deadlines, and what changed while time passed."
 	/>
 	<FarmReportPanel report={data.report} />
 </main>
