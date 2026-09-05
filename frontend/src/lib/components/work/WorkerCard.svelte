@@ -59,10 +59,7 @@
 			<span>Fatigue {character.fatigue}</span>
 			<small>{fatigueEffect}</small>
 		</div>
-		<progress
-			max="100"
-			value={character.fatigue}
-			aria-label={`${character.name} fatigue`}
+		<progress max="100" value={character.fatigue} aria-label={`${character.name} fatigue`}
 		></progress>
 	</div>
 	<p class="current-work">
