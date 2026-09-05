@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# cleanup and process helpers are called through traps/dynamic wait handling;
+# ShellCheck cannot follow those indirect call paths for SC2317.
+# shellcheck disable=SC2317
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
