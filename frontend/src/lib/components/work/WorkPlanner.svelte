@@ -9,10 +9,12 @@
 	let {
 		characters,
 		assignments,
+		currentGameDay,
 		feedback
 	}: {
 		characters: Character[];
 		assignments: Assignment[];
+		currentGameDay: number;
 		feedback?: { success?: boolean; action?: string; message?: string } | null;
 	} = $props();
 	let working = $state(false);
@@ -33,9 +35,10 @@
 		{#each workers as character (character.id)}<WorkerCard
 				{character}
 				assignment={assignmentFor(character.id)}
+				{currentGameDay}
 			/>{/each}
 	</div>
-	<WorkAssignmentList {assignments} />
+	<WorkAssignmentList {assignments} {currentGameDay} />
 	<form
 		method="POST"
 		action="?/assign"
@@ -75,7 +78,8 @@
 				><span>Duration</span><select name="duration_ticks" required
 					>{#each [1, 3, 6, 12] as duration (duration)}<option
 							value={duration}
-							selected={duration === 3}>{duration} {duration === 1 ? 'tick' : 'ticks'}</option
+							selected={duration === 3}
+							>{duration === 1 ? 'one period' : `${duration} periods`}</option
 						>{/each}</select
 				></label
 			>

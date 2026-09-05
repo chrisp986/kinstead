@@ -1,7 +1,7 @@
 -- name: InsertRelationshipEvent :execrows
 INSERT INTO relationship_events(
     world_id, source_household_id, target_household_id,
-    event_type, trust_delta, occurred_tick,
+    event_type, trust_delta, occurred_tick, occurred_game_day,
     related_contract_id, related_shipment_id, related_obligation_id, data
 ) VALUES (
     sqlc.arg(world_id)::uuid,
@@ -10,6 +10,7 @@ INSERT INTO relationship_events(
     sqlc.arg(event_type),
     sqlc.arg(trust_delta),
     sqlc.arg(occurred_tick)::bigint,
+    sqlc.arg(occurred_game_day)::bigint,
     sqlc.arg(contract_id)::uuid,
     NULLIF(sqlc.arg(shipment_id)::text, '')::uuid,
     sqlc.arg(obligation_id)::uuid,
@@ -56,7 +57,7 @@ WHERE r.source_household_id = $1::uuid OR r.target_household_id = $1::uuid
 ORDER BY source.name, target.name, r.source_household_id, r.target_household_id;
 
 -- name: ListRelationshipEventsBetween :many
-SELECT id::text AS id, event_type, trust_delta, occurred_tick,
+SELECT id::text AS id, event_type, trust_delta, occurred_tick, occurred_game_day,
        COALESCE(related_contract_id::text, ''::text)::text AS related_contract_id,
        COALESCE(related_shipment_id::text, ''::text)::text AS related_shipment_id,
        COALESCE(related_obligation_id::text, ''::text)::text AS related_obligation_id,

@@ -47,6 +47,12 @@ is applied from scratch. PostgreSQL remains running when the launcher exits.
 Tick speed changes only real-world scheduling. It does not change historical
 days per tick, historical dates/seasons, or the frozen v0.3 balancing calendar.
 
+The household Calendar screen is the player-facing planning view. `Upcoming`
+groups deadlines and events by urgency and half-year; `Year cycle` shows the
+summer/winter rhythm, seasonal phases, harvest, gatherings, and recurring
+anchors. It uses relative game-day language and does not expose technical tick
+or civil-date values in normal gameplay screens.
+
 Local launcher requirements:
 
 - Linux or WSL

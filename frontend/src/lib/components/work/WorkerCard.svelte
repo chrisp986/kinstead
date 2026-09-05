@@ -1,11 +1,14 @@
 <script lang="ts">
 	import type { Assignment, Character } from '$lib/api/generated';
 	import { labelActivity } from '$lib/domain/format';
+	import { formatRelativeGameDay } from '$lib/domain/time';
 
-	let { character, assignment }: { character: Character; assignment?: Assignment } = $props();
-	const current = $derived(
-		assignment && assignment.starts_tick <= assignment.ends_tick ? assignment : undefined
-	);
+	let {
+		character,
+		assignment,
+		currentGameDay
+	}: { character: Character; assignment?: Assignment; currentGameDay: number } = $props();
+	const current = $derived(assignment);
 </script>
 
 <article class="worker">
@@ -23,7 +26,7 @@
 	<p>
 		<strong>Current</strong>
 		{current
-			? `${labelActivity(current.activity)} · ticks ${current.starts_tick}–${current.ends_tick}`
+			? `${labelActivity(current.activity)} · ${formatRelativeGameDay(currentGameDay, current.starts_game_day ?? currentGameDay)}`
 			: 'Available'}
 	</p>
 </article>

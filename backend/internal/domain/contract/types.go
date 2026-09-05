@@ -58,6 +58,7 @@ type Contract struct {
 	StartGameDay      GameDay
 	EndGameDay        GameDay
 	IntervalDays      int64
+	GameDaySchedule   bool
 	Status            Status
 	Terms             []Term
 }
@@ -156,7 +157,7 @@ func (c Contract) RollUp(obligations []Obligation) (Contract, error) {
 			return c.Transition(StatusBroken)
 		}
 		settled := obligation.Status == ObligationFulfilled ||
-			(obligation.Status == ObligationLate && obligation.FulfilledTick != nil)
+			(obligation.Status == ObligationLate && ((c.IntervalDays > 0 && obligation.FulfilledGameDay != nil) || (c.IntervalDays <= 0 && obligation.FulfilledTick != nil)))
 		allSettled = allSettled && settled
 	}
 	if len(expectedKeys) != 0 {
@@ -169,18 +170,20 @@ func (c Contract) RollUp(obligations []Obligation) (Contract, error) {
 }
 
 type Obligation struct {
-	ID                  ObligationID
-	ContractID          ID
-	DebtorHouseholdID   HouseholdID
-	CreditorHouseholdID HouseholdID
-	ResourceType        ResourceType
-	QuantityMilli       QuantityMilli
-	DueArrivalTick      Tick
-	DueGameDay          GameDay
-	ShipmentID          shipmentdomain.ID
-	Status              ObligationStatus
-	FulfilledTick       *Tick
-	FulfilledGameDay    *GameDay
+	ID                     ObligationID
+	ContractID             ID
+	DebtorHouseholdID      HouseholdID
+	CreditorHouseholdID    HouseholdID
+	ResourceType           ResourceType
+	QuantityMilli          QuantityMilli
+	DueArrivalTick         Tick
+	DueGameDay             GameDay
+	ShipmentID             shipmentdomain.ID
+	ExpectedArrivalGameDay *GameDay
+	LatestDispatchGameDay  *GameDay
+	Status                 ObligationStatus
+	FulfilledTick          *Tick
+	FulfilledGameDay       *GameDay
 }
 
 func obligationDue(o Obligation) int64 {
@@ -198,7 +201,11 @@ func GenerateObligations(c Contract) ([]Obligation, error) {
 	}
 	obligations := make([]Obligation, 0)
 	start, end, interval := int64(c.StartsTick), int64(c.EndsTick), c.IntervalTicks
-	gameDays := c.IntervalDays > 0
+	// Contracts created by the new API may contain only the day schedule. A
+	// legacy row, however, contains both the original tick schedule and a
+	// migration-derived day projection; keep its tick cadence when expanding
+	// obligations so existing v0.3 data remains stable.
+	gameDays := c.GameDaySchedule || (c.IntervalDays > 0 && c.IntervalTicks <= 0)
 	if gameDays {
 		start, end, interval = int64(c.StartGameDay), int64(c.EndGameDay), c.IntervalDays
 	}
@@ -211,6 +218,9 @@ func GenerateObligations(c Contract) ([]Obligation, error) {
 			}
 			if gameDays {
 				obligation.DueGameDay = GameDay(due)
+				obligation.DueArrivalTick = Tick(gameDayToTick(GameDay(due)))
+			} else if c.GameDaySchedule && c.IntervalDays > 0 {
+				obligation.DueGameDay = GameDay(due * 91 / 12)
 			}
 			obligations = append(obligations, obligation)
 		}
@@ -233,25 +243,41 @@ func (o Obligation) Validate() error {
 	if o.DueGameDay > GameDay(math.MaxInt64-3) {
 		return ErrInvalidObligation
 	}
+	dayBased := o.DueGameDay != 0 || o.FulfilledGameDay != nil
 	switch o.Status {
 	case ObligationPending:
-		if o.ShipmentID != "" || o.FulfilledTick != nil {
+		if o.ShipmentID != "" || o.FulfilledTick != nil || o.FulfilledGameDay != nil {
 			return ErrInvalidObligation
 		}
 	case ObligationDispatched:
-		if o.ShipmentID == "" || o.FulfilledTick != nil {
+		if o.ShipmentID == "" || o.FulfilledTick != nil || o.FulfilledGameDay != nil {
 			return ErrInvalidObligation
 		}
 	case ObligationFulfilled:
-		if o.ShipmentID == "" || o.FulfilledTick == nil || *o.FulfilledTick > o.DueArrivalTick {
+		if o.ShipmentID == "" {
+			return ErrInvalidObligation
+		}
+		if dayBased {
+			if o.FulfilledGameDay == nil || *o.FulfilledGameDay > o.DueGameDay {
+				return ErrInvalidObligation
+			}
+		} else if o.FulfilledTick == nil || *o.FulfilledTick > o.DueArrivalTick {
 			return ErrInvalidObligation
 		}
 	case ObligationLate:
-		if o.FulfilledTick != nil && (o.ShipmentID == "" || *o.FulfilledTick <= o.DueArrivalTick || *o.FulfilledTick > o.DueArrivalTick+2) {
+		if dayBased {
+			if o.FulfilledGameDay != nil && (o.ShipmentID == "" || *o.FulfilledGameDay <= o.DueGameDay || *o.FulfilledGameDay > o.DueGameDay+14) {
+				return ErrInvalidObligation
+			}
+		} else if o.FulfilledTick != nil && (o.ShipmentID == "" || *o.FulfilledTick <= o.DueArrivalTick || *o.FulfilledTick > o.DueArrivalTick+2) {
 			return ErrInvalidObligation
 		}
 	case ObligationBroken:
-		if o.FulfilledTick != nil && (o.ShipmentID == "" || *o.FulfilledTick < o.DueArrivalTick+3) {
+		if dayBased {
+			if o.FulfilledGameDay != nil && (o.ShipmentID == "" || *o.FulfilledGameDay < o.DueGameDay+15) {
+				return ErrInvalidObligation
+			}
+		} else if o.FulfilledTick != nil && (o.ShipmentID == "" || *o.FulfilledTick < o.DueArrivalTick+3) {
 			return ErrInvalidObligation
 		}
 	default:
@@ -270,7 +296,9 @@ func (o Obligation) Dispatch(shipment shipmentdomain.Shipment) (Obligation, erro
 		return Obligation{}, ErrShipmentMismatch
 	}
 	o.ShipmentID = shipment.ID
-	if Tick(shipment.DepartureTick) > o.DueArrivalTick {
+	if o.DueGameDay != 0 && shipment.DepartureGameDay > shipmentdomain.GameDay(o.DueGameDay) {
+		o.Status = ObligationLate
+	} else if o.DueGameDay == 0 && Tick(shipment.DepartureTick) > o.DueArrivalTick {
 		o.Status = ObligationLate
 	} else {
 		o.Status = ObligationDispatched
@@ -354,4 +382,11 @@ func (o Obligation) AssessGameDay(current GameDay, actual *GameDay) (Obligation,
 		o.Status = ObligationBroken
 	}
 	return o, nil
+}
+
+func gameDayToTick(day GameDay) int64 {
+	if day <= 0 {
+		return 0
+	}
+	return (int64(day)*12 + 90) / 91
 }

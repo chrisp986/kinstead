@@ -130,9 +130,12 @@ func (s *Server) householdContracts(w http.ResponseWriter, r *http.Request) {
 type proposeContractRequest struct {
 	ProposerHouseholdID     string                           `json:"proposer_household_id"`
 	CounterpartyHouseholdID string                           `json:"counterparty_household_id"`
-	StartsTick              int64                            `json:"starts_tick"`
-	EndsTick                int64                            `json:"ends_tick"`
-	IntervalTicks           int64                            `json:"interval_ticks"`
+	FirstDueGameDay         *int64                           `json:"first_due_game_day,omitempty"`
+	IntervalDays            *int64                           `json:"interval_days,omitempty"`
+	EndCondition            application.ContractEndCondition `json:"end_condition,omitempty"`
+	StartsTick              *int64                           `json:"starts_tick,omitempty"`
+	EndsTick                *int64                           `json:"ends_tick,omitempty"`
+	IntervalTicks           *int64                           `json:"interval_ticks,omitempty"`
 	Terms                   []application.ContractTermIntent `json:"terms"`
 }
 
@@ -142,10 +145,19 @@ func (s *Server) proposeContract(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	created, err := s.contracts.Propose(r.Context(), application.ProposeContractCommand{
+	command := application.ProposeContractCommand{
 		ProposerHouseholdID: req.ProposerHouseholdID, CounterpartyHouseholdID: req.CounterpartyHouseholdID,
-		StartsTick: req.StartsTick, EndsTick: req.EndsTick, IntervalTicks: req.IntervalTicks, Terms: req.Terms,
-	})
+		Terms: req.Terms,
+	}
+	if req.FirstDueGameDay != nil && req.IntervalDays != nil {
+		command.StartGameDay, command.IntervalDays, command.EndCondition = *req.FirstDueGameDay, *req.IntervalDays, req.EndCondition
+	} else if req.StartsTick != nil && req.EndsTick != nil && req.IntervalTicks != nil {
+		command.StartsTick, command.EndsTick, command.IntervalTicks = *req.StartsTick, *req.EndsTick, *req.IntervalTicks
+	} else {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_contract_schedule"})
+		return
+	}
+	created, err := s.contracts.Propose(r.Context(), command)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -236,11 +248,16 @@ func contractShipmentRecord(value shipmentdomain.Shipment) port.ShipmentRecord {
 		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
 		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
 		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
+		DepartureGameDay: int64(value.DepartureGameDay), ExpectedArrivalGameDay: int64(value.ExpectedArrivalGameDay),
 		TransportCostMilli: int64(value.TransportCostMilli), Status: string(value.Status),
 	}
 	if value.ActualArrivalTick != nil {
 		actual := int64(*value.ActualArrivalTick)
 		record.ActualArrivalTick = &actual
+	}
+	if value.ActualArrivalGameDay != nil {
+		actual := int64(*value.ActualArrivalGameDay)
+		record.ActualArrivalGameDay = &actual
 	}
 	return record
 }

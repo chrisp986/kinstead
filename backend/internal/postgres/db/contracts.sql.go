@@ -14,22 +14,28 @@ import (
 const createContract = `-- name: CreateContract :one
 INSERT INTO contracts(
     world_id, party_a_household_id, party_b_household_id,
-    starts_tick, ends_tick, interval_ticks, status
-) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7)
+    starts_tick, ends_tick, interval_ticks,
+    start_game_day, end_game_day, interval_days, game_day_schedule, status
+) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING id::text AS id, world_id::text AS world_id,
           party_a_household_id::text AS party_a_household_id,
           party_b_household_id::text AS party_b_household_id,
-          starts_tick, ends_tick, interval_ticks, status
+          starts_tick, ends_tick, interval_ticks,
+          start_game_day, end_game_day, interval_days, game_day_schedule, status
 `
 
 type CreateContractParams struct {
-	Column1       pgtype.UUID
-	Column2       pgtype.UUID
-	Column3       pgtype.UUID
-	StartsTick    int64
-	EndsTick      int64
-	IntervalTicks int32
-	Status        string
+	Column1         pgtype.UUID
+	Column2         pgtype.UUID
+	Column3         pgtype.UUID
+	StartsTick      int64
+	EndsTick        int64
+	IntervalTicks   int32
+	StartGameDay    int64
+	EndGameDay      int64
+	IntervalDays    int32
+	GameDaySchedule bool
+	Status          string
 }
 
 type CreateContractRow struct {
@@ -40,6 +46,10 @@ type CreateContractRow struct {
 	StartsTick        int64
 	EndsTick          int64
 	IntervalTicks     int32
+	StartGameDay      int64
+	EndGameDay        int64
+	IntervalDays      int32
+	GameDaySchedule   bool
 	Status            string
 }
 
@@ -51,6 +61,10 @@ func (q *Queries) CreateContract(ctx context.Context, arg CreateContractParams) 
 		arg.StartsTick,
 		arg.EndsTick,
 		arg.IntervalTicks,
+		arg.StartGameDay,
+		arg.EndGameDay,
+		arg.IntervalDays,
+		arg.GameDaySchedule,
 		arg.Status,
 	)
 	var i CreateContractRow
@@ -62,6 +76,10 @@ func (q *Queries) CreateContract(ctx context.Context, arg CreateContractParams) 
 		&i.StartsTick,
 		&i.EndsTick,
 		&i.IntervalTicks,
+		&i.StartGameDay,
+		&i.EndGameDay,
+		&i.IntervalDays,
+		&i.GameDaySchedule,
 		&i.Status,
 	)
 	return i, err
@@ -70,9 +88,9 @@ func (q *Queries) CreateContract(ctx context.Context, arg CreateContractParams) 
 const createContractObligation = `-- name: CreateContractObligation :exec
 INSERT INTO contract_obligations(
     contract_id, debtor_household_id, creditor_household_id,
-    resource_code, quantity_milli, due_arrival_tick, status
-) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7)
-ON CONFLICT (contract_id, debtor_household_id, creditor_household_id, resource_code, due_arrival_tick)
+    resource_code, quantity_milli, due_arrival_tick, due_game_day, status
+) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8)
+ON CONFLICT (contract_id, debtor_household_id, creditor_household_id, resource_code, due_game_day)
 DO NOTHING
 `
 
@@ -83,6 +101,7 @@ type CreateContractObligationParams struct {
 	ResourceCode   string
 	QuantityMilli  int64
 	DueArrivalTick int64
+	DueGameDay     int64
 	Status         string
 }
 
@@ -94,6 +113,7 @@ func (q *Queries) CreateContractObligation(ctx context.Context, arg CreateContra
 		arg.ResourceCode,
 		arg.QuantityMilli,
 		arg.DueArrivalTick,
+		arg.DueGameDay,
 		arg.Status,
 	)
 	return err
@@ -129,7 +149,8 @@ const getContract = `-- name: GetContract :one
 SELECT id::text AS id, world_id::text AS world_id,
        party_a_household_id::text AS party_a_household_id,
        party_b_household_id::text AS party_b_household_id,
-       starts_tick, ends_tick, interval_ticks, status
+       starts_tick, ends_tick, interval_ticks,
+       start_game_day, end_game_day, interval_days, game_day_schedule, status
 FROM contracts
 WHERE id = $1::uuid
 `
@@ -142,6 +163,10 @@ type GetContractRow struct {
 	StartsTick        int64
 	EndsTick          int64
 	IntervalTicks     int32
+	StartGameDay      int64
+	EndGameDay        int64
+	IntervalDays      int32
+	GameDaySchedule   bool
 	Status            string
 }
 
@@ -156,6 +181,10 @@ func (q *Queries) GetContract(ctx context.Context, dollar_1 pgtype.UUID) (GetCon
 		&i.StartsTick,
 		&i.EndsTick,
 		&i.IntervalTicks,
+		&i.StartGameDay,
+		&i.EndGameDay,
+		&i.IntervalDays,
+		&i.GameDaySchedule,
 		&i.Status,
 	)
 	return i, err
@@ -191,7 +220,8 @@ const listActiveContractsForRollup = `-- name: ListActiveContractsForRollup :man
 SELECT id::text AS id, world_id::text AS world_id,
        party_a_household_id::text AS party_a_household_id,
        party_b_household_id::text AS party_b_household_id,
-       starts_tick, ends_tick, interval_ticks, status
+       starts_tick, ends_tick, interval_ticks,
+       start_game_day, end_game_day, interval_days, game_day_schedule, status
 FROM contracts
 WHERE world_id = $1::uuid AND status = 'active'
 ORDER BY id
@@ -206,6 +236,10 @@ type ListActiveContractsForRollupRow struct {
 	StartsTick        int64
 	EndsTick          int64
 	IntervalTicks     int32
+	StartGameDay      int64
+	EndGameDay        int64
+	IntervalDays      int32
+	GameDaySchedule   bool
 	Status            string
 }
 
@@ -226,6 +260,10 @@ func (q *Queries) ListActiveContractsForRollup(ctx context.Context, dollar_1 pgt
 			&i.StartsTick,
 			&i.EndsTick,
 			&i.IntervalTicks,
+			&i.StartGameDay,
+			&i.EndGameDay,
+			&i.IntervalDays,
+			&i.GameDaySchedule,
 			&i.Status,
 		); err != nil {
 			return nil, err
@@ -239,28 +277,51 @@ func (q *Queries) ListActiveContractsForRollup(ctx context.Context, dollar_1 pgt
 }
 
 const listContractObligations = `-- name: ListContractObligations :many
-SELECT id::text AS id, contract_id::text AS contract_id,
-       debtor_household_id::text AS debtor_household_id,
-       creditor_household_id::text AS creditor_household_id,
-       resource_code, quantity_milli, due_arrival_tick,
-       COALESCE(shipment_id::text, ''::text)::text AS shipment_id,
-       status, fulfilled_tick
-FROM contract_obligations
-WHERE contract_id = $1::uuid
-ORDER BY due_arrival_tick, debtor_household_id, creditor_household_id, resource_code
+SELECT o.id::text AS id, o.contract_id::text AS contract_id,
+       o.debtor_household_id::text AS debtor_household_id,
+       o.creditor_household_id::text AS creditor_household_id,
+       o.resource_code, o.quantity_milli, o.due_arrival_tick, o.due_game_day,
+       COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
+       o.status, o.fulfilled_tick, o.fulfilled_game_day, c.game_day_schedule,
+       (o.due_game_day - (
+         (CASE lr.distance_class
+            WHEN 'neighbor' THEN 1 WHEN 'local' THEN 2
+            WHEN 'near_regional' THEN 3 WHEN 'regional' THEN 5
+            WHEN 'far_regional' THEN 8 ELSE 0 END) * w.game_days_per_tick_num
+           + w.game_days_per_tick_den - 1
+       ) / w.game_days_per_tick_den)::bigint AS latest_dispatch_game_day,
+       s.departure_game_day, s.expected_arrival_game_day
+FROM contract_obligations o
+JOIN contracts c ON c.id = o.contract_id
+JOIN worlds w ON w.id = c.world_id
+JOIN households debtor ON debtor.id = o.debtor_household_id
+JOIN households creditor ON creditor.id = o.creditor_household_id
+LEFT JOIN location_routes lr
+  ON lr.world_id = c.world_id
+ AND lr.origin_location_id = debtor.location_id
+ AND lr.destination_location_id = creditor.location_id
+LEFT JOIN shipments s ON s.id = o.shipment_id
+WHERE o.contract_id = $1::uuid
+ORDER BY o.due_game_day, o.debtor_household_id, o.creditor_household_id, o.resource_code
 `
 
 type ListContractObligationsRow struct {
-	ID                  string
-	ContractID          string
-	DebtorHouseholdID   string
-	CreditorHouseholdID string
-	ResourceCode        string
-	QuantityMilli       int64
-	DueArrivalTick      int64
-	ShipmentID          string
-	Status              string
-	FulfilledTick       pgtype.Int8
+	ID                     string
+	ContractID             string
+	DebtorHouseholdID      string
+	CreditorHouseholdID    string
+	ResourceCode           string
+	QuantityMilli          int64
+	DueArrivalTick         int64
+	DueGameDay             int64
+	ShipmentID             string
+	Status                 string
+	FulfilledTick          pgtype.Int8
+	FulfilledGameDay       pgtype.Int8
+	GameDaySchedule        bool
+	LatestDispatchGameDay  int64
+	DepartureGameDay       pgtype.Int8
+	ExpectedArrivalGameDay pgtype.Int8
 }
 
 func (q *Queries) ListContractObligations(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractObligationsRow, error) {
@@ -280,9 +341,15 @@ func (q *Queries) ListContractObligations(ctx context.Context, dollar_1 pgtype.U
 			&i.ResourceCode,
 			&i.QuantityMilli,
 			&i.DueArrivalTick,
+			&i.DueGameDay,
 			&i.ShipmentID,
 			&i.Status,
 			&i.FulfilledTick,
+			&i.FulfilledGameDay,
+			&i.GameDaySchedule,
+			&i.LatestDispatchGameDay,
+			&i.DepartureGameDay,
+			&i.ExpectedArrivalGameDay,
 		); err != nil {
 			return nil, err
 		}
@@ -339,10 +406,11 @@ const listContractsForHousehold = `-- name: ListContractsForHousehold :many
 SELECT id::text AS id, world_id::text AS world_id,
        party_a_household_id::text AS party_a_household_id,
        party_b_household_id::text AS party_b_household_id,
-       starts_tick, ends_tick, interval_ticks, status
+       starts_tick, ends_tick, interval_ticks,
+       start_game_day, end_game_day, interval_days, game_day_schedule, status
 FROM contracts
 WHERE party_a_household_id = $1::uuid OR party_b_household_id = $1::uuid
-ORDER BY starts_tick DESC, id
+ORDER BY start_game_day DESC, id
 `
 
 type ListContractsForHouseholdRow struct {
@@ -353,6 +421,10 @@ type ListContractsForHouseholdRow struct {
 	StartsTick        int64
 	EndsTick          int64
 	IntervalTicks     int32
+	StartGameDay      int64
+	EndGameDay        int64
+	IntervalDays      int32
+	GameDaySchedule   bool
 	Status            string
 }
 
@@ -373,6 +445,10 @@ func (q *Queries) ListContractsForHousehold(ctx context.Context, dollar_1 pgtype
 			&i.StartsTick,
 			&i.EndsTick,
 			&i.IntervalTicks,
+			&i.StartGameDay,
+			&i.EndGameDay,
+			&i.IntervalDays,
+			&i.GameDaySchedule,
 			&i.Status,
 		); err != nil {
 			return nil, err
@@ -390,44 +466,52 @@ SELECT c.world_id::text AS world_id,
        o.id::text AS id, o.contract_id::text AS contract_id,
        o.debtor_household_id::text AS debtor_household_id,
        o.creditor_household_id::text AS creditor_household_id,
-       o.resource_code, o.quantity_milli, o.due_arrival_tick,
+       o.resource_code, o.quantity_milli, o.due_arrival_tick, o.due_game_day,
        COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
-       o.status, o.fulfilled_tick, s.actual_arrival_tick
+       o.status, o.fulfilled_tick, o.fulfilled_game_day, c.game_day_schedule,
+       s.actual_arrival_tick, s.actual_arrival_game_day
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
+JOIN worlds w ON w.id = c.world_id
 LEFT JOIN shipments s ON s.id = o.shipment_id
 WHERE c.world_id = $1::uuid
   AND c.status IN ('active', 'broken')
   AND o.status IN ('pending', 'dispatched', 'late', 'broken')
-  AND (o.due_arrival_tick <= $2 OR s.actual_arrival_tick IS NOT NULL)
-  AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))
+  AND ((c.game_day_schedule AND (o.due_game_day <= $2 OR s.actual_arrival_game_day IS NOT NULL))
+       OR (NOT c.game_day_schedule AND (o.due_arrival_tick <= w.current_tick OR s.actual_arrival_tick IS NOT NULL)))
+  AND ((c.game_day_schedule AND (o.status <> 'broken' OR (o.fulfilled_game_day IS NULL AND s.actual_arrival_game_day IS NOT NULL)))
+       OR (NOT c.game_day_schedule AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))))
   AND (c.status = 'active' OR o.status = 'broken')
-ORDER BY o.due_arrival_tick, o.id
+ORDER BY o.due_game_day, o.id
 FOR UPDATE OF o
 `
 
 type LoadContractObligationsForTickParams struct {
-	Column1        pgtype.UUID
-	DueArrivalTick int64
+	Column1    pgtype.UUID
+	DueGameDay int64
 }
 
 type LoadContractObligationsForTickRow struct {
-	WorldID             string
-	ID                  string
-	ContractID          string
-	DebtorHouseholdID   string
-	CreditorHouseholdID string
-	ResourceCode        string
-	QuantityMilli       int64
-	DueArrivalTick      int64
-	ShipmentID          string
-	Status              string
-	FulfilledTick       pgtype.Int8
-	ActualArrivalTick   pgtype.Int8
+	WorldID              string
+	ID                   string
+	ContractID           string
+	DebtorHouseholdID    string
+	CreditorHouseholdID  string
+	ResourceCode         string
+	QuantityMilli        int64
+	DueArrivalTick       int64
+	DueGameDay           int64
+	ShipmentID           string
+	Status               string
+	FulfilledTick        pgtype.Int8
+	FulfilledGameDay     pgtype.Int8
+	GameDaySchedule      bool
+	ActualArrivalTick    pgtype.Int8
+	ActualArrivalGameDay pgtype.Int8
 }
 
 func (q *Queries) LoadContractObligationsForTick(ctx context.Context, arg LoadContractObligationsForTickParams) ([]LoadContractObligationsForTickRow, error) {
-	rows, err := q.db.Query(ctx, loadContractObligationsForTick, arg.Column1, arg.DueArrivalTick)
+	rows, err := q.db.Query(ctx, loadContractObligationsForTick, arg.Column1, arg.DueGameDay)
 	if err != nil {
 		return nil, err
 	}
@@ -444,10 +528,14 @@ func (q *Queries) LoadContractObligationsForTick(ctx context.Context, arg LoadCo
 			&i.ResourceCode,
 			&i.QuantityMilli,
 			&i.DueArrivalTick,
+			&i.DueGameDay,
 			&i.ShipmentID,
 			&i.Status,
 			&i.FulfilledTick,
+			&i.FulfilledGameDay,
+			&i.GameDaySchedule,
 			&i.ActualArrivalTick,
+			&i.ActualArrivalGameDay,
 		); err != nil {
 			return nil, err
 		}
@@ -463,8 +551,9 @@ const lockContractForResponse = `-- name: LockContractForResponse :one
 SELECT c.id::text AS id, c.world_id::text AS world_id,
        c.party_a_household_id::text AS party_a_household_id,
        c.party_b_household_id::text AS party_b_household_id,
-       c.starts_tick, c.ends_tick, c.interval_ticks, c.status,
-       w.current_tick
+       c.starts_tick, c.ends_tick, c.interval_ticks,
+       c.start_game_day, c.end_game_day, c.interval_days, c.game_day_schedule, c.status,
+       w.current_tick, w.current_game_day
 FROM contracts c
 JOIN worlds w ON w.id = c.world_id
 WHERE c.id = $1::uuid
@@ -479,8 +568,13 @@ type LockContractForResponseRow struct {
 	StartsTick        int64
 	EndsTick          int64
 	IntervalTicks     int32
+	StartGameDay      int64
+	EndGameDay        int64
+	IntervalDays      int32
+	GameDaySchedule   bool
 	Status            string
 	CurrentTick       int64
+	CurrentGameDay    int64
 }
 
 func (q *Queries) LockContractForResponse(ctx context.Context, dollar_1 pgtype.UUID) (LockContractForResponseRow, error) {
@@ -494,8 +588,13 @@ func (q *Queries) LockContractForResponse(ctx context.Context, dollar_1 pgtype.U
 		&i.StartsTick,
 		&i.EndsTick,
 		&i.IntervalTicks,
+		&i.StartGameDay,
+		&i.EndGameDay,
+		&i.IntervalDays,
+		&i.GameDaySchedule,
 		&i.Status,
 		&i.CurrentTick,
+		&i.CurrentGameDay,
 	)
 	return i, err
 }
@@ -504,13 +603,14 @@ const lockContractObligationForDispatch = `-- name: LockContractObligationForDis
 SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        o.debtor_household_id::text AS debtor_household_id,
        o.creditor_household_id::text AS creditor_household_id,
-       o.resource_code, o.quantity_milli, o.due_arrival_tick,
+       o.resource_code, o.quantity_milli, o.due_arrival_tick, o.due_game_day,
        COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
-       o.status, o.fulfilled_tick,
+       o.status, o.fulfilled_tick, o.fulfilled_game_day,
        c.world_id::text AS world_id, c.status AS contract_status,
        debtor.location_id::text AS origin_location_id,
        creditor.location_id::text AS destination_location_id,
-       w.current_tick, gen_random_uuid()::text AS proposed_shipment_id
+       w.current_tick, w.current_game_day, w.game_days_per_tick_num, w.game_days_per_tick_den,
+       c.game_day_schedule, gen_random_uuid()::text AS proposed_shipment_id
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
 JOIN worlds w ON w.id = c.world_id
@@ -530,14 +630,20 @@ type LockContractObligationForDispatchRow struct {
 	ResourceCode          string
 	QuantityMilli         int64
 	DueArrivalTick        int64
+	DueGameDay            int64
 	ShipmentID            string
 	Status                string
 	FulfilledTick         pgtype.Int8
+	FulfilledGameDay      pgtype.Int8
 	WorldID               string
 	ContractStatus        string
 	OriginLocationID      string
 	DestinationLocationID string
 	CurrentTick           int64
+	CurrentGameDay        int64
+	GameDaysPerTickNum    int64
+	GameDaysPerTickDen    int64
+	GameDaySchedule       bool
 	ProposedShipmentID    string
 }
 
@@ -552,14 +658,20 @@ func (q *Queries) LockContractObligationForDispatch(ctx context.Context, dollar_
 		&i.ResourceCode,
 		&i.QuantityMilli,
 		&i.DueArrivalTick,
+		&i.DueGameDay,
 		&i.ShipmentID,
 		&i.Status,
 		&i.FulfilledTick,
+		&i.FulfilledGameDay,
 		&i.WorldID,
 		&i.ContractStatus,
 		&i.OriginLocationID,
 		&i.DestinationLocationID,
 		&i.CurrentTick,
+		&i.CurrentGameDay,
+		&i.GameDaysPerTickNum,
+		&i.GameDaysPerTickDen,
+		&i.GameDaySchedule,
 		&i.ProposedShipmentID,
 	)
 	return i, err
@@ -569,27 +681,33 @@ const updateContractObligationAssessment = `-- name: UpdateContractObligationAss
 UPDATE contract_obligations
 SET status = $1,
     fulfilled_tick = $2::bigint,
+    fulfilled_game_day = $3::bigint,
     updated_at = now()
-WHERE id = $3::uuid
-  AND status = $4
-  AND fulfilled_tick IS NOT DISTINCT FROM $5::bigint
+WHERE id = $4::uuid
+  AND status = $5
+  AND fulfilled_tick IS NOT DISTINCT FROM $6::bigint
+  AND fulfilled_game_day IS NOT DISTINCT FROM $7::bigint
 `
 
 type UpdateContractObligationAssessmentParams struct {
-	NewStatus        string
-	FulfilledTick    pgtype.Int8
-	ID               pgtype.UUID
-	OldStatus        string
-	OldFulfilledTick pgtype.Int8
+	NewStatus           string
+	FulfilledTick       pgtype.Int8
+	FulfilledGameDay    pgtype.Int8
+	ID                  pgtype.UUID
+	OldStatus           string
+	OldFulfilledTick    pgtype.Int8
+	OldFulfilledGameDay pgtype.Int8
 }
 
 func (q *Queries) UpdateContractObligationAssessment(ctx context.Context, arg UpdateContractObligationAssessmentParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateContractObligationAssessment,
 		arg.NewStatus,
 		arg.FulfilledTick,
+		arg.FulfilledGameDay,
 		arg.ID,
 		arg.OldStatus,
 		arg.OldFulfilledTick,
+		arg.OldFulfilledGameDay,
 	)
 	if err != nil {
 		return 0, err

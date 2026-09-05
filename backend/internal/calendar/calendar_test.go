@@ -91,6 +91,23 @@ func TestGameDayPhasesAndBoundaries(t *testing.T) {
 	}
 }
 
+func TestDefaultAnchorsUseStableGameCalendarDays(t *testing.T) {
+	want := map[string]int64{
+		"summer_start":  91,
+		"midsummer":     121,
+		"harvest_start": 152,
+		"thing":         287,
+		"winter_start":  273,
+		"midwinter":     304,
+		"jol":           320,
+	}
+	for _, rule := range DefaultAnchors() {
+		if got := int64(AnchorGameDay(rule, 0)); got != want[rule.Code] {
+			t.Errorf("anchor %s = %d, want %d", rule.Code, got, want[rule.Code])
+		}
+	}
+}
+
 func TestGameDayAgeAllowsBirthBeforeWorldStart(t *testing.T) {
 	if got, err := Age(-364*32-10, 0); err != nil || got != 32 {
 		t.Fatalf("age at world start = %d, %v; want 32", got, err)

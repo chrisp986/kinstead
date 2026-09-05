@@ -76,13 +76,13 @@ func (t *contractProposalTx) LoadParties(ctx context.Context, partyA, partyB con
 	}
 	var snapshot port.ContractPartiesSnapshot
 	err := t.tx.QueryRow(ctx, `
-		SELECT a.world_id::text, w.current_tick
+		SELECT a.world_id::text, w.current_tick, w.current_game_day
 		FROM households a
 		JOIN households b ON b.id = $2::uuid AND b.world_id = a.world_id
 		JOIN worlds w ON w.id = a.world_id
 		WHERE a.id = $1::uuid
 		FOR UPDATE OF w
-	`, partyA, partyB).Scan(&snapshot.WorldID, &snapshot.CurrentTick)
+	`, partyA, partyB).Scan(&snapshot.WorldID, &snapshot.CurrentTick, &snapshot.CurrentGameDay)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return port.ContractPartiesSnapshot{}, ErrInvalidContractParticipants
 	}
@@ -99,6 +99,8 @@ func (t *contractProposalTx) Create(ctx context.Context, value contractdomain.Co
 		value.PartyAHouseholdID != t.partyA || value.PartyBHouseholdID != t.partyB {
 		return contractdomain.Contract{}, contractdomain.ErrInvalidContract
 	}
+	value = normalizeContractSchedule(value)
+	value.GameDaySchedule = true
 	worldID, err := uuidParam(string(value.WorldID))
 	if err != nil {
 		return contractdomain.Contract{}, err
@@ -115,7 +117,8 @@ func (t *contractProposalTx) Create(ctx context.Context, value contractdomain.Co
 	row, err := queries.CreateContract(ctx, sqlcdb.CreateContractParams{
 		Column1: worldID, Column2: partyA, Column3: partyB,
 		StartsTick: int64(value.StartsTick), EndsTick: int64(value.EndsTick),
-		IntervalTicks: int32(value.IntervalTicks), Status: string(value.Status),
+		IntervalTicks: int32(value.IntervalTicks), StartGameDay: int64(value.StartGameDay),
+		EndGameDay: int64(value.EndGameDay), IntervalDays: int32(value.IntervalDays), GameDaySchedule: value.GameDaySchedule, Status: string(value.Status),
 	})
 	if err != nil {
 		return contractdomain.Contract{}, err
@@ -155,7 +158,8 @@ func (s *Store) GetContract(ctx context.Context, id contractdomain.ID) (contract
 		return contractdomain.Contract{}, err
 	}
 	return loadContractTerms(ctx, queries, contractFromRow(row.ID, row.WorldID, row.PartyAHouseholdID,
-		row.PartyBHouseholdID, row.StartsTick, row.EndsTick, row.IntervalTicks, row.Status))
+		row.PartyBHouseholdID, row.StartsTick, row.EndsTick, row.IntervalTicks,
+		row.StartGameDay, row.EndGameDay, row.IntervalDays, row.GameDaySchedule, row.Status))
 }
 
 func (s *Store) ListContractsForHousehold(ctx context.Context, householdID contractdomain.HouseholdID) ([]contractdomain.Contract, error) {
@@ -178,7 +182,8 @@ func (s *Store) ListContractsForHousehold(ctx context.Context, householdID contr
 	values := make([]contractdomain.Contract, 0, len(rows))
 	for _, row := range rows {
 		value, err := loadContractTerms(ctx, queries, contractFromRow(row.ID, row.WorldID, row.PartyAHouseholdID,
-			row.PartyBHouseholdID, row.StartsTick, row.EndsTick, row.IntervalTicks, row.Status))
+			row.PartyBHouseholdID, row.StartsTick, row.EndsTick, row.IntervalTicks,
+			row.StartGameDay, row.EndGameDay, row.IntervalDays, row.GameDaySchedule, row.Status))
 		if err != nil {
 			return nil, err
 		}
@@ -198,12 +203,13 @@ func (t *contractResponseTx) LoadForResponse(ctx context.Context, id contractdom
 		return port.ContractResponseSnapshot{}, err
 	}
 	value := contractFromRow(row.ID, row.WorldID, row.PartyAHouseholdID, row.PartyBHouseholdID,
-		row.StartsTick, row.EndsTick, row.IntervalTicks, row.Status)
+		row.StartsTick, row.EndsTick, row.IntervalTicks, row.StartGameDay, row.EndGameDay,
+		row.IntervalDays, row.GameDaySchedule, row.Status)
 	value, err = loadContractTerms(ctx, queries, value)
 	if err != nil {
 		return port.ContractResponseSnapshot{}, err
 	}
-	return port.ContractResponseSnapshot{Contract: value, CurrentTick: contractdomain.Tick(row.CurrentTick)}, nil
+	return port.ContractResponseSnapshot{Contract: value, CurrentTick: contractdomain.Tick(row.CurrentTick), CurrentGameDay: contractdomain.GameDay(row.CurrentGameDay)}, nil
 }
 
 func (t *contractResponseTx) SetStatus(ctx context.Context, id contractdomain.ID, from, to contractdomain.Status) error {
@@ -244,7 +250,7 @@ func (t *contractResponseTx) CreateObligations(ctx context.Context, obligations 
 		if err := queries.CreateContractObligation(ctx, sqlcdb.CreateContractObligationParams{
 			Column1: contractID, Column2: debtorID, Column3: creditorID,
 			ResourceCode: string(obligation.ResourceType), QuantityMilli: int64(obligation.QuantityMilli),
-			DueArrivalTick: int64(obligation.DueArrivalTick), Status: string(obligation.Status),
+			DueArrivalTick: int64(obligation.DueArrivalTick), DueGameDay: int64(obligation.DueGameDay), Status: string(obligation.Status),
 		}); err != nil {
 			return err
 		}
@@ -274,12 +280,27 @@ func contractObligationsFromRows(rows []sqlcdb.ListContractObligationsRow) ([]co
 			ResourceType:        contractdomain.ResourceType(row.ResourceCode), QuantityMilli: contractdomain.QuantityMilli(row.QuantityMilli),
 			DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), Status: contractdomain.ObligationStatus(row.Status),
 		}
+		if row.GameDaySchedule {
+			value.DueGameDay = contractdomain.GameDay(row.DueGameDay)
+		}
+		if row.GameDaySchedule {
+			latest := contractdomain.GameDay(row.LatestDispatchGameDay)
+			value.LatestDispatchGameDay = &latest
+		}
+		if row.ExpectedArrivalGameDay.Valid {
+			arrival := contractdomain.GameDay(row.ExpectedArrivalGameDay.Int64)
+			value.ExpectedArrivalGameDay = &arrival
+		}
 		if row.ShipmentID != "" {
 			value.ShipmentID = shipmentdomain.ID(row.ShipmentID)
 		}
 		if row.FulfilledTick.Valid {
 			fulfilled := contractdomain.Tick(row.FulfilledTick.Int64)
 			value.FulfilledTick = &fulfilled
+		}
+		if row.GameDaySchedule && row.FulfilledGameDay.Valid {
+			fulfilled := contractdomain.GameDay(row.FulfilledGameDay.Int64)
+			value.FulfilledGameDay = &fulfilled
 		}
 		if err := value.Validate(); err != nil {
 			return nil, err
@@ -295,7 +316,7 @@ func (s *Store) LoadContractObligationsForTick(ctx context.Context, tx pgx.Tx, w
 		return nil, err
 	}
 	rows, err := sqlcdb.New(tx).LoadContractObligationsForTick(ctx, sqlcdb.LoadContractObligationsForTickParams{
-		Column1: id, DueArrivalTick: tick,
+		Column1: id, DueGameDay: tick,
 	})
 	if err != nil {
 		return nil, err
@@ -307,20 +328,34 @@ func (s *Store) LoadContractObligationsForTick(ctx context.Context, tx pgx.Tx, w
 			DebtorHouseholdID:   contractdomain.HouseholdID(row.DebtorHouseholdID),
 			CreditorHouseholdID: contractdomain.HouseholdID(row.CreditorHouseholdID),
 			ResourceType:        contractdomain.ResourceType(row.ResourceCode), QuantityMilli: contractdomain.QuantityMilli(row.QuantityMilli),
-			DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), ShipmentID: shipmentdomain.ID(row.ShipmentID),
+			DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), DueGameDay: contractdomain.GameDay(row.DueGameDay), ShipmentID: shipmentdomain.ID(row.ShipmentID),
 			Status: contractdomain.ObligationStatus(row.Status),
+		}
+		if !row.GameDaySchedule {
+			value.DueGameDay = 0
 		}
 		if row.FulfilledTick.Valid {
 			fulfilled := contractdomain.Tick(row.FulfilledTick.Int64)
 			value.FulfilledTick = &fulfilled
 		}
+		if row.FulfilledGameDay.Valid {
+			fulfilled := contractdomain.GameDay(row.FulfilledGameDay.Int64)
+			value.FulfilledGameDay = &fulfilled
+		}
+		if !row.GameDaySchedule {
+			value.FulfilledGameDay = nil
+		}
 		if err := value.Validate(); err != nil {
 			return nil, fmt.Errorf("contract obligation %s: %w", value.ID, err)
 		}
-		assessment := port.ContractObligationAssessment{WorldID: contractdomain.WorldID(row.WorldID), Obligation: value}
+		assessment := port.ContractObligationAssessment{WorldID: contractdomain.WorldID(row.WorldID), Obligation: value, GameDaySchedule: row.GameDaySchedule}
 		if row.ActualArrivalTick.Valid {
 			arrival := shipmentdomain.Tick(row.ActualArrivalTick.Int64)
 			assessment.ActualArrivalTick = &arrival
+		}
+		if row.ActualArrivalGameDay.Valid {
+			arrival := contractdomain.GameDay(row.ActualArrivalGameDay.Int64)
+			assessment.ActualArrivalGameDay = &arrival
 		}
 		values = append(values, assessment)
 	}
@@ -337,7 +372,7 @@ func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.
 	if before.ID == "" || before.ID != after.ID || before.ContractID != after.ContractID ||
 		before.DebtorHouseholdID != after.DebtorHouseholdID || before.CreditorHouseholdID != after.CreditorHouseholdID ||
 		before.ResourceType != after.ResourceType || before.QuantityMilli != after.QuantityMilli ||
-		before.DueArrivalTick != after.DueArrivalTick || before.ShipmentID != after.ShipmentID {
+		before.DueArrivalTick != after.DueArrivalTick || before.DueGameDay != after.DueGameDay || before.ShipmentID != after.ShipmentID {
 		return false, contractdomain.ErrInvalidObligation
 	}
 	id, err := uuidParam(string(after.ID))
@@ -345,11 +380,13 @@ func (s *Store) PersistContractObligationAssessment(ctx context.Context, tx pgx.
 		return false, err
 	}
 	rows, err := sqlcdb.New(tx).UpdateContractObligationAssessment(ctx, sqlcdb.UpdateContractObligationAssessmentParams{
-		NewStatus:        string(after.Status),
-		FulfilledTick:    nullableContractTick(after.FulfilledTick),
-		ID:               id,
-		OldStatus:        string(before.Status),
-		OldFulfilledTick: nullableContractTick(before.FulfilledTick),
+		NewStatus:           string(after.Status),
+		FulfilledTick:       nullableContractTick(after.FulfilledTick),
+		FulfilledGameDay:    nullableContractGameDay(after.FulfilledGameDay),
+		ID:                  id,
+		OldStatus:           string(before.Status),
+		OldFulfilledTick:    nullableContractTick(before.FulfilledTick),
+		OldFulfilledGameDay: nullableContractGameDay(before.FulfilledGameDay),
 	})
 	if err != nil || rows != 1 {
 		return rows == 1, err
@@ -377,8 +414,11 @@ func persistContractOutcomeChronicle(ctx context.Context, tx pgx.Tx, event relat
 		"trust_delta":      event.TrustDelta,
 		"contract_id":      string(event.ContractID),
 		"obligation_id":    string(event.ObligationID),
+		"due_game_day":     int64(event.DueGameDay),
 	}
-	if event.ActualFulfillmentTick != nil {
+	if event.ActualFulfillmentGameDay != nil {
+		data["actual_arrival_game_day"] = int64(*event.ActualFulfillmentGameDay)
+	} else if event.ActualFulfillmentTick != nil {
 		data["actual_arrival_tick"] = int64(*event.ActualFulfillmentTick)
 	}
 	payload, err := json.Marshal(data)
@@ -394,12 +434,12 @@ func persistContractOutcomeChronicle(ctx context.Context, tx pgx.Tx, event relat
 	} {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO chronicle_entries(
-				household_id, occurred_tick, entry_type, related_household_id,
+				household_id, occurred_tick, occurred_game_day, entry_type, related_household_id,
 				related_contract_id, related_obligation_id, data
-			) VALUES ($1::uuid, $2, $3, $4::uuid, $5::uuid, $6::uuid, $7::jsonb)
+			) VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6::uuid, $7::uuid, $8::jsonb)
 			ON CONFLICT (household_id, related_obligation_id, entry_type)
 			WHERE related_obligation_id IS NOT NULL DO NOTHING
-		`, household.id, event.OccurredTick, entryType, household.related,
+			`, household.id, event.OccurredTick, relationshipGameDay(event), entryType, household.related,
 			string(event.ContractID), string(event.ObligationID), payload); err != nil {
 			return err
 		}
@@ -434,7 +474,7 @@ func persistRelationshipEvent(ctx context.Context, tx pgx.Tx, event relationship
 	queries := sqlcdb.New(tx)
 	rows, err := queries.InsertRelationshipEvent(ctx, sqlcdb.InsertRelationshipEventParams{
 		WorldID: worldID, SourceHouseholdID: sourceID, TargetHouseholdID: targetID,
-		EventType: string(event.Type), TrustDelta: int32(event.TrustDelta), OccurredTick: int64(event.OccurredTick),
+		EventType: string(event.Type), TrustDelta: int32(event.TrustDelta), OccurredTick: int64(event.OccurredTick), OccurredGameDay: relationshipGameDay(event),
 		ContractID: contractID, ShipmentID: string(event.ShipmentID), ObligationID: obligationID,
 		ResourceType: string(event.ResourceType), QuantityMilli: int64(event.QuantityMilli), DueArrivalTick: int64(event.DueArrivalTick),
 		ActualFulfillmentTick: nullableContractTick(event.ActualFulfillmentTick),
@@ -446,6 +486,13 @@ func persistRelationshipEvent(ctx context.Context, tx pgx.Tx, event relationship
 		WorldID: worldID, SourceHouseholdID: sourceID, TargetHouseholdID: targetID,
 		TrustDelta: int32(event.TrustDelta), OccurredTick: pgtype.Int8{Int64: int64(event.OccurredTick), Valid: true},
 	})
+}
+
+func relationshipGameDay(event relationshipdomain.Event) int64 {
+	if event.GameDayBased {
+		return int64(event.OccurredGameDay)
+	}
+	return int64(event.OccurredTick) * 91 / 12
 }
 
 func (s *Store) LoadActiveContractsForRollup(ctx context.Context, tx pgx.Tx, worldID string) ([]port.ContractRollupSnapshot, error) {
@@ -461,7 +508,8 @@ func (s *Store) LoadActiveContractsForRollup(ctx context.Context, tx pgx.Tx, wor
 	values := make([]port.ContractRollupSnapshot, 0, len(rows))
 	for _, row := range rows {
 		value := contractFromRow(row.ID, row.WorldID, row.PartyAHouseholdID, row.PartyBHouseholdID,
-			row.StartsTick, row.EndsTick, row.IntervalTicks, row.Status)
+			row.StartsTick, row.EndsTick, row.IntervalTicks, row.StartGameDay, row.EndGameDay,
+			row.IntervalDays, row.GameDaySchedule, row.Status)
 		value, err = loadContractTerms(ctx, queries, value)
 		if err != nil {
 			return nil, err
@@ -510,7 +558,8 @@ func (s *Store) PersistContractRollup(ctx context.Context, tx pgx.Tx, before, af
 func sameContractExceptStatus(a, b contractdomain.Contract) bool {
 	if a.ID != b.ID || a.ID == "" || a.WorldID != b.WorldID || a.PartyAHouseholdID != b.PartyAHouseholdID ||
 		a.PartyBHouseholdID != b.PartyBHouseholdID || a.StartsTick != b.StartsTick || a.EndsTick != b.EndsTick ||
-		a.IntervalTicks != b.IntervalTicks || len(a.Terms) != len(b.Terms) {
+		a.IntervalTicks != b.IntervalTicks || a.StartGameDay != b.StartGameDay || a.EndGameDay != b.EndGameDay ||
+		a.IntervalDays != b.IntervalDays || len(a.Terms) != len(b.Terms) {
 		return false
 	}
 	for i := range a.Terms {
@@ -519,6 +568,20 @@ func sameContractExceptStatus(a, b contractdomain.Contract) bool {
 		}
 	}
 	return true
+}
+
+func normalizeContractSchedule(value contractdomain.Contract) contractdomain.Contract {
+	if value.IntervalDays > 0 {
+		return value
+	}
+	value.StartGameDay = contractdomain.GameDay(int64(value.StartsTick) * 91 / 12)
+	value.EndGameDay = contractdomain.GameDay(int64(value.EndsTick) * 91 / 12)
+	interval := int64(value.IntervalTicks) * 91 / 12
+	if interval < 1 {
+		interval = 1
+	}
+	value.IntervalDays = interval
+	return value
 }
 
 func (t *contractDispatchTx) LoadForDispatch(ctx context.Context, obligationID contractdomain.ObligationID, _ contractdomain.HouseholdID) (port.ContractDispatchSnapshot, error) {
@@ -535,12 +598,20 @@ func (t *contractDispatchTx) LoadForDispatch(ctx context.Context, obligationID c
 		ID: contractdomain.ObligationID(row.ID), ContractID: contractdomain.ID(row.ContractID),
 		DebtorHouseholdID: contractdomain.HouseholdID(row.DebtorHouseholdID), CreditorHouseholdID: contractdomain.HouseholdID(row.CreditorHouseholdID),
 		ResourceType: contractdomain.ResourceType(row.ResourceCode), QuantityMilli: contractdomain.QuantityMilli(row.QuantityMilli),
-		DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), ShipmentID: shipmentdomain.ID(row.ShipmentID),
+		DueArrivalTick: contractdomain.Tick(row.DueArrivalTick), DueGameDay: contractdomain.GameDay(row.DueGameDay), ShipmentID: shipmentdomain.ID(row.ShipmentID),
 		Status: contractdomain.ObligationStatus(row.Status),
 	}
 	if row.FulfilledTick.Valid {
 		fulfilled := contractdomain.Tick(row.FulfilledTick.Int64)
 		obligation.FulfilledTick = &fulfilled
+	}
+	if row.FulfilledGameDay.Valid {
+		fulfilled := contractdomain.GameDay(row.FulfilledGameDay.Int64)
+		obligation.FulfilledGameDay = &fulfilled
+	}
+	if !row.GameDaySchedule {
+		obligation.DueGameDay = 0
+		obligation.FulfilledGameDay = nil
 	}
 	if err := obligation.Validate(); err != nil {
 		return port.ContractDispatchSnapshot{}, err
@@ -548,14 +619,17 @@ func (t *contractDispatchTx) LoadForDispatch(ctx context.Context, obligationID c
 	snapshot := port.ContractDispatchSnapshot{
 		Obligation: obligation, WorldID: contractdomain.WorldID(row.WorldID), ContractStatus: contractdomain.Status(row.ContractStatus),
 		OriginLocationID: shipmentdomain.LocationID(row.OriginLocationID), DestinationLocationID: shipmentdomain.LocationID(row.DestinationLocationID),
-		CurrentTick: contractdomain.Tick(row.CurrentTick), ProposedShipmentID: shipmentdomain.ID(row.ProposedShipmentID),
+		CurrentTick: contractdomain.Tick(row.CurrentTick), CurrentGameDay: contractdomain.GameDay(row.CurrentGameDay),
+		GameDaysPerTickNum: row.GameDaysPerTickNum, GameDaysPerTickDen: row.GameDaysPerTickDen,
+		GameDaySchedule: row.GameDaySchedule, ProposedShipmentID: shipmentdomain.ID(row.ProposedShipmentID),
 	}
 	if obligation.ShipmentID != "" {
 		shipment, err := scanShipment(t.tx.QueryRow(ctx, `
 			SELECT id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
 			       origin_location_id::text, destination_location_id::text, resource_code,
 			       quantity_milli, departure_tick, expected_arrival_tick,
-			       actual_arrival_tick, transport_cost_milli, status
+			       actual_arrival_tick, departure_game_day, expected_arrival_game_day,
+			       actual_arrival_game_day, transport_cost_milli, status
 			FROM shipments WHERE id = $1::uuid
 		`, obligation.ShipmentID))
 		if err != nil {
@@ -681,6 +755,13 @@ func nullableContractTick(value *contractdomain.Tick) pgtype.Int8 {
 	return pgtype.Int8{Int64: int64(*value), Valid: true}
 }
 
+func nullableContractGameDay(value *contractdomain.GameDay) pgtype.Int8 {
+	if value == nil {
+		return pgtype.Int8{}
+	}
+	return pgtype.Int8{Int64: int64(*value), Valid: true}
+}
+
 func loadContractTerms(ctx context.Context, queries *sqlcdb.Queries, value contractdomain.Contract) (contractdomain.Contract, error) {
 	id, err := uuidParam(string(value.ID))
 	if err != nil {
@@ -704,11 +785,13 @@ func loadContractTerms(ctx context.Context, queries *sqlcdb.Queries, value contr
 	return value, nil
 }
 
-func contractFromRow(id, worldID, partyA, partyB string, starts, ends int64, interval int32, status string) contractdomain.Contract {
+func contractFromRow(id, worldID, partyA, partyB string, starts, ends int64, interval int32,
+	startGameDay, endGameDay int64, intervalDays int32, gameDaySchedule bool, status string) contractdomain.Contract {
 	return contractdomain.Contract{
 		ID: contractdomain.ID(id), WorldID: contractdomain.WorldID(worldID),
 		PartyAHouseholdID: contractdomain.HouseholdID(partyA), PartyBHouseholdID: contractdomain.HouseholdID(partyB),
 		StartsTick: contractdomain.Tick(starts), EndsTick: contractdomain.Tick(ends), IntervalTicks: int64(interval),
+		StartGameDay: contractdomain.GameDay(startGameDay), EndGameDay: contractdomain.GameDay(endGameDay), IntervalDays: int64(intervalDays), GameDaySchedule: gameDaySchedule,
 		Status: contractdomain.Status(status),
 	}
 }

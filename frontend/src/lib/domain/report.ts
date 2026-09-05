@@ -1,20 +1,24 @@
 import { formatMilli, labelResource } from './format';
+import { formatRelativeGameDay } from './time';
 
 type ReportItem = {
 	code: string;
 	severity: string;
 	target?: string;
 	related_id?: string;
-	due_tick?: number;
+	due_game_day?: number;
 	data?: Record<string, unknown>;
 };
 
-export function describeReportItem(item: ReportItem): string {
+export function describeReportItem(item: ReportItem, currentGameDay?: number): string {
 	const data = item.data ?? {};
 	const days = typeof data.supply_days === 'number' ? data.supply_days.toFixed(1) : undefined;
 	const name = typeof data.character_name === 'string' ? data.character_name : 'A household member';
 	const actor = typeof data.actor_name === 'string' ? data.actor_name : 'the Jarl';
-	const due = item.due_tick === undefined ? 'the deadline' : `tick ${item.due_tick}`;
+	const due =
+		item.due_game_day === undefined || currentGameDay === undefined
+			? 'the deadline'
+			: formatRelativeGameDay(currentGameDay, item.due_game_day);
 	const resource =
 		typeof data.resource_type === 'string'
 			? labelResource(data.resource_type).toLowerCase()

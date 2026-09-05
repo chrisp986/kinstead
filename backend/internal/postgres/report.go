@@ -25,7 +25,7 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 		return nil, pgx.ErrNoRows
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT e.id::text, e.occurred_tick, e.entry_type,
+		SELECT e.id::text, e.occurred_tick, e.occurred_game_day, e.entry_type,
 		       e.subject_character_id::text, subject.name,
 		       e.related_household_id::text, related.name,
 		       e.related_shipment_id::text, e.related_assignment_id::text,
@@ -46,7 +46,7 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 	for rows.Next() {
 		var e port.ChronicleEntryRecord
 		var data []byte
-		if err := rows.Scan(&e.ID, &e.OccurredTick, &e.EntryType, &e.SubjectCharacterID, &e.SubjectCharacterName,
+		if err := rows.Scan(&e.ID, &e.OccurredTick, &e.OccurredGameDay, &e.EntryType, &e.SubjectCharacterID, &e.SubjectCharacterName,
 			&e.RelatedHouseholdID, &e.RelatedHouseholdName, &e.RelatedShipmentID, &e.RelatedAssignmentID,
 			&e.RelatedContractID, &e.RelatedObligationID, &e.RelatedHouseholdDecisionID, &e.RelatedPoliticalActorID, &data); err != nil {
 			return nil, err
@@ -61,7 +61,7 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 
 func (s *Store) ListPendingPoliticalDemandsForReport(ctx context.Context, householdID string) ([]port.PoliticalReportDemand, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT d.id::text, a.name, d.expires_tick
+		SELECT d.id::text, a.name, d.expires_tick, d.expires_game_day
 		FROM household_decisions d
 		JOIN world_events e ON e.id=d.world_event_id
 		JOIN political_actors a ON a.id=e.political_actor_id
@@ -74,7 +74,7 @@ func (s *Store) ListPendingPoliticalDemandsForReport(ctx context.Context, househ
 	items := make([]port.PoliticalReportDemand, 0)
 	for rows.Next() {
 		var item port.PoliticalReportDemand
-		if err := rows.Scan(&item.ID, &item.ActorName, &item.ExpiresTick); err != nil {
+		if err := rows.Scan(&item.ID, &item.ActorName, &item.ExpiresTick, &item.ExpiresGameDay); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -84,7 +84,8 @@ func (s *Store) ListPendingPoliticalDemandsForReport(ctx context.Context, househ
 
 func (s *Store) ListContractObligationsForReport(ctx context.Context, householdID string) ([]port.ContractReportObligation, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT o.id::text, o.resource_code, o.quantity_milli, o.due_arrival_tick, s.expected_arrival_tick
+		SELECT o.id::text, o.resource_code, o.quantity_milli, o.due_arrival_tick,
+		       s.expected_arrival_tick, o.due_game_day, s.expected_arrival_game_day
 		FROM contract_obligations o
 		JOIN contracts c ON c.id=o.contract_id
 		LEFT JOIN shipments s ON s.id=o.shipment_id
@@ -97,11 +98,12 @@ func (s *Store) ListContractObligationsForReport(ctx context.Context, householdI
 	items := make([]port.ContractReportObligation, 0)
 	for rows.Next() {
 		var item port.ContractReportObligation
-		var expected *int64
-		if err := rows.Scan(&item.ID, &item.ResourceType, &item.QuantityMilli, &item.DueArrivalTick, &expected); err != nil {
+		var expected, expectedGameDay *int64
+		if err := rows.Scan(&item.ID, &item.ResourceType, &item.QuantityMilli, &item.DueArrivalTick, &expected, &item.DueGameDay, &expectedGameDay); err != nil {
 			return nil, err
 		}
 		item.ExpectedArrivalTick = expected
+		item.ExpectedArrivalGameDay = expectedGameDay
 		items = append(items, item)
 	}
 	return items, rows.Err()

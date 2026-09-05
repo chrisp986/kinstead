@@ -28,15 +28,33 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await page.getByRole('link', { name: 'Trade' }).click();
 	await expect(page).toHaveURL(/\/trade$/);
 	await page.getByRole('button', { name: 'Buy for delivery' }).click();
-	await expect(page.getByRole('status')).toContainText('Shipment is expected at tick 2');
+	await expect(page.getByRole('status')).toContainText('shipment is on its way');
 	await expect(page.getByRole('heading', { name: 'Shipments' })).toBeVisible();
 
 	// Flow D: accept and dispatch a contract, then inspect Transit.
+	await page.getByRole('button', { name: /Propose recurring delivery/ }).click();
+	await page.getByRole('button', { name: 'Send proposal' }).click();
+	await expect(page.getByRole('status')).toContainText('Contract proposal sent');
 	await page.getByRole('button', { name: 'Accept promise' }).click();
 	await expect(page.getByRole('status')).toContainText('Contract accepted');
+
+	// The accepted schedule is projected into both calendar action and due events.
+	await page.getByRole('link', { name: 'Calendar', exact: true }).click();
+	await expect(page).toHaveURL(/\/calendar$/);
+	await expect(page.getByText('Dispatch shipment')).toBeVisible();
+	await expect(page.getByText('Delivery due')).toBeVisible();
+	await page.getByRole('tab', { name: 'Year cycle' }).click();
+	await expect(page.getByRole('heading', { name: 'Year cycle' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Summer half' })).toBeVisible();
+	await expect(page.locator('body')).not.toContainText(/(?:game_day|current_tick|\btick\b)/i);
+	await page.getByRole('tab', { name: 'Upcoming' }).click();
+	await page.getByRole('link', { name: 'Trade', exact: true }).click();
 	await page.getByRole('button', { name: 'Dispatch goods' }).click();
-	await expect(page.getByRole('status')).toContainText('Shipment dispatched for arrival at tick 2');
+	await expect(page.getByRole('status')).toContainText('Shipment dispatched. It is on the way.');
 	await expect(page.getByText('In transit').first()).toBeVisible();
+	await page.getByRole('link', { name: 'Calendar', exact: true }).click();
+	await expect(page.getByText('Shipment expected')).toBeVisible();
+	await expect(page.getByText('Dispatch shipment')).toHaveCount(0);
 
 	await page.getByRole('link', { name: 'Chronicle', exact: true }).click();
 	await expect(page).toHaveURL(/\/chronicle$/);

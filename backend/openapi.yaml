@@ -374,7 +374,7 @@ components:
         severity: { type: string, enum: [info, warning, critical] }
         target: { type: string, enum: [work, trade, contracts, politics, farm] }
         related_id: { type: string }
-        due_tick: { type: integer, format: int64 }
+        due_game_day: { type: integer, format: int64 }
         data: { type: object, additionalProperties: true }
     ReportChangeWindow:
       type: object
@@ -395,15 +395,15 @@ components:
         specialization: { type: string }
     Assignment:
       type: object
-      required: [id, character_id, character, activity, intensity, starts_tick, ends_tick, status]
+      required: [id, character_id, character, activity, intensity, status]
       properties:
         id: { type: string, format: uuid }
         character_id: { type: string, format: uuid }
         character: { type: string }
         activity: { type: string }
         intensity: { type: string }
-        starts_tick: { type: integer, format: int64 }
-        ends_tick: { type: integer, format: int64 }
+        starts_game_day: { type: integer, format: int64 }
+        ends_game_day: { type: integer, format: int64 }
         status: { type: string }
     HouseholdReport:
       type: object
@@ -442,33 +442,54 @@ components:
           items: { $ref: '#/components/schemas/ReportItem' }
     CalendarBreakdown:
       type: object
-      required: [game_day, year_index, day_of_year, week_of_year, day_of_week, production_season, half_year, seasonal_phase]
+      required: [game_day, year_index, day_of_year, week_of_year, week_of_half, day_of_week, production_season, half_year, seasonal_phase, phase]
       properties:
         game_day: { type: integer, format: int64 }
         year_index: { type: integer, format: int64 }
         day_of_year: { type: integer, format: int64 }
         week_of_year: { type: integer, format: int64 }
+        week_of_half: { type: integer, format: int64 }
         day_of_week: { type: integer, format: int64 }
         production_season: { type: string, enum: [spring, summer, autumn, winter] }
         half_year: { type: string, enum: [summer, winter] }
         seasonal_phase: { type: string }
+        phase: { type: string }
     CalendarEvent:
       type: object
-      required: [id, game_day, category, kind, title]
+      required: [id, game_day, category, kind, importance, action_required, title]
       properties:
         id: { type: string }
         game_day: { type: integer, format: int64 }
         category: { type: string }
-        kind: { type: string }
+        kind:
+          type: string
+          enum: [season_start, festival, harvest, delivery_due, dispatch_deadline, shipment_arrival, political_deadline, assignment_end, assembly]
         title: { type: string }
+        end_game_day: { type: integer, format: int64 }
+        importance: { type: string, enum: [critical, important, context] }
+        action_required: { type: boolean }
+        related_id: { type: string, format: uuid }
+        resource_type: { type: string }
+        quantity_milli: { type: integer, format: int64 }
+        counterparty_household_id: { type: string, format: uuid }
+        counterparty_household_name: { type: string }
+        status: { type: string }
     CalendarProjection:
       type: object
-      required: [household_id, world_id, setting_start_year, current, from_game_day, to_game_day, events]
+      required: [household_id, world_id, setting_start_year, current_game_day, calendar, next_half_year, from_game_day, to_game_day, events]
       properties:
         household_id: { type: string, format: uuid }
         world_id: { type: string, format: uuid }
         setting_start_year: { type: integer }
-        current: { $ref: '#/components/schemas/CalendarBreakdown' }
+        current_game_day: { type: integer, format: int64 }
+        calendar: { $ref: '#/components/schemas/CalendarBreakdown' }
+        next_half_year:
+          type: object
+          required: [type, game_day, days_until]
+          properties:
+            type: { type: string, enum: [summer, winter] }
+            game_day: { type: integer, format: int64 }
+            days_until: { type: integer, format: int64 }
         from_game_day: { type: integer, format: int64 }
         to_game_day: { type: integer, format: int64 }
         events:
@@ -477,7 +498,7 @@ components:
     Shipment:
       type: object
       required:
-        [id, world_id, sender_household_id, receiver_household_id, origin_location_id, destination_location_id, resource_type, quantity_milli, departure_tick, expected_arrival_tick, transport_cost_milli, status]
+        [id, world_id, sender_household_id, receiver_household_id, origin_location_id, destination_location_id, resource_type, quantity_milli, departure_game_day, expected_arrival_game_day, transport_cost_milli, status]
       properties:
         id: { type: string, format: uuid }
         world_id: { type: string, format: uuid }
@@ -487,17 +508,17 @@ components:
         destination_location_id: { type: string, format: uuid }
         resource_type: { type: string }
         quantity_milli: { type: integer, format: int64 }
-        departure_tick: { type: integer, format: int64 }
-        expected_arrival_tick: { type: integer, format: int64 }
-        actual_arrival_tick: { type: integer, format: int64 }
+        departure_game_day: { type: integer, format: int64 }
+        expected_arrival_game_day: { type: integer, format: int64 }
+        actual_arrival_game_day: { type: integer, format: int64 }
         transport_cost_milli: { type: integer, format: int64 }
         status: { type: string, enum: [prepared, in_transit, arrived, cancelled] }
     ChronicleEntry:
       type: object
-      required: [id, occurred_tick, entry_type, data]
+      required: [id, occurred_game_day, entry_type, data]
       properties:
         id: { type: string, format: uuid }
-        occurred_tick: { type: integer, format: int64 }
+        occurred_game_day: { type: integer, format: int64 }
         entry_type: { type: string }
         subject_character_id: { type: string, format: uuid }
         subject_character_name: { type: string }
@@ -514,7 +535,7 @@ components:
           additionalProperties: true
     RelationshipEvent:
       type: object
-      required: [id, event_type, trust_delta, occurred_tick, data]
+      required: [id, event_type, trust_delta, occurred_tick, occurred_game_day, data]
       properties:
         id: { type: string, format: uuid }
         event_type:
@@ -522,6 +543,7 @@ components:
           enum: [contract_obligation_fulfilled, contract_obligation_late, contract_obligation_broken]
         trust_delta: { type: integer }
         occurred_tick: { type: integer, format: int64 }
+        occurred_game_day: { type: integer, format: int64 }
         related_contract_id: { type: string, format: uuid }
         related_shipment_id: { type: string, format: uuid }
         related_obligation_id: { type: string, format: uuid }
@@ -565,7 +587,7 @@ components:
         standing: { type: string, enum: [disapproving, neutral, favorable, connected] }
     PoliticalDecision:
       type: object
-      required: [id, demand_type, status, actor_id, actor_name, actor_type, available_from_tick, expires_tick, options]
+      required: [id, demand_type, status, actor_id, actor_name, actor_type, available_from_tick, expires_tick, available_from_game_day, expires_game_day, options]
       properties:
         id: { type: string, format: uuid }
         demand_type: { type: string, enum: [political_labor_service, political_levy] }
@@ -575,6 +597,8 @@ components:
         actor_type: { type: string }
         available_from_tick: { type: integer, format: int64 }
         expires_tick: { type: integer, format: int64 }
+        available_from_game_day: { type: integer, format: int64 }
+        expires_game_day: { type: integer, format: int64 }
         selected_option: { type: string }
         standing_delta: { type: integer }
         parameters: { type: object, additionalProperties: true }
@@ -619,7 +643,7 @@ components:
     ContractObligation:
       type: object
       required:
-        [id, contract_id, debtor_household_id, creditor_household_id, resource_type, quantity_milli, due_arrival_tick, status]
+        [id, contract_id, debtor_household_id, creditor_household_id, resource_type, quantity_milli, due_game_day, status]
       properties:
         id: { type: string, format: uuid }
         contract_id: { type: string, format: uuid }
@@ -627,22 +651,24 @@ components:
         creditor_household_id: { type: string, format: uuid }
         resource_type: { type: string }
         quantity_milli: { type: integer, format: int64 }
-        due_arrival_tick: { type: integer, format: int64 }
+        due_game_day: { type: integer, format: int64 }
+        latest_dispatch_game_day: { type: integer, format: int64 }
         shipment_id: { type: string, format: uuid }
         status: { type: string, enum: [pending, dispatched, fulfilled, late, broken] }
-        fulfilled_tick: { type: integer, format: int64 }
+        fulfilled_game_day: { type: integer, format: int64 }
     Contract:
       type: object
       required:
-        [id, world_id, party_a_household_id, party_b_household_id, starts_tick, ends_tick, interval_ticks, status, terms, obligations]
+        [id, world_id, party_a_household_id, party_b_household_id, start_game_day, end_game_day, interval_days, interval, status, terms, obligations]
       properties:
         id: { type: string, format: uuid }
         world_id: { type: string, format: uuid }
         party_a_household_id: { type: string, format: uuid }
         party_b_household_id: { type: string, format: uuid }
-        starts_tick: { type: integer, format: int64 }
-        ends_tick: { type: integer, format: int64 }
-        interval_ticks: { type: integer, format: int64, minimum: 1 }
+        start_game_day: { type: integer, format: int64 }
+        end_game_day: { type: integer, format: int64 }
+        interval_days: { type: integer, format: int64, enum: [7, 14, 28] }
+        interval: { type: string }
         status: { type: string, enum: [proposed, active, completed, rejected, cancelled, broken] }
         terms:
           type: array
@@ -652,13 +678,19 @@ components:
           items: { $ref: '#/components/schemas/ContractObligation' }
     ProposeContractIntent:
       type: object
-      required: [proposer_household_id, counterparty_household_id, starts_tick, ends_tick, interval_ticks, terms]
+      required: [proposer_household_id, counterparty_household_id, first_due_game_day, interval_days, end_condition, terms]
       properties:
         proposer_household_id: { type: string, format: uuid }
         counterparty_household_id: { type: string, format: uuid }
-        starts_tick: { type: integer, format: int64 }
-        ends_tick: { type: integer, format: int64 }
-        interval_ticks: { type: integer, format: int64, minimum: 1 }
+        first_due_game_day: { type: integer, format: int64, minimum: 1 }
+        interval_days: { type: integer, format: int64, enum: [7, 14, 28] }
+        end_condition:
+          type: object
+          required: [type]
+          properties:
+            type: { type: string, enum: [fixed_delivery_count, fixed_game_day, winter_start, summer_start] }
+            game_day: { type: integer, format: int64 }
+            delivery_count: { type: integer, minimum: 1 }
         terms:
           type: array
           minItems: 1

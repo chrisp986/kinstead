@@ -168,7 +168,9 @@ func (s *Store) LoadDueShipments(ctx context.Context, tx pgx.Tx, worldID string,
 	for _, row := range rows {
 		value := shipmentFromSQLC(row.ID, row.WorldID, row.SenderHouseholdID, row.ReceiverHouseholdID,
 			row.OriginLocationID, row.DestinationLocationID, row.ResourceCode, row.QuantityMilli,
-			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick, row.TransportCostMilli, row.Status)
+			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick,
+			row.DepartureGameDay, row.ExpectedArrivalGameDay, row.ActualArrivalGameDay,
+			row.TransportCostMilli, row.Status)
 		if err := value.Validate(); err != nil {
 			return nil, fmt.Errorf("shipment %s: %w", value.ID, err)
 		}
@@ -196,7 +198,8 @@ func (s *Store) PersistShipmentArrival(ctx context.Context, tx pgx.Tx, value shi
 		return false, err
 	}
 	_, err = sqlcdb.New(tx).MarkShipmentArrived(ctx, sqlcdb.MarkShipmentArrivedParams{
-		Column1: shipmentID, ActualArrivalTick: pgtype.Int8{Int64: int64(*value.ActualArrivalTick), Valid: true}, Column3: worldID,
+		Column1: shipmentID, ActualArrivalTick: pgtype.Int8{Int64: int64(*value.ActualArrivalTick), Valid: true},
+		ActualArrivalGameDay: nullableShipmentGameDay(value.ActualArrivalGameDay), Column3: worldID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -244,9 +247,9 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
 	}
 	defer tx.Rollback(ctx)
 
-	var currentTick int64
+	var currentTick, currentGameDay, rateNumerator, rateDenominator int64
 	err = tx.QueryRow(ctx, `
-        SELECT w.current_tick
+        SELECT w.current_tick, w.current_game_day, w.game_days_per_tick_num, w.game_days_per_tick_den
         FROM worlds w
         JOIN households sender
           ON sender.id = $2::uuid AND sender.world_id = w.id AND sender.location_id = $4::uuid
@@ -257,8 +260,9 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
         JOIN resource_types resource ON resource.code = $6
         WHERE w.id = $1::uuid
         FOR UPDATE OF w, sender, receiver
-    `, value.WorldID, value.SenderHouseholdID, value.ReceiverHouseholdID,
-		value.OriginLocationID, value.DestinationLocationID, value.ResourceType).Scan(&currentTick)
+	`, value.WorldID, value.SenderHouseholdID, value.ReceiverHouseholdID,
+		value.OriginLocationID, value.DestinationLocationID, value.ResourceType).Scan(
+		&currentTick, &currentGameDay, &rateNumerator, &rateDenominator)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return shipmentdomain.Shipment{}, ErrInvalidShipmentReferences
 	}
@@ -267,6 +271,18 @@ func (s *Store) CreateShipment(ctx context.Context, value shipmentdomain.Shipmen
 	}
 	if shipmentdomain.Tick(currentTick) != value.DepartureTick {
 		return shipmentdomain.Shipment{}, ErrShipmentTickConflict
+	}
+	if value.DepartureGameDay == 0 && currentGameDay != 0 {
+		value.DepartureGameDay = shipmentdomain.GameDay(currentGameDay)
+	}
+	if value.ExpectedArrivalGameDay == 0 {
+		travelTicks := int64(value.ExpectedArrivalTick - value.DepartureTick)
+		if travelTicks > 0 && rateNumerator > 0 && rateDenominator > 0 {
+			travelDays := (travelTicks*rateNumerator + rateDenominator - 1) / rateDenominator
+			value.ExpectedArrivalGameDay = shipmentdomain.GameDay(currentGameDay + travelDays)
+		} else {
+			value.ExpectedArrivalGameDay = shipmentdomain.GameDay(currentGameDay)
+		}
 	}
 
 	tag, err := tx.Exec(ctx, `
@@ -297,18 +313,21 @@ func (s *Store) insertShipment(ctx context.Context, tx pgx.Tx, value shipmentdom
             id, world_id, sender_household_id, receiver_household_id,
             origin_location_id, destination_location_id, resource_code,
             quantity_milli, departure_tick, expected_arrival_tick,
+            departure_game_day, expected_arrival_game_day,
             transport_cost_milli, status
         ) VALUES (
             COALESCE(NULLIF($1::text, '')::uuid, gen_random_uuid()), $2::uuid, $3::uuid, $4::uuid,
-            $5::uuid, $6::uuid, $7, $8, $9, $10, $11, 'in_transit'
+            $5::uuid, $6::uuid, $7, $8, $9, $10, $11, $12, $13, 'in_transit'
         )
         RETURNING id::text, world_id::text, sender_household_id::text, receiver_household_id::text,
                   origin_location_id::text, destination_location_id::text, resource_code,
                   quantity_milli, departure_tick, expected_arrival_tick,
-                  actual_arrival_tick, transport_cost_milli, status
+                  actual_arrival_tick, departure_game_day, expected_arrival_game_day,
+                  actual_arrival_game_day, transport_cost_milli, status
     `, value.ID, value.WorldID, value.SenderHouseholdID, value.ReceiverHouseholdID,
 		value.OriginLocationID, value.DestinationLocationID, value.ResourceType,
-		value.QuantityMilli, value.DepartureTick, value.ExpectedArrivalTick, value.TransportCostMilli))
+		value.QuantityMilli, value.DepartureTick, value.ExpectedArrivalTick,
+		value.DepartureGameDay, value.ExpectedArrivalGameDay, value.TransportCostMilli))
 }
 
 func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) ([]ShipmentRecord, error) {
@@ -332,7 +351,9 @@ func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) 
 	for _, row := range rows {
 		value := shipmentFromSQLC(row.ID, row.WorldID, row.SenderHouseholdID, row.ReceiverHouseholdID,
 			row.OriginLocationID, row.DestinationLocationID, row.ResourceCode, row.QuantityMilli,
-			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick, row.TransportCostMilli, row.Status)
+			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick,
+			row.DepartureGameDay, row.ExpectedArrivalGameDay, row.ActualArrivalGameDay,
+			row.TransportCostMilli, row.Status)
 		records = append(records, shipmentRecord(value))
 	}
 	return records, nil
@@ -353,7 +374,8 @@ func (s *Store) CancelShipment(ctx context.Context, shipmentID shipmentdomain.ID
 		SELECT s.id::text, s.world_id::text, s.sender_household_id::text, s.receiver_household_id::text,
 		       s.origin_location_id::text, s.destination_location_id::text, s.resource_code,
 		       s.quantity_milli, s.departure_tick, s.expected_arrival_tick,
-		       s.actual_arrival_tick, s.transport_cost_milli, s.status
+		       s.actual_arrival_tick, s.departure_game_day, s.expected_arrival_game_day,
+		       s.actual_arrival_game_day, s.transport_cost_milli, s.status
 		FROM shipments s
 		JOIN worlds w ON w.id = s.world_id
 		WHERE s.id = $1::uuid
@@ -443,13 +465,21 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+func nullableShipmentGameDay(value *shipmentdomain.GameDay) pgtype.Int8 {
+	if value == nil {
+		return pgtype.Int8{}
+	}
+	return pgtype.Int8{Int64: int64(*value), Valid: true}
+}
+
 func scanShipment(row rowScanner) (shipmentdomain.Shipment, error) {
 	var record ShipmentRecord
 	if err := row.Scan(
 		&record.ID, &record.WorldID, &record.SenderHouseholdID, &record.ReceiverHouseholdID,
 		&record.OriginLocationID, &record.DestinationLocationID, &record.ResourceType,
 		&record.QuantityMilli, &record.DepartureTick, &record.ExpectedArrivalTick,
-		&record.ActualArrivalTick, &record.TransportCostMilli, &record.Status,
+		&record.ActualArrivalTick, &record.DepartureGameDay, &record.ExpectedArrivalGameDay,
+		&record.ActualArrivalGameDay, &record.TransportCostMilli, &record.Status,
 	); err != nil {
 		return shipmentdomain.Shipment{}, err
 	}
@@ -457,6 +487,11 @@ func scanShipment(row rowScanner) (shipmentdomain.Shipment, error) {
 	if record.ActualArrivalTick != nil {
 		v := shipmentdomain.Tick(*record.ActualArrivalTick)
 		actual = &v
+	}
+	var actualGameDay *shipmentdomain.GameDay
+	if record.ActualArrivalGameDay != nil {
+		v := shipmentdomain.GameDay(*record.ActualArrivalGameDay)
+		actualGameDay = &v
 	}
 	return shipmentdomain.Shipment{
 		ID: shipmentdomain.ID(record.ID), WorldID: shipmentdomain.WorldID(record.WorldID),
@@ -468,18 +503,30 @@ func scanShipment(row rowScanner) (shipmentdomain.Shipment, error) {
 		QuantityMilli:         shipmentdomain.QuantityMilli(record.QuantityMilli),
 		DepartureTick:         shipmentdomain.Tick(record.DepartureTick),
 		ExpectedArrivalTick:   shipmentdomain.Tick(record.ExpectedArrivalTick),
-		ActualArrivalTick:     actual, TransportCostMilli: shipmentdomain.MoneyMilli(record.TransportCostMilli),
-		Status: shipmentdomain.Status(record.Status),
+		ActualArrivalTick:     actual, DepartureGameDay: shipmentdomain.GameDay(record.DepartureGameDay),
+		ExpectedArrivalGameDay: shipmentdomain.GameDay(record.ExpectedArrivalGameDay), ActualArrivalGameDay: actualGameDay,
+		TransportCostMilli: shipmentdomain.MoneyMilli(record.TransportCostMilli),
+		Status:             shipmentdomain.Status(record.Status),
 	}, nil
 }
 
 func shipmentFromSQLC(id, worldID, senderID, receiverID, originID, destinationID, resource string,
-	quantity, departure, expected int64, actualValue pgtype.Int8, transport int64, status string,
+	quantity, departure, expected int64, actualValue pgtype.Int8, departureGameDayValue pgtype.Int8, expectedArrivalGameDay int64,
+	actualGameDayValue pgtype.Int8, transport int64, status string,
 ) shipmentdomain.Shipment {
+	departureGameDay := int64(0)
+	if departureGameDayValue.Valid {
+		departureGameDay = departureGameDayValue.Int64
+	}
 	var actual *shipmentdomain.Tick
 	if actualValue.Valid {
 		value := shipmentdomain.Tick(actualValue.Int64)
 		actual = &value
+	}
+	var actualGameDay *shipmentdomain.GameDay
+	if actualGameDayValue.Valid {
+		value := shipmentdomain.GameDay(actualGameDayValue.Int64)
+		actualGameDay = &value
 	}
 	return shipmentdomain.Shipment{
 		ID: shipmentdomain.ID(id), WorldID: shipmentdomain.WorldID(worldID),
@@ -487,7 +534,9 @@ func shipmentFromSQLC(id, worldID, senderID, receiverID, originID, destinationID
 		OriginLocationID: shipmentdomain.LocationID(originID), DestinationLocationID: shipmentdomain.LocationID(destinationID),
 		ResourceType: shipmentdomain.ResourceType(resource), QuantityMilli: shipmentdomain.QuantityMilli(quantity),
 		DepartureTick: shipmentdomain.Tick(departure), ExpectedArrivalTick: shipmentdomain.Tick(expected),
-		ActualArrivalTick: actual, TransportCostMilli: shipmentdomain.MoneyMilli(transport), Status: shipmentdomain.Status(status),
+		ActualArrivalTick: actual, DepartureGameDay: shipmentdomain.GameDay(departureGameDay),
+		ExpectedArrivalGameDay: shipmentdomain.GameDay(expectedArrivalGameDay), ActualArrivalGameDay: actualGameDay,
+		TransportCostMilli: shipmentdomain.MoneyMilli(transport), Status: shipmentdomain.Status(status),
 	}
 }
 
@@ -497,13 +546,20 @@ func shipmentRecord(value shipmentdomain.Shipment) ShipmentRecord {
 		v := int64(*value.ActualArrivalTick)
 		actual = &v
 	}
+	var actualGameDay *int64
+	if value.ActualArrivalGameDay != nil {
+		v := int64(*value.ActualArrivalGameDay)
+		actualGameDay = &v
+	}
 	return ShipmentRecord{
 		ID: string(value.ID), WorldID: string(value.WorldID),
 		SenderHouseholdID: string(value.SenderHouseholdID), ReceiverHouseholdID: string(value.ReceiverHouseholdID),
 		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
 		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
 		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
-		ActualArrivalTick: actual, TransportCostMilli: int64(value.TransportCostMilli), Status: string(value.Status),
+		ActualArrivalTick: actual, DepartureGameDay: int64(value.DepartureGameDay),
+		ExpectedArrivalGameDay: int64(value.ExpectedArrivalGameDay), ActualArrivalGameDay: actualGameDay,
+		TransportCostMilli: int64(value.TransportCostMilli), Status: string(value.Status),
 	}
 }
 
@@ -611,6 +667,8 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 			aRows.Close()
 			return snap, nil, err
 		}
+		ar.StartsGameDay = gameDayAtTick(snap, ar.StartsTick)
+		ar.EndsGameDay = gameDayAtTick(snap, ar.EndsTick)
 		snap.Assignments = append(snap.Assignments, ar)
 		assignments = append(assignments, simulation.Assignment{
 			Character: ar.Character,
@@ -778,9 +836,9 @@ func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim
             calendar_remainder = $5,
             next_tick_at = next_tick_at + (tick_duration_seconds * interval '1 second'),
             updated_at = now()
-        WHERE id = $1::uuid AND current_tick = $3
-          AND current_game_day = $6
-          AND calendar_remainder = $7
+		WHERE id = $1::uuid AND current_tick = $3::bigint
+		  AND current_game_day = $6::bigint
+		  AND calendar_remainder = $7::bigint
 	`, world.ID, tick, world.CurrentTick, gameDay, remainder, world.CurrentGameDay, world.CalendarRemainder)
 	if err != nil {
 		return err
@@ -892,6 +950,8 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 			rows.Close()
 			return snap, nil, err
 		}
+		ar.StartsGameDay = gameDayAtTick(snap, ar.StartsTick)
+		ar.EndsGameDay = gameDayAtTick(snap, ar.EndsTick)
 		snap.Assignments = append(snap.Assignments, ar)
 		if ar.StartsTick <= tick && ar.EndsTick >= tick {
 			assignments = append(assignments, simulation.Assignment{Character: ar.Character, Activity: simulation.Activity(ar.Activity), Intensity: simulation.Intensity(ar.Intensity)})
@@ -906,6 +966,17 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	return snap, assignments, nil
 }
 
+func gameDayAtTick(snap HouseholdSnapshot, tick int64) int64 {
+	delta := tick - snap.CurrentTick
+	if snap.GameDaysPerTickNum <= 0 || snap.GameDaysPerTickDen <= 0 {
+		return snap.CurrentGameDay
+	}
+	if delta >= 0 {
+		return snap.CurrentGameDay + (snap.CalendarRemainder+delta*snap.GameDaysPerTickNum)/snap.GameDaysPerTickDen
+	}
+	return snap.CurrentGameDay - ((-delta)*snap.GameDaysPerTickNum-snap.CalendarRemainder+snap.GameDaysPerTickDen-1)/snap.GameDaysPerTickDen
+}
+
 func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, activity, intensity string, startsTick, endsTick int64) (AssignmentRecord, error) {
 	tx, err := s.Begin(ctx)
 	if err != nil {
@@ -913,22 +984,24 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 	}
 	defer tx.Rollback(ctx)
 
-	var currentTick int64
+	var snap HouseholdSnapshot
 	var characterName string
 	// Lock the world row so worker ticks and work-plan writes serialize cleanly.
 	err = tx.QueryRow(ctx, `
-        SELECT w.current_tick, c.name
+		SELECT w.current_tick, w.current_game_day, w.calendar_remainder,
+		       w.game_days_per_tick_num, w.game_days_per_tick_den, c.name
         FROM households h
         JOIN worlds w ON w.id=h.world_id
         JOIN characters c ON c.household_id=h.id AND c.id=$2::uuid
         WHERE h.id=$1::uuid
         FOR UPDATE OF w
-    `, householdID, characterID).Scan(&currentTick, &characterName)
+	`, householdID, characterID).Scan(&snap.CurrentTick, &snap.CurrentGameDay, &snap.CalendarRemainder,
+		&snap.GameDaysPerTickNum, &snap.GameDaysPerTickDen, &characterName)
 	if err != nil {
 		return AssignmentRecord{}, err
 	}
-	if startsTick <= currentTick {
-		return AssignmentRecord{}, fmt.Errorf("starts_tick must be greater than current tick %d", currentTick)
+	if startsTick <= snap.CurrentTick {
+		return AssignmentRecord{}, fmt.Errorf("starts_tick must be greater than current tick %d", snap.CurrentTick)
 	}
 
 	type emergencyOverlap struct{ id, activity string }
@@ -949,7 +1022,7 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 			rows.Close()
 			return AssignmentRecord{}, err
 		}
-		if source == "emergency" && existingStart > currentTick {
+		if source == "emergency" && existingStart > snap.CurrentTick {
 			emergency = append(emergency, emergencyOverlap{id: id, activity: activity})
 		} else {
 			blocking = true
@@ -979,6 +1052,8 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 	if err != nil {
 		return AssignmentRecord{}, err
 	}
+	out.StartsGameDay = gameDayAtTick(snap, out.StartsTick)
+	out.EndsGameDay = gameDayAtTick(snap, out.EndsTick)
 	if _, err := tx.Exec(ctx, `
         INSERT INTO chronicle_entries(
             household_id, occurred_tick, entry_type, subject_character_id,
@@ -992,7 +1067,7 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
                 'ends_tick', $8::bigint
             )
         )
-	`, householdID, currentTick, characterID, out.ID, activity, intensity, startsTick, endsTick); err != nil {
+	`, householdID, snap.CurrentTick, characterID, out.ID, activity, intensity, startsTick, endsTick); err != nil {
 		return AssignmentRecord{}, err
 	}
 	for _, value := range emergency {
@@ -1000,7 +1075,7 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 			INSERT INTO chronicle_entries(household_id, occurred_tick, entry_type, subject_character_id, data)
 			VALUES ($1::uuid,$2,'emergency_work_overridden',$3::uuid,
 				jsonb_build_object('character_id',$3::text,'emergency_activity',$4::text,'replacement_activity',$5::text,'starts_tick',$6::bigint))
-			ON CONFLICT DO NOTHING`, householdID, currentTick, characterID, value.activity, activity, startsTick); err != nil {
+			ON CONFLICT DO NOTHING`, householdID, snap.CurrentTick, characterID, value.activity, activity, startsTick); err != nil {
 			return AssignmentRecord{}, err
 		}
 	}

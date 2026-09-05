@@ -11,8 +11,6 @@ export function describeChronicleEntry(entry: ChronicleEntry): ChronicleDescript
 	const quantity = dataInteger(entry, 'quantity_milli');
 	const cost = dataInteger(entry, 'cost_milli');
 	const activity = dataString(entry, 'activity');
-	const startsTick = dataInteger(entry, 'starts_tick');
-	const endsTick = dataInteger(entry, 'ends_tick');
 	const person = entry.subject_character_name ?? 'A household member';
 	const otherHousehold = entry.related_household_name ?? 'another household';
 	const trustDelta = dataInteger(entry, 'trust_delta');
@@ -23,7 +21,7 @@ export function describeChronicleEntry(entry: ChronicleEntry): ChronicleDescript
 		case 'assignment_scheduled':
 			return {
 				title: 'Work scheduled',
-				detail: `${person} was assigned to ${activityLabel(activity)}${tickRange(startsTick, endsTick)}.`
+				detail: `${person} was assigned to ${activityLabel(activity)}.`
 			};
 		case 'assignment_completed':
 			return {
@@ -68,7 +66,7 @@ export function describeChronicleEntry(entry: ChronicleEntry): ChronicleDescript
 		case 'contract_shipment_dispatched':
 			return {
 				title: 'Promise dispatched',
-				detail: `${resourceAmount(quantity, resource)} was dispatched to ${otherHousehold}${tickRange(startsTick, dataInteger(entry, 'expected_arrival_tick'))}.`
+				detail: `${resourceAmount(quantity, resource)} was dispatched to ${otherHousehold}.`
 			};
 		case 'contract_obligation_fulfilled':
 			return {
@@ -88,7 +86,7 @@ export function describeChronicleEntry(entry: ChronicleEntry): ChronicleDescript
 		case 'political_demand_received':
 			return {
 				title: 'Jarl demand received',
-				detail: `${actor} requested ${dataString(entry, 'demand_type') === 'political_labor_service' ? 'labor service' : 'a levy'}. Respond before tick ${dataInteger(entry, 'deadline_tick') ?? 'the deadline'}.`
+				detail: `${actor} requested ${dataString(entry, 'demand_type') === 'political_labor_service' ? 'labor service' : 'a levy'}. Respond before the deadline.`
 			};
 		case 'political_demand_resolved':
 			return {
@@ -103,7 +101,7 @@ export function describeChronicleEntry(entry: ChronicleEntry): ChronicleDescript
 		case 'emergency_food_work_scheduled':
 			return {
 				title: 'Emergency work scheduled',
-				detail: `${person} was assigned to ${activityLabel(activity)} for supplies${tickRange(startsTick, endsTick)}.`
+				detail: `${person} was assigned to ${activityLabel(activity)} for supplies.`
 			};
 		case 'emergency_work_overridden':
 			return {
@@ -149,21 +147,16 @@ function deltaPhrase(delta: number | undefined, noun = 'trust'): string {
 
 function arrivalPhrase(entry: ChronicleEntry): string {
 	const actual =
-		dataInteger(entry, 'actual_arrival_tick') ?? dataInteger(entry, 'actual_fulfillment_tick');
-	return actual === undefined ? '' : ` on tick ${actual}`;
+		dataInteger(entry, 'actual_arrival_game_day') ??
+		dataInteger(entry, 'actual_fulfillment_game_day');
+	return actual === undefined ? '' : ' on time';
 }
 
 function latePhrase(entry: ChronicleEntry): string {
-	const due = dataInteger(entry, 'due_arrival_tick');
+	const due = dataInteger(entry, 'due_game_day');
 	const actual =
-		dataInteger(entry, 'actual_arrival_tick') ?? dataInteger(entry, 'actual_fulfillment_tick');
-	if (due !== undefined && actual !== undefined) return `on tick ${actual}, due on tick ${due}`;
+		dataInteger(entry, 'actual_arrival_game_day') ??
+		dataInteger(entry, 'actual_fulfillment_game_day');
+	if (due !== undefined && actual !== undefined) return 'after the due date';
 	return 'late';
-}
-
-function tickRange(startsTick: number | undefined, endsTick: number | undefined): string {
-	if (startsTick === undefined || endsTick === undefined) return '';
-	return startsTick === endsTick
-		? ` on tick ${startsTick}`
-		: ` for ticks ${startsTick}–${endsTick}`;
 }

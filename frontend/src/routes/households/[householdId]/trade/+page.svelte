@@ -30,12 +30,16 @@
 			relationships={data.relationships}
 			offers={data.offers}
 			householdId={data.report.household_id}
-			currentTick={data.report.tick}
+			currentGameDay={data.report.game_day}
 			feedback={form}
 		/>
 	</div>
 	<div id="transit">
-		<ShipmentList shipments={data.shipments} householdId={data.report.household_id} />
+		<ShipmentList
+			shipments={data.shipments}
+			householdId={data.report.household_id}
+			currentGameDay={data.report.game_day}
+		/>
 	</div>
 	<div id="relations">
 		<RelationshipPanel relationships={data.relationships} householdId={data.report.household_id} />

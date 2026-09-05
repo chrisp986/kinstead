@@ -20,7 +20,7 @@ export type ReportItem = {
 	severity: 'info' | 'warning' | 'critical';
 	target?: 'work' | 'trade' | 'contracts' | 'politics' | 'farm';
 	related_id?: string;
-	due_tick?: number;
+	due_game_day?: number;
 	data?: {
 		[key: string]: unknown;
 	};
@@ -47,8 +47,8 @@ export type Assignment = {
 	character: string;
 	activity: string;
 	intensity: string;
-	starts_tick: number;
-	ends_tick: number;
+	starts_game_day?: number;
+	ends_game_day?: number;
 	status: string;
 };
 
@@ -78,25 +78,51 @@ export type CalendarBreakdown = {
 	year_index: number;
 	day_of_year: number;
 	week_of_year: number;
+	week_of_half: number;
 	day_of_week: number;
 	production_season: 'spring' | 'summer' | 'autumn' | 'winter';
 	half_year: 'summer' | 'winter';
 	seasonal_phase: string;
+	phase: string;
 };
 
 export type CalendarEvent = {
 	id: string;
 	game_day: number;
 	category: string;
-	kind: string;
+	kind:
+		| 'season_start'
+		| 'festival'
+		| 'harvest'
+		| 'delivery_due'
+		| 'dispatch_deadline'
+		| 'shipment_arrival'
+		| 'political_deadline'
+		| 'assignment_end'
+		| 'assembly';
 	title: string;
+	end_game_day?: number;
+	importance: 'critical' | 'important' | 'context';
+	action_required: boolean;
+	related_id?: string;
+	resource_type?: string;
+	quantity_milli?: number;
+	counterparty_household_id?: string;
+	counterparty_household_name?: string;
+	status?: string;
 };
 
 export type CalendarProjection = {
 	household_id: string;
 	world_id: string;
 	setting_start_year: number;
-	current: CalendarBreakdown;
+	current_game_day: number;
+	calendar: CalendarBreakdown;
+	next_half_year: {
+		type: 'summer' | 'winter';
+		game_day: number;
+		days_until: number;
+	};
 	from_game_day: number;
 	to_game_day: number;
 	events: Array<CalendarEvent>;
@@ -111,16 +137,16 @@ export type Shipment = {
 	destination_location_id: string;
 	resource_type: string;
 	quantity_milli: number;
-	departure_tick: number;
-	expected_arrival_tick: number;
-	actual_arrival_tick?: number;
+	departure_game_day: number;
+	expected_arrival_game_day: number;
+	actual_arrival_game_day?: number;
 	transport_cost_milli: number;
 	status: 'prepared' | 'in_transit' | 'arrived' | 'cancelled';
 };
 
 export type ChronicleEntry = {
 	id: string;
-	occurred_tick: number;
+	occurred_game_day: number;
 	entry_type: string;
 	subject_character_id?: string;
 	subject_character_name?: string;
@@ -143,6 +169,7 @@ export type RelationshipEvent = {
 		'contract_obligation_fulfilled' | 'contract_obligation_late' | 'contract_obligation_broken';
 	trust_delta: number;
 	occurred_tick: number;
+	occurred_game_day: number;
 	related_contract_id?: string;
 	related_shipment_id?: string;
 	related_obligation_id?: string;
@@ -185,6 +212,8 @@ export type PoliticalDecision = {
 	actor_type: string;
 	available_from_tick: number;
 	expires_tick: number;
+	available_from_game_day: number;
+	expires_game_day: number;
 	selected_option?: string;
 	standing_delta?: number;
 	parameters?: {
@@ -229,10 +258,11 @@ export type ContractObligation = {
 	creditor_household_id: string;
 	resource_type: string;
 	quantity_milli: number;
-	due_arrival_tick: number;
+	due_game_day: number;
+	latest_dispatch_game_day?: number;
 	shipment_id?: string;
 	status: 'pending' | 'dispatched' | 'fulfilled' | 'late' | 'broken';
-	fulfilled_tick?: number;
+	fulfilled_game_day?: number;
 };
 
 export type Contract = {
@@ -240,9 +270,10 @@ export type Contract = {
 	world_id: string;
 	party_a_household_id: string;
 	party_b_household_id: string;
-	starts_tick: number;
-	ends_tick: number;
-	interval_ticks: number;
+	start_game_day: number;
+	end_game_day: number;
+	interval_days: 7 | 14 | 28;
+	interval: string;
 	status: 'proposed' | 'active' | 'completed' | 'rejected' | 'cancelled' | 'broken';
 	terms: Array<ContractTerm>;
 	obligations: Array<ContractObligation>;
@@ -251,9 +282,13 @@ export type Contract = {
 export type ProposeContractIntent = {
 	proposer_household_id: string;
 	counterparty_household_id: string;
-	starts_tick: number;
-	ends_tick: number;
-	interval_ticks: number;
+	first_due_game_day: number;
+	interval_days: 7 | 14 | 28;
+	end_condition: {
+		type: 'fixed_delivery_count' | 'fixed_game_day' | 'winter_start' | 'summer_start';
+		game_day?: number;
+		delivery_count?: number;
+	};
 	terms: Array<ContractTerm>;
 };
 

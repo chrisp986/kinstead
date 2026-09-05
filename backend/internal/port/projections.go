@@ -25,30 +25,35 @@ type CharacterRecord struct {
 }
 
 type AssignmentRecord struct {
-	ID          string `json:"id"`
-	CharacterID string `json:"character_id"`
-	Character   string `json:"character"`
-	Activity    string `json:"activity"`
-	Intensity   string `json:"intensity"`
-	StartsTick  int64  `json:"starts_tick"`
-	EndsTick    int64  `json:"ends_tick"`
-	Status      string `json:"status"`
+	ID            string `json:"id"`
+	CharacterID   string `json:"character_id"`
+	Character     string `json:"character"`
+	Activity      string `json:"activity"`
+	Intensity     string `json:"intensity"`
+	StartsTick    int64  `json:"starts_tick"`
+	EndsTick      int64  `json:"ends_tick"`
+	StartsGameDay int64  `json:"starts_game_day,omitempty"`
+	EndsGameDay   int64  `json:"ends_game_day,omitempty"`
+	Status        string `json:"status"`
 }
 
 type ShipmentRecord struct {
-	ID                    string `json:"id"`
-	WorldID               string `json:"world_id"`
-	SenderHouseholdID     string `json:"sender_household_id"`
-	ReceiverHouseholdID   string `json:"receiver_household_id"`
-	OriginLocationID      string `json:"origin_location_id"`
-	DestinationLocationID string `json:"destination_location_id"`
-	ResourceType          string `json:"resource_type"`
-	QuantityMilli         int64  `json:"quantity_milli"`
-	DepartureTick         int64  `json:"departure_tick"`
-	ExpectedArrivalTick   int64  `json:"expected_arrival_tick"`
-	ActualArrivalTick     *int64 `json:"actual_arrival_tick,omitempty"`
-	TransportCostMilli    int64  `json:"transport_cost_milli"`
-	Status                string `json:"status"`
+	ID                     string `json:"id"`
+	WorldID                string `json:"world_id"`
+	SenderHouseholdID      string `json:"sender_household_id"`
+	ReceiverHouseholdID    string `json:"receiver_household_id"`
+	OriginLocationID       string `json:"origin_location_id"`
+	DestinationLocationID  string `json:"destination_location_id"`
+	ResourceType           string `json:"resource_type"`
+	QuantityMilli          int64  `json:"quantity_milli"`
+	DepartureTick          int64  `json:"departure_tick"`
+	ExpectedArrivalTick    int64  `json:"expected_arrival_tick"`
+	ActualArrivalTick      *int64 `json:"actual_arrival_tick,omitempty"`
+	DepartureGameDay       int64  `json:"departure_game_day"`
+	ExpectedArrivalGameDay int64  `json:"expected_arrival_game_day"`
+	ActualArrivalGameDay   *int64 `json:"actual_arrival_game_day,omitempty"`
+	TransportCostMilli     int64  `json:"transport_cost_milli"`
+	Status                 string `json:"status"`
 }
 
 type MarketOfferRecord struct {
@@ -67,6 +72,7 @@ type MarketOfferRecord struct {
 type ChronicleEntryRecord struct {
 	ID                         string         `json:"id"`
 	OccurredTick               int64          `json:"occurred_tick"`
+	OccurredGameDay            int64          `json:"occurred_game_day"`
 	EntryType                  string         `json:"entry_type"`
 	SubjectCharacterID         *string        `json:"subject_character_id,omitempty"`
 	SubjectCharacterName       *string        `json:"subject_character_name,omitempty"`
@@ -109,17 +115,20 @@ type ReportReader interface {
 }
 
 type PoliticalReportDemand struct {
-	ID          string
-	ActorName   string
-	ExpiresTick int64
+	ID             string
+	ActorName      string
+	ExpiresTick    int64
+	ExpiresGameDay int64
 }
 
 type ContractReportObligation struct {
-	ID                  string
-	ResourceType        string
-	QuantityMilli       int64
-	DueArrivalTick      int64
-	ExpectedArrivalTick *int64
+	ID                     string
+	ResourceType           string
+	QuantityMilli          int64
+	DueArrivalTick         int64
+	ExpectedArrivalTick    *int64
+	DueGameDay             int64
+	ExpectedArrivalGameDay *int64
 }
 
 // FarmReportReader is the narrow read model port used to enrich the household
@@ -142,11 +151,14 @@ type ChronicleReader interface {
 }
 
 type MarketPurchaseSnapshot struct {
-	Offer            marketdomain.Offer
-	Buyer            marketdomain.Buyer
-	Route            marketdomain.Route
-	SellerStockMilli marketdomain.QuantityMilli
-	CurrentTick      int64
+	Offer              marketdomain.Offer
+	Buyer              marketdomain.Buyer
+	Route              marketdomain.Route
+	SellerStockMilli   marketdomain.QuantityMilli
+	CurrentTick        int64
+	CurrentGameDay     int64
+	GameDaysPerTickNum int64
+	GameDaysPerTickDen int64
 }
 
 // MarketPurchaseTransaction is scoped to the atomic lock/evaluate/persist
@@ -175,9 +187,11 @@ type WorldClaim struct {
 }
 
 type ContractObligationAssessment struct {
-	WorldID           contractdomain.WorldID
-	Obligation        contractdomain.Obligation
-	ActualArrivalTick *shipmentdomain.Tick
+	WorldID              contractdomain.WorldID
+	Obligation           contractdomain.Obligation
+	ActualArrivalTick    *shipmentdomain.Tick
+	ActualArrivalGameDay *contractdomain.GameDay
+	GameDaySchedule      bool
 }
 
 type ContractRollupSnapshot struct {

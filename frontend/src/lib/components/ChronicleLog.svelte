@@ -1,14 +1,15 @@
 <script lang="ts">
 	import type { ChronicleEntry } from '$lib/api/generated';
 	import { describeChronicleEntry } from '$lib/domain/chronicle';
+	import { calendarForGameDay, formatCalendarPosition } from '$lib/domain/time';
 
-	let { entries }: { entries: ChronicleEntry[] } = $props();
+	let { entries, currentGameDay }: { entries: ChronicleEntry[]; currentGameDay: number } = $props();
 	let grouped = $derived.by(() => {
-		const groups: { tick: number; entries: ChronicleEntry[] }[] = [];
+		const groups: { gameDay: number; entries: ChronicleEntry[] }[] = [];
 		for (const entry of entries) {
 			const current = groups.at(-1);
-			if (current?.tick === entry.occurred_tick) current.entries.push(entry);
-			else groups.push({ tick: entry.occurred_tick, entries: [entry] });
+			if (current?.gameDay === entry.occurred_game_day) current.entries.push(entry);
+			else groups.push({ gameDay: entry.occurred_game_day, entries: [entry] });
 		}
 		return groups;
 	});
@@ -31,10 +32,18 @@
 		<p class="empty">No household events have been recorded yet.</p>
 	{:else}
 		<ol class="timeline">
-			{#each grouped as group (group.tick)}
-				<li class="tick-group">
-					<div class="tick-marker"><span>Tick</span><strong>{group.tick}</strong></div>
-					<ol class="tick-events">
+			{#each grouped as group (group.gameDay)}
+				{@const date = calendarForGameDay(group.gameDay)}
+				<li class="day-group">
+					<div class="day-marker">
+						<span>{group.gameDay === currentGameDay ? 'Today' : 'Recorded'}</span><strong
+							>{formatCalendarPosition(
+								date.phase || date.seasonal_phase || date.production_season,
+								date.week_of_half
+							)}</strong
+						>
+					</div>
+					<ol class="day-events">
 						{#each group.entries as entry (entry.id)}
 							{@const description = describeChronicleEntry(entry)}
 							<li class:positive={delta(entry) > 0} class:negative={delta(entry) < 0}>
@@ -72,27 +81,27 @@
 		padding: 0;
 		list-style: none;
 	}
-	.tick-group {
+	.day-group {
 		display: grid;
 		grid-template-columns: 3.5rem 1fr;
 		gap: 1rem;
 		padding: 0.9rem 0;
 		border-top: 1px solid var(--line-light);
 	}
-	.tick-group:first-child {
+	.day-group:first-child {
 		border-top: 0;
 	}
-	.tick-events {
+	.day-events {
 		display: grid;
 		gap: 0.7rem;
 		margin: 0;
 		padding: 0;
 		list-style: none;
 	}
-	.tick-events li {
+	.day-events li {
 		min-width: 0;
 	}
-	.tick-marker {
+	.day-marker {
 		display: grid;
 		align-content: center;
 		justify-items: center;
@@ -100,16 +109,17 @@
 		background: var(--surface-muted);
 		color: var(--ink-soft);
 	}
-	.tick-marker span {
+	.day-marker span {
 		font-size: 0.62rem;
 		font-weight: 800;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 	}
-	.tick-marker strong {
+	.day-marker strong {
 		color: var(--ink);
 		font-family: var(--font-display);
-		font-size: 1.35rem;
+		font-size: 0.9rem;
+		text-align: center;
 		line-height: 1;
 	}
 	.event-copy {

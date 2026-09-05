@@ -48,7 +48,7 @@ func TestGenerateGameDayObligationsAtSupportedIntervals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(got) == 0 || got[0].DueGameDay != 7 || got[0].DueArrivalTick != 7 {
+		if len(got) == 0 || got[0].DueGameDay != 7 || got[0].DueArrivalTick != 1 {
 			t.Fatalf("interval %d first obligation = %+v", interval, got[0])
 		}
 		for _, obligation := range got {

@@ -142,23 +142,27 @@ func (q *Queries) HouseholdExists(ctx context.Context, householdID pgtype.UUID) 
 const insertHouseholdDecision = `-- name: InsertHouseholdDecision :execrows
 INSERT INTO household_decisions(
   household_id, world_id, world_event_id, decision_type,
-  available_from_tick, expires_tick, status, default_option, parameters
+  available_from_tick, expires_tick, available_from_game_day, expires_game_day,
+  status, default_option, parameters
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid,
   $4, $5, $6,
-  'pending', 'refuse', $7::jsonb
+  $7, $8,
+  'pending', 'refuse', $9::jsonb
 )
 ON CONFLICT (household_id, world_event_id) WHERE world_event_id IS NOT NULL DO NOTHING
 `
 
 type InsertHouseholdDecisionParams struct {
-	HouseholdID       pgtype.UUID
-	WorldID           pgtype.UUID
-	WorldEventID      pgtype.UUID
-	DecisionType      string
-	AvailableFromTick int64
-	ExpiresTick       int64
-	Parameters        []byte
+	HouseholdID          pgtype.UUID
+	WorldID              pgtype.UUID
+	WorldEventID         pgtype.UUID
+	DecisionType         string
+	AvailableFromTick    int64
+	ExpiresTick          int64
+	AvailableFromGameDay int64
+	ExpiresGameDay       int64
+	Parameters           []byte
 }
 
 func (q *Queries) InsertHouseholdDecision(ctx context.Context, arg InsertHouseholdDecisionParams) (int64, error) {
@@ -169,6 +173,8 @@ func (q *Queries) InsertHouseholdDecision(ctx context.Context, arg InsertHouseho
 		arg.DecisionType,
 		arg.AvailableFromTick,
 		arg.ExpiresTick,
+		arg.AvailableFromGameDay,
+		arg.ExpiresGameDay,
 		arg.Parameters,
 	)
 	if err != nil {
@@ -324,7 +330,7 @@ func (q *Queries) ListHouseholdsForPoliticalEvent(ctx context.Context, worldEven
 
 const listPoliticalDecisionsForHousehold = `-- name: ListPoliticalDecisionsForHousehold :many
 SELECT d.id::text AS id, d.decision_type, d.available_from_tick, d.expires_tick, d.status,
-       d.selected_option, d.standing_delta, d.parameters,
+       d.available_from_game_day, d.expires_game_day, d.selected_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, a.name AS actor_name, a.actor_type
 FROM household_decisions d JOIN world_events e ON e.id = d.world_event_id
 JOIN political_actors a ON a.id = e.political_actor_id
@@ -333,17 +339,19 @@ ORDER BY d.expires_tick DESC, d.id DESC
 `
 
 type ListPoliticalDecisionsForHouseholdRow struct {
-	ID                string
-	DecisionType      string
-	AvailableFromTick int64
-	ExpiresTick       int64
-	Status            string
-	SelectedOption    pgtype.Text
-	StandingDelta     pgtype.Int4
-	Parameters        []byte
-	PoliticalActorID  string
-	ActorName         string
-	ActorType         string
+	ID                   string
+	DecisionType         string
+	AvailableFromTick    int64
+	ExpiresTick          int64
+	Status               string
+	AvailableFromGameDay int64
+	ExpiresGameDay       int64
+	SelectedOption       pgtype.Text
+	StandingDelta        pgtype.Int4
+	Parameters           []byte
+	PoliticalActorID     string
+	ActorName            string
+	ActorType            string
 }
 
 func (q *Queries) ListPoliticalDecisionsForHousehold(ctx context.Context, householdID pgtype.UUID) ([]ListPoliticalDecisionsForHouseholdRow, error) {
@@ -361,6 +369,8 @@ func (q *Queries) ListPoliticalDecisionsForHousehold(ctx context.Context, househ
 			&i.AvailableFromTick,
 			&i.ExpiresTick,
 			&i.Status,
+			&i.AvailableFromGameDay,
+			&i.ExpiresGameDay,
 			&i.SelectedOption,
 			&i.StandingDelta,
 			&i.Parameters,
@@ -423,7 +433,8 @@ func (q *Queries) ListPoliticalRelationshipsForHousehold(ctx context.Context, ho
 const loadExpiringPoliticalDecisions = `-- name: LoadExpiringPoliticalDecisions :many
 SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text AS world_id,
        d.world_event_id::text AS world_event_id, d.decision_type, d.available_from_tick,
-       d.expires_tick, d.status, d.selected_option, d.default_option, d.standing_delta, d.parameters,
+       d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
+       d.selected_option, d.default_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, e.event_type
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
@@ -439,20 +450,22 @@ type LoadExpiringPoliticalDecisionsParams struct {
 }
 
 type LoadExpiringPoliticalDecisionsRow struct {
-	ID                string
-	HouseholdID       string
-	WorldID           string
-	WorldEventID      string
-	DecisionType      string
-	AvailableFromTick int64
-	ExpiresTick       int64
-	Status            string
-	SelectedOption    pgtype.Text
-	DefaultOption     string
-	StandingDelta     pgtype.Int4
-	Parameters        []byte
-	PoliticalActorID  string
-	EventType         string
+	ID                   string
+	HouseholdID          string
+	WorldID              string
+	WorldEventID         string
+	DecisionType         string
+	AvailableFromTick    int64
+	ExpiresTick          int64
+	AvailableFromGameDay int64
+	ExpiresGameDay       int64
+	Status               string
+	SelectedOption       pgtype.Text
+	DefaultOption        string
+	StandingDelta        pgtype.Int4
+	Parameters           []byte
+	PoliticalActorID     string
+	EventType            string
 }
 
 func (q *Queries) LoadExpiringPoliticalDecisions(ctx context.Context, arg LoadExpiringPoliticalDecisionsParams) ([]LoadExpiringPoliticalDecisionsRow, error) {
@@ -472,6 +485,8 @@ func (q *Queries) LoadExpiringPoliticalDecisions(ctx context.Context, arg LoadEx
 			&i.DecisionType,
 			&i.AvailableFromTick,
 			&i.ExpiresTick,
+			&i.AvailableFromGameDay,
+			&i.ExpiresGameDay,
 			&i.Status,
 			&i.SelectedOption,
 			&i.DefaultOption,
@@ -524,7 +539,9 @@ func (q *Queries) LoadPoliticalCharacter(ctx context.Context, arg LoadPoliticalC
 const loadPoliticalEventsStartingTick = `-- name: LoadPoliticalEventsStartingTick :many
 SELECT e.id::text AS id, e.world_id::text AS world_id, e.location_id::text AS location_id,
        e.political_actor_id::text AS political_actor_id, e.event_type, e.starts_tick,
-       e.ends_tick, e.parameters, a.name AS actor_name, a.actor_type
+       e.ends_tick, ((e.starts_tick * 91) / 12)::bigint AS starts_game_day,
+       COALESCE((e.ends_tick * 91) / 12, 0)::bigint AS expires_game_day,
+       e.parameters, a.name AS actor_name, a.actor_type
 FROM world_events e
 JOIN political_actors a ON a.id = e.political_actor_id
 WHERE e.world_id = $1::uuid
@@ -547,6 +564,8 @@ type LoadPoliticalEventsStartingTickRow struct {
 	EventType        string
 	StartsTick       int64
 	EndsTick         pgtype.Int8
+	StartsGameDay    int64
+	ExpiresGameDay   int64
 	Parameters       []byte
 	ActorName        string
 	ActorType        string
@@ -569,6 +588,8 @@ func (q *Queries) LoadPoliticalEventsStartingTick(ctx context.Context, arg LoadP
 			&i.EventType,
 			&i.StartsTick,
 			&i.EndsTick,
+			&i.StartsGameDay,
+			&i.ExpiresGameDay,
 			&i.Parameters,
 			&i.ActorName,
 			&i.ActorType,
@@ -586,9 +607,10 @@ func (q *Queries) LoadPoliticalEventsStartingTick(ctx context.Context, arg LoadP
 const lockPoliticalDecision = `-- name: LockPoliticalDecision :one
 SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text AS world_id,
        d.world_event_id::text AS world_event_id, d.decision_type, d.available_from_tick,
-       d.expires_tick, d.status, d.selected_option, d.default_option, d.standing_delta, d.parameters,
+       d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
+       d.selected_option, d.default_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, e.event_type,
-       w.current_tick
+       w.current_tick, w.current_game_day
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
 JOIN worlds w ON w.id = d.world_id
@@ -602,21 +624,24 @@ type LockPoliticalDecisionParams struct {
 }
 
 type LockPoliticalDecisionRow struct {
-	ID                string
-	HouseholdID       string
-	WorldID           string
-	WorldEventID      string
-	DecisionType      string
-	AvailableFromTick int64
-	ExpiresTick       int64
-	Status            string
-	SelectedOption    pgtype.Text
-	DefaultOption     string
-	StandingDelta     pgtype.Int4
-	Parameters        []byte
-	PoliticalActorID  string
-	EventType         string
-	CurrentTick       int64
+	ID                   string
+	HouseholdID          string
+	WorldID              string
+	WorldEventID         string
+	DecisionType         string
+	AvailableFromTick    int64
+	ExpiresTick          int64
+	AvailableFromGameDay int64
+	ExpiresGameDay       int64
+	Status               string
+	SelectedOption       pgtype.Text
+	DefaultOption        string
+	StandingDelta        pgtype.Int4
+	Parameters           []byte
+	PoliticalActorID     string
+	EventType            string
+	CurrentTick          int64
+	CurrentGameDay       int64
 }
 
 func (q *Queries) LockPoliticalDecision(ctx context.Context, arg LockPoliticalDecisionParams) (LockPoliticalDecisionRow, error) {
@@ -630,6 +655,8 @@ func (q *Queries) LockPoliticalDecision(ctx context.Context, arg LockPoliticalDe
 		&i.DecisionType,
 		&i.AvailableFromTick,
 		&i.ExpiresTick,
+		&i.AvailableFromGameDay,
+		&i.ExpiresGameDay,
 		&i.Status,
 		&i.SelectedOption,
 		&i.DefaultOption,
@@ -638,6 +665,7 @@ func (q *Queries) LockPoliticalDecision(ctx context.Context, arg LockPoliticalDe
 		&i.PoliticalActorID,
 		&i.EventType,
 		&i.CurrentTick,
+		&i.CurrentGameDay,
 	)
 	return i, err
 }

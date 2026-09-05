@@ -1,6 +1,10 @@
 package shipment
 
-import "errors"
+import (
+	"errors"
+
+	"game/backend/internal/calendar"
+)
 
 type ID string
 type WorldID string
@@ -10,6 +14,7 @@ type ResourceType string
 type QuantityMilli int64
 type MoneyMilli int64
 type Tick int64
+type GameDay = calendar.GameDay
 type Status string
 
 const (
@@ -28,19 +33,22 @@ var (
 )
 
 type Shipment struct {
-	ID                    ID
-	WorldID               WorldID
-	SenderHouseholdID     HouseholdID
-	ReceiverHouseholdID   HouseholdID
-	OriginLocationID      LocationID
-	DestinationLocationID LocationID
-	ResourceType          ResourceType
-	QuantityMilli         QuantityMilli
-	DepartureTick         Tick
-	ExpectedArrivalTick   Tick
-	ActualArrivalTick     *Tick
-	TransportCostMilli    MoneyMilli
-	Status                Status
+	ID                     ID
+	WorldID                WorldID
+	SenderHouseholdID      HouseholdID
+	ReceiverHouseholdID    HouseholdID
+	OriginLocationID       LocationID
+	DestinationLocationID  LocationID
+	ResourceType           ResourceType
+	QuantityMilli          QuantityMilli
+	DepartureTick          Tick
+	ExpectedArrivalTick    Tick
+	ActualArrivalTick      *Tick
+	DepartureGameDay       GameDay
+	ExpectedArrivalGameDay GameDay
+	ActualArrivalGameDay   *GameDay
+	TransportCostMilli     MoneyMilli
+	Status                 Status
 }
 
 func (s Shipment) Validate() error {
@@ -58,6 +66,9 @@ func (s Shipment) Validate() error {
 		}
 	case StatusArrived:
 		if s.ActualArrivalTick == nil || *s.ActualArrivalTick < s.ExpectedArrivalTick {
+			return ErrInvalidShipment
+		}
+		if s.ActualArrivalGameDay != nil && *s.ActualArrivalGameDay < s.ExpectedArrivalGameDay {
 			return ErrInvalidShipment
 		}
 	default:
@@ -102,6 +113,12 @@ func (s Shipment) CancelAt(tick Tick) (Shipment, error) {
 }
 
 func (s Shipment) Arrive(tick Tick) (Shipment, error) {
+	return s.ArriveAt(tick, s.ExpectedArrivalGameDay)
+}
+
+// ArriveAt records both execution-time and calendar-time arrival snapshots.
+// Arrive remains available to callers that only have the execution tick.
+func (s Shipment) ArriveAt(tick Tick, gameDay GameDay) (Shipment, error) {
 	if !s.DueAt(tick) {
 		return Shipment{}, ErrNotDue
 	}
@@ -110,5 +127,6 @@ func (s Shipment) Arrive(tick Tick) (Shipment, error) {
 		return Shipment{}, err
 	}
 	arrived.ActualArrivalTick = &tick
+	arrived.ActualArrivalGameDay = &gameDay
 	return arrived, nil
 }

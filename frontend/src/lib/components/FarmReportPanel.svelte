@@ -1,21 +1,40 @@
 <script lang="ts">
-	import type { ChronicleEntry, ReportItem } from '$lib/api/generated';
+	import type { CalendarEvent, ChronicleEntry, ReportItem } from '$lib/api/generated';
 	import { resolve } from '$app/paths';
 	import { describeChronicleEntry } from '$lib/domain/chronicle';
 	import { describeReportItem } from '$lib/domain/report';
+	import { formatRelativeGameDay } from '$lib/domain/time';
 
 	let {
 		report,
-		householdId
+		householdId,
+		calendar
 	}: {
 		report: {
 			household_id: string;
 			recent_changes: ChronicleEntry[];
 			attention: ReportItem[];
 			decisions: ReportItem[];
+			game_day: number;
 		};
 		householdId?: string;
+		calendar?: { events: CalendarEvent[] };
 	} = $props();
+
+	let upcoming = $derived.by(() => {
+		const importance = { critical: 0, important: 1, context: 2 };
+		return (calendar?.events ?? [])
+			.filter((event) => event.game_day >= report.game_day)
+			.toSorted((a, b) => {
+				if (a.action_required !== b.action_required) return a.action_required ? -1 : 1;
+				if (importance[a.importance] !== importance[b.importance]) {
+					return importance[a.importance] - importance[b.importance];
+				}
+				if (a.game_day !== b.game_day) return a.game_day - b.game_day;
+				return a.id.localeCompare(b.id);
+			})
+			.slice(0, 3);
+	});
 
 	function decisionHref(target?: string): string {
 		const id = householdId ?? report.household_id;
@@ -26,6 +45,10 @@
 		if (target === 'work') return resolve(`${base}/work` as `/households/${string}`);
 		if (target === 'farm') return resolve(`${base}/farm` as `/households/${string}`);
 		return resolve(`${base}/trade` as `/households/${string}`);
+	}
+	function calendarHref(): string {
+		const id = householdId ?? report.household_id;
+		return resolve(`/households/${id}/calendar` as `/households/${string}`);
 	}
 </script>
 
@@ -51,7 +74,7 @@
 					{#each report.attention as item (item.code + item.related_id)}<li
 							class:critical={item.severity === 'critical'}
 						>
-							{describeReportItem(item)}
+							{describeReportItem(item, report.game_day)}
 						</li>{/each}
 				</ul>{/if}
 		</section>
@@ -63,11 +86,28 @@
 							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
 							<a class="decision-card" href={decisionHref(item.target)}>
 								<strong>{item.target ?? 'Household decision'}</strong>
-								<span>{describeReportItem(item)}</span>
+								<span>{describeReportItem(item, report.game_day)}</span>
 								<span class="review">Review decision →</span>
 							</a>
 						</li>{/each}
 				</ol>{/if}
+		</section>
+		<section class="upcoming" aria-labelledby="upcoming-heading">
+			<h3 id="upcoming-heading">Upcoming</h3>
+			{#if upcoming.length === 0}
+				<p class="empty">No upcoming calendar events.</p>
+			{:else}
+				<ul>
+					{#each upcoming as event (event.id)}
+						<li class:critical={event.action_required}>
+							<strong>{formatRelativeGameDay(report.game_day, event.game_day)}</strong>
+							<span>{event.title}</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+			<a class="calendar-link" href={calendarHref()}>View calendar →</a>
 		</section>
 	</div>
 </section>
@@ -78,7 +118,7 @@
 	}
 	.report-grid {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 1rem;
 		margin-top: 1rem;
 	}
@@ -121,6 +161,30 @@
 	.report-grid li.critical {
 		color: var(--critical);
 	}
+	.upcoming ul {
+		display: grid;
+		gap: 0.55rem;
+		margin: 0;
+		padding-left: 1.1rem;
+	}
+	.upcoming li strong,
+	.upcoming li span {
+		display: block;
+	}
+	.upcoming li strong {
+		color: var(--ink);
+	}
+	.upcoming li {
+		color: var(--ink-soft);
+		font-size: 0.84rem;
+	}
+	.calendar-link {
+		display: inline-block;
+		margin-top: 0.8rem;
+		color: var(--green);
+		font-size: 0.78rem;
+		font-weight: 700;
+	}
 	.report-grid a {
 		color: var(--green);
 		font-weight: 700;
@@ -159,7 +223,7 @@
 	}
 	@media (max-width: 800px) {
 		.report-grid {
-			grid-template-columns: 1fr;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 		.decisions {
 			order: 1;
@@ -169,6 +233,11 @@
 		}
 		.recent {
 			order: 3;
+		}
+	}
+	@media (max-width: 520px) {
+		.report-grid {
+			grid-template-columns: 1fr;
 		}
 	}
 </style>

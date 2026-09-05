@@ -35,7 +35,7 @@ func politicalEvent(row sqlcdb.LoadPoliticalEventsStartingTickRow) port.Politica
 	if row.EndsTick.Valid {
 		expires = row.EndsTick.Int64
 	}
-	return port.PoliticalEventRecord{ID: row.ID, WorldID: row.WorldID, LocationID: row.LocationID, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType, StartsTick: row.StartsTick, ExpiresTick: expires, Parameters: row.Parameters, ActorName: row.ActorName, ActorType: row.ActorType}
+	return port.PoliticalEventRecord{ID: row.ID, WorldID: row.WorldID, LocationID: row.LocationID, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType, StartsTick: row.StartsTick, ExpiresTick: expires, StartsGameDay: row.StartsGameDay, ExpiresGameDay: row.ExpiresGameDay, Parameters: row.Parameters, ActorName: row.ActorName, ActorType: row.ActorType}
 }
 func politicalDecision(row sqlcdb.LoadExpiringPoliticalDecisionsRow) port.PoliticalDecisionRecord {
 	var selected *string
@@ -48,7 +48,7 @@ func politicalDecision(row sqlcdb.LoadExpiringPoliticalDecisionsRow) port.Politi
 		v := int(row.StandingDelta.Int32)
 		delta = &v
 	}
-	return port.PoliticalDecisionRecord{ID: row.ID, HouseholdID: row.HouseholdID, WorldID: row.WorldID, WorldEventID: row.WorldEventID, DecisionType: row.DecisionType, AvailableFromTick: row.AvailableFromTick, ExpiresTick: row.ExpiresTick, Status: row.Status, SelectedOption: selected, StandingDelta: delta, Parameters: row.Parameters, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType}
+	return port.PoliticalDecisionRecord{ID: row.ID, HouseholdID: row.HouseholdID, WorldID: row.WorldID, WorldEventID: row.WorldEventID, DecisionType: row.DecisionType, AvailableFromTick: row.AvailableFromTick, ExpiresTick: row.ExpiresTick, AvailableFromGameDay: row.AvailableFromGameDay, ExpiresGameDay: row.ExpiresGameDay, Status: row.Status, SelectedOption: selected, StandingDelta: delta, Parameters: row.Parameters, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType}
 }
 
 func (t *worldTickTx) LoadPoliticalEventsStartingTick(ctx context.Context, worldID string, tick int64) ([]port.PoliticalEventRecord, error) {
@@ -94,7 +94,7 @@ func (t *worldTickTx) InsertPoliticalDecision(ctx context.Context, d port.Politi
 	if e != nil {
 		return false, e
 	}
-	n, e := sqlcdb.New(t.tx).InsertHouseholdDecision(ctx, sqlcdb.InsertHouseholdDecisionParams{HouseholdID: h, WorldID: w, WorldEventID: ev, DecisionType: d.DecisionType, AvailableFromTick: d.AvailableFromTick, ExpiresTick: d.ExpiresTick, Parameters: d.Parameters})
+	n, e := sqlcdb.New(t.tx).InsertHouseholdDecision(ctx, sqlcdb.InsertHouseholdDecisionParams{HouseholdID: h, WorldID: w, WorldEventID: ev, DecisionType: d.DecisionType, AvailableFromTick: d.AvailableFromTick, ExpiresTick: d.ExpiresTick, AvailableFromGameDay: d.AvailableFromGameDay, ExpiresGameDay: d.ExpiresGameDay, Parameters: d.Parameters})
 	return n == 1, normalizeTransactionError(e)
 }
 func (t *worldTickTx) LoadExpiringPoliticalDecisions(ctx context.Context, worldID string, tick int64) ([]port.PoliticalDecisionRecord, error) {
@@ -166,7 +166,7 @@ func (t *politicsTx) LoadPoliticalDecision(ctx context.Context, decision, househ
 	if e != nil {
 		return port.PoliticalDecisionRecord{}, normalizeTransactionError(e)
 	}
-	out := port.PoliticalDecisionRecord{ID: r.ID, HouseholdID: r.HouseholdID, WorldID: r.WorldID, WorldEventID: r.WorldEventID, DecisionType: r.DecisionType, AvailableFromTick: r.AvailableFromTick, ExpiresTick: r.ExpiresTick, Status: r.Status, Parameters: r.Parameters, PoliticalActorID: r.PoliticalActorID, EventType: r.EventType, CurrentTick: r.CurrentTick}
+	out := port.PoliticalDecisionRecord{ID: r.ID, HouseholdID: r.HouseholdID, WorldID: r.WorldID, WorldEventID: r.WorldEventID, DecisionType: r.DecisionType, AvailableFromTick: r.AvailableFromTick, ExpiresTick: r.ExpiresTick, AvailableFromGameDay: r.AvailableFromGameDay, ExpiresGameDay: r.ExpiresGameDay, Status: r.Status, Parameters: r.Parameters, PoliticalActorID: r.PoliticalActorID, EventType: r.EventType, CurrentTick: r.CurrentTick, CurrentGameDay: r.CurrentGameDay}
 	if r.SelectedOption.Valid {
 		v := r.SelectedOption.String
 		out.SelectedOption = &v
@@ -341,7 +341,13 @@ func (s *Store) GetHouseholdPolitics(ctx context.Context, householdID string) (p
 		}
 		params := map[string]any{}
 		_ = json.Unmarshal(v.Parameters, &params)
-		projection := port.PoliticalDecisionProjection{ID: v.ID, DemandType: v.DecisionType, Status: v.Status, ActorID: v.PoliticalActorID, ActorName: v.ActorName, ActorType: v.ActorType, AvailableFromTick: v.AvailableFromTick, ExpiresTick: v.ExpiresTick, SelectedOption: sel, StandingDelta: sd, Parameters: params, Options: options}
+		projection := port.PoliticalDecisionProjection{
+			ID: v.ID, DemandType: v.DecisionType, Status: v.Status, ActorID: v.PoliticalActorID,
+			ActorName: v.ActorName, ActorType: v.ActorType, AvailableFromTick: v.AvailableFromTick,
+			ExpiresTick: v.ExpiresTick, AvailableFromGameDay: v.AvailableFromGameDay,
+			ExpiresGameDay: v.ExpiresGameDay, SelectedOption: sel,
+			StandingDelta: sd, Parameters: params, Options: options,
+		}
 		if demand == politicsdomain.DemandLaborService && v.Status == string(politicsdomain.StatusPending) {
 			did, _ := uuidParam(v.ID)
 			eligible, ee := sqlcdb.New(s.Pool).ListEligiblePoliticalCharacters(ctx, did)

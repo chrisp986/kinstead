@@ -1,11 +1,12 @@
 <script lang="ts">
 	import type { PoliticalDecision, PoliticsOverview } from '$lib/api/generated';
 	import { formatMilli } from '$lib/domain/format';
+	import { formatRelativeGameDay } from '$lib/domain/time';
 	import ActionFeedback from './shell/ActionFeedback.svelte';
 	type Feedback = { action?: string; message?: string };
-	let { politics, feedback } = $props<{
+	let { politics, currentGameDay, feedback } = $props<{
 		politics: PoliticsOverview;
-		householdId: string;
+		currentGameDay: number;
 		feedback: Feedback | null;
 	}>();
 	const label = (d: PoliticalDecision) =>
@@ -29,7 +30,8 @@
 				<div>
 					<h3>{demand.actor_name} · {label(demand)}</h3>
 					<p>
-						Respond before tick {demand.expires_tick}. {demand.status !== 'pending'
+						Respond {formatRelativeGameDay(currentGameDay, demand.expires_game_day)}. {demand.status !==
+						'pending'
 							? `Resolved: ${demand.selected_option}`
 							: ''}
 					</p>
@@ -38,9 +40,7 @@
 					{#if demand.demand_type === 'political_labor_service'}
 						{@const serve = option(demand, 'serve')}
 						<p>
-							Serve for {serve?.service_ticks ?? 0} ticks · {formatStandingDelta(
-								serve?.standing_delta ?? 0
-							)} standing
+							Serve for about four weeks · {formatStandingDelta(serve?.standing_delta ?? 0)} standing
 						</p>
 						<form method="POST" action="?/respondPoliticalDemand">
 							<input type="hidden" name="decision_id" value={demand.id} />
