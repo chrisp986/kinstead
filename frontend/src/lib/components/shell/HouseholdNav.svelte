@@ -34,7 +34,7 @@
 			<span class="icon" aria-hidden="true">
 				{#if item.key === 'report'}⌂{:else if item.key === 'calendar'}◷{:else if item.key === 'farm'}⌁{:else if item.key === 'work'}✦{:else if item.key === 'trade'}⇄{:else}≡{/if}
 			</span>
-			<span>{item.label}</span>
+			<span class="label">{item.label}</span>
 		</a>
 	{/each}
 </nav>
@@ -63,6 +63,10 @@
 		background: var(--surface-muted);
 		color: var(--green);
 	}
+	.icon,
+	.label {
+		display: block;
+	}
 	.icon {
 		font-family: var(--font-display);
 		font-size: 1.05rem;
@@ -84,16 +88,25 @@
 			box-shadow: 0 -3px 14px rgba(48, 43, 31, 0.1);
 		}
 		.household-nav a {
-			flex: 1;
-			min-width: 3.6rem;
+			flex: 1 1 0;
+			min-width: 0;
 			min-height: var(--tap-min);
-			padding: 0.35rem 0.15rem;
+			padding: 0.35rem 0.1rem;
 			flex-direction: column;
 			gap: 0.15rem;
-			font-size: 0.66rem;
+			font-size: 0.64rem;
 		}
 		.icon {
 			font-size: 1.1rem;
+		}
+	}
+	@media (max-width: 390px) {
+		.household-nav a {
+			font-size: 0.58rem;
+			letter-spacing: 0.03em;
+		}
+		.icon {
+			font-size: 1rem;
 		}
 	}
 </style>

@@ -13,7 +13,7 @@
 </svelte:head>
 
 <div class="shell">
-	<nav aria-label="Primary navigation">
+	<nav class="primary-nav" aria-label="Primary navigation">
 		<a class="brand" href={resolve('/')}>{displayName}</a>
 		<span>Household simulation</span>
 	</nav>
