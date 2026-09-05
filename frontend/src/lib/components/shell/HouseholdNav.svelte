@@ -27,7 +27,7 @@
 <nav class="household-nav" aria-label="Household sections">
 	{#each items as item (item.key)}
 		<a
-			href={href(item.path)}
+			href={resolve(item.path.replace('[householdId]', householdId) as `/households/${string}`)}
 			aria-label={item.label}
 			aria-current={active(item.path) ? 'page' : undefined}
 			data-icon={item.icon}
