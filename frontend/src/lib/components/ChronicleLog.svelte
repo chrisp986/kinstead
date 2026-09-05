@@ -63,6 +63,7 @@
 <style>
 	.chronicle-panel {
 		grid-column: 1 / -1;
+		min-width: 0;
 	}
 	.count {
 		display: grid;
@@ -77,14 +78,16 @@
 	}
 	.timeline {
 		display: grid;
+		min-width: 0;
 		margin: 1.25rem 0 0;
 		padding: 0;
 		list-style: none;
 	}
 	.day-group {
 		display: grid;
-		grid-template-columns: 3.5rem 1fr;
+		grid-template-columns: 7rem minmax(0, 1fr);
 		gap: 1rem;
+		min-width: 0;
 		padding: 0.9rem 0;
 		border-top: 1px solid var(--line-light);
 	}
@@ -94,6 +97,7 @@
 	.day-events {
 		display: grid;
 		gap: 0.7rem;
+		min-width: 0;
 		margin: 0;
 		padding: 0;
 		list-style: none;
@@ -105,7 +109,9 @@
 		display: grid;
 		align-content: center;
 		justify-items: center;
+		min-width: 0;
 		min-height: 3.25rem;
+		padding: 0.55rem 0.45rem;
 		background: var(--surface-muted);
 		color: var(--ink-soft);
 	}
@@ -116,30 +122,81 @@
 		text-transform: uppercase;
 	}
 	.day-marker strong {
+		max-width: 100%;
 		color: var(--ink);
 		font-family: var(--font-display);
 		font-size: 0.9rem;
 		text-align: center;
-		line-height: 1;
+		line-height: 1.05;
+		overflow-wrap: anywhere;
 	}
 	.event-copy {
 		display: grid;
 		align-content: center;
+		min-width: 0;
 	}
 	.event-copy h3 {
 		margin: 0;
 		font-family: var(--font-display);
 		font-size: 1.08rem;
+		overflow-wrap: anywhere;
 	}
 	.event-copy p {
 		margin: 0.2rem 0 0;
 		color: var(--ink-soft);
 		font-size: 0.84rem;
+		line-height: 1.4;
+		overflow-wrap: anywhere;
 	}
 	.timeline li.positive h3 {
 		color: var(--positive);
 	}
 	.timeline li.negative h3 {
 		color: var(--critical);
+	}
+	@media (max-width: 560px) {
+		.timeline {
+			margin-top: 0.9rem;
+		}
+		.day-group {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0.7rem;
+			padding: 0.85rem 0;
+		}
+		.day-marker {
+			display: flex;
+			align-items: baseline;
+			justify-content: space-between;
+			gap: 0.75rem;
+			min-height: 0;
+			padding: 0.5rem 0.65rem;
+		}
+		.day-marker strong {
+			font-size: 0.82rem;
+			text-align: right;
+			overflow-wrap: normal;
+		}
+		.day-events {
+			gap: 0.65rem;
+		}
+		.event-copy h3 {
+			font-size: 1rem;
+			line-height: 1.15;
+		}
+		.event-copy p {
+			font-size: 0.8rem;
+		}
+	}
+	@media (max-width: 390px) {
+		.day-marker {
+			align-items: center;
+		}
+		.day-marker span {
+			font-size: 0.58rem;
+		}
+		.day-marker strong {
+			font-size: 0.78rem;
+			line-height: 1.15;
+		}
 	}
 </style>
