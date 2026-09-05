@@ -44,8 +44,7 @@
 		const id = householdId ?? report.household_id;
 		const base = `/households/${id}`;
 		if (target === 'politics') return `${base}/farm#politics` as `/households/${string}`;
-		if (target === 'contracts')
-			return `${base}/trade#contracts` as `/households/${string}`;
+		if (target === 'contracts') return `${base}/trade#contracts` as `/households/${string}`;
 		if (target === 'work') return `${base}/work` as `/households/${string}`;
 		if (target === 'farm') return `${base}/farm` as `/households/${string}`;
 		return `${base}/trade` as `/households/${string}`;
