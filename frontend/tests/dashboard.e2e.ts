@@ -1,5 +1,28 @@
 import { expect, test } from '@playwright/test';
 
+async function expectMobileNavContent(page: import('@playwright/test').Page) {
+	const nav = page.getByRole('navigation', { name: 'Household sections' });
+	await expect(nav).toBeVisible();
+	for (const label of ['Report', 'Calendar', 'Farm', 'Work', 'Trade', 'Chronicle']) {
+		const link = nav.getByRole('link', { name: label, exact: true });
+		await expect(link).toBeVisible();
+		const generated = await link.evaluate((element) => ({
+			icon: getComputedStyle(element, '::before').content,
+			label: getComputedStyle(element, '::after').content,
+			color: getComputedStyle(element).color,
+			opacity: getComputedStyle(element).opacity,
+			visibility: getComputedStyle(element).visibility
+		}));
+		expect(generated.icon).not.toBe('none');
+		expect(generated.icon).not.toBe('""');
+		expect(generated.label).toContain(label);
+		expect(generated.color).not.toBe('rgba(0, 0, 0, 0)');
+		expect(generated.opacity).toBe('1');
+		expect(generated.visibility).toBe('visible');
+	}
+	return nav;
+}
+
 test('keeps the five household surfaces connected on mobile', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/');
@@ -7,15 +30,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page.getByText('980 CE · Spring · first week')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Household report' }).first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'What needs your decision?' })).toBeVisible();
-	const householdNav = page.getByRole('navigation', { name: 'Household sections' });
-	await expect(householdNav).toBeVisible();
-	await expect(householdNav.getByText('Report', { exact: true })).toBeVisible();
-	await expect(householdNav.getByText('Calendar', { exact: true })).toBeVisible();
-	await expect(householdNav.getByText('Farm', { exact: true })).toBeVisible();
-	await expect(householdNav.getByText('Work', { exact: true })).toBeVisible();
-	await expect(householdNav.getByText('Trade', { exact: true })).toBeVisible();
-	await expect(householdNav.getByText('Chronicle', { exact: true })).toBeVisible();
-	expect(await householdNav.locator('svg').count()).toBe(6);
+	await expectMobileNavContent(page);
 
 	const provisions = page.getByLabel('Household status').getByRole('link').first();
 	await expect(provisions).toContainText('30 days');
@@ -83,10 +98,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 test('mobile navigation leaves room for the final controls', async ({ page }) => {
 	await page.setViewportSize({ width: 320, height: 568 });
 	await page.goto('/households/00000000-0000-0000-0000-000000000020/work');
-	const nav = page.getByRole('navigation', { name: 'Household sections' });
-	await expect(nav).toBeVisible();
-	await expect(nav.getByText('Chronicle', { exact: true })).toBeVisible();
-	expect(await nav.locator('svg').count()).toBe(6);
+	const nav = await expectMobileNavContent(page);
 	const button = page.getByRole('button', { name: /^Assign / });
 	await expect(button).toBeVisible();
 	await button.scrollIntoViewIfNeeded();
