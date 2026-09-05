@@ -40,19 +40,19 @@
 		report.attention.filter((item) => item.severity === 'critical').length
 	);
 
-	function decisionHref(target?: string): string {
+	function decisionHref(target?: string): `/households/${string}` {
 		const id = householdId ?? report.household_id;
 		const base = `/households/${id}`;
-		if (target === 'politics') return resolve(`${base}/farm#politics` as `/households/${string}`);
+		if (target === 'politics') return `${base}/farm#politics` as `/households/${string}`;
 		if (target === 'contracts')
-			return resolve(`${base}/trade#contracts` as `/households/${string}`);
-		if (target === 'work') return resolve(`${base}/work` as `/households/${string}`);
-		if (target === 'farm') return resolve(`${base}/farm` as `/households/${string}`);
-		return resolve(`${base}/trade` as `/households/${string}`);
+			return `${base}/trade#contracts` as `/households/${string}`;
+		if (target === 'work') return `${base}/work` as `/households/${string}`;
+		if (target === 'farm') return `${base}/farm` as `/households/${string}`;
+		return `${base}/trade` as `/households/${string}`;
 	}
-	function calendarHref(): string {
+	function calendarHref(): `/households/${string}` {
 		const id = householdId ?? report.household_id;
-		return resolve(`/households/${id}/calendar` as `/households/${string}`);
+		return `/households/${id}/calendar` as `/households/${string}`;
 	}
 </script>
 
@@ -88,11 +88,10 @@
 			<ol>
 				{#each report.decisions as item (item.code + item.related_id)}
 					<li>
-						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
 						<a
 							class:critical={item.severity === 'critical'}
 							class="decision-card"
-							href={decisionHref(item.target)}
+							href={resolve(decisionHref(item.target))}
 						>
 							<span class="decision-kicker">{item.target ?? 'Household decision'}</span>
 							<strong>{describeReportItem(item, report.game_day)}</strong>
@@ -128,8 +127,7 @@
 		<section class="upcoming" aria-labelledby="upcoming-heading">
 			<div class="support-heading">
 				<h3 id="upcoming-heading">Next on the calendar</h3>
-				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-				<a class="calendar-link" href={calendarHref()}>Full calendar →</a>
+				<a class="calendar-link" href={resolve(calendarHref())}>Full calendar →</a>
 			</div>
 			{#if upcoming.length === 0}
 				<p class="empty">No upcoming calendar events.</p>
