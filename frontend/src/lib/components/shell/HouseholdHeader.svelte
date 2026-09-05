@@ -3,7 +3,8 @@
 	import {
 		formatCalendarPosition,
 		formatRelativeGameDay,
-		nextHalfYearStart
+		nextHalfYearStart,
+		settingYear
 	} from '$lib/domain/time';
 
 	let { report }: { report: HouseholdReport } = $props();
@@ -14,7 +15,7 @@
 		<p class="eyebrow">Household seat</p>
 		<h1>{report.household_name}</h1>
 		<p class="date">
-			{report.setting_start_year} CE · {formatCalendarPosition(
+			{settingYear(report.setting_start_year, report.calendar)} CE · {formatCalendarPosition(
 				report.calendar.phase ||
 					report.calendar.seasonal_phase ||
 					report.calendar.production_season,

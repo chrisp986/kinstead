@@ -101,7 +101,7 @@ export type CalendarEvent = {
 		| 'political_deadline'
 		| 'assignment_end'
 		| 'assembly';
-	title: string;
+	code?: string;
 	end_game_day?: number;
 	importance: 'critical' | 'important' | 'context';
 	action_required: boolean;

@@ -14,6 +14,10 @@ export type CalendarView = {
 export type CalendarGroup =
 	'urgent' | 'today' | 'this_week' | 'next_week' | 'later_current_half' | 'next_half' | 'later';
 
+export function settingYear(startYear: number, calendar: Pick<CalendarView, 'year_index'>): number {
+	return startYear + calendar.year_index;
+}
+
 export function calendarForGameDay(gameDay: number): CalendarView {
 	const yearIndex = Math.floor(gameDay / 364);
 	const dayOfYear = ((gameDay % 364) + 364) % 364;

@@ -44,6 +44,11 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page).toHaveURL(/\/calendar$/);
 	await expect(page.getByText('Dispatch shipment')).toBeVisible();
 	await expect(page.getByText('Delivery due')).toBeVisible();
+	await page.getByRole('button', { name: 'Contracts', exact: true }).click();
+	await expect(page.getByText('Delivery due')).toBeVisible();
+	await expect(page.getByText('Midsummer')).toHaveCount(0);
+	await page.getByRole('button', { name: 'All', exact: true }).click();
+	await expect(page.locator('body')).not.toContainText(/00000000-0000-0000-0000-000000000[0-9]{3}/);
 	await page.getByRole('tab', { name: 'Year cycle' }).click();
 	await expect(page.getByRole('heading', { name: 'Year cycle' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Summer half' })).toBeVisible();
@@ -96,4 +101,9 @@ test('household surfaces fit the supported viewport range', async ({ page }) => 
 		);
 		expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBe(false);
 	}
+});
+
+test('shared household header advances the historical year after rollover', async ({ page }) => {
+	await page.goto('/households/00000000-0000-0000-0000-000000000022');
+	await expect(page.getByText('981 CE · Spring · first week')).toBeVisible();
 });

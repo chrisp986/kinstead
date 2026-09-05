@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 
 const householdId = '00000000-0000-0000-0000-000000000020';
+const rolloverHouseholdId = '00000000-0000-0000-0000-000000000022';
 const sellerId = '00000000-0000-0000-0000-000000000021';
 const worldId = '00000000-0000-0000-0000-000000000001';
 const offerId = '00000000-0000-0000-0000-000000000302';
@@ -15,6 +16,11 @@ const calendar = {
 	half_year: 'summer',
 	seasonal_phase: '',
 	phase: ''
+};
+const rolloverCalendar = {
+	...calendar,
+	game_day: 364,
+	year_index: 1
 };
 const assignments = [];
 const chronicleEntries = [
@@ -141,8 +147,7 @@ function calendarEvents() {
 			category: 'politics',
 			game_day: 5,
 			importance: 'critical',
-			action_required: true,
-			title: 'Answer the Jarl'
+			action_required: true
 		},
 		{
 			id: 'calendar-summer',
@@ -151,7 +156,7 @@ function calendarEvents() {
 			game_day: 91,
 			importance: 'important',
 			action_required: false,
-			title: 'Summer begins'
+			code: 'summer'
 		},
 		{
 			id: 'calendar-midsummer',
@@ -160,7 +165,7 @@ function calendarEvents() {
 			game_day: 121,
 			importance: 'context',
 			action_required: false,
-			title: 'Midsummer'
+			code: 'midsummer'
 		},
 		{
 			id: 'calendar-harvest',
@@ -169,7 +174,7 @@ function calendarEvents() {
 			game_day: 152,
 			importance: 'important',
 			action_required: false,
-			title: 'Harvest begins'
+			code: 'harvest_start'
 		}
 	];
 	const contract = contracts[0];
@@ -185,8 +190,7 @@ function calendarEvents() {
 				action_required: true,
 				related_id: obligation.id,
 				resource_type: obligation.resource_type,
-				quantity_milli: obligation.quantity_milli,
-				title: 'Dispatch shipment'
+				quantity_milli: obligation.quantity_milli
 			});
 		}
 		events.push({
@@ -198,8 +202,7 @@ function calendarEvents() {
 			action_required: false,
 			related_id: obligation.id,
 			resource_type: obligation.resource_type,
-			quantity_milli: obligation.quantity_milli,
-			title: 'Delivery due'
+			quantity_milli: obligation.quantity_milli
 		});
 	}
 	const contractShipment = shipments.find(
@@ -216,7 +219,7 @@ function calendarEvents() {
 			related_id: contractShipment.id,
 			resource_type: contractShipment.resource_type,
 			quantity_milli: contractShipment.quantity_milli,
-			title: 'Shipment expected'
+			status: contractShipment.status
 		});
 	}
 	return events.sort((a, b) => a.game_day - b.game_day || a.id.localeCompare(b.id));
@@ -235,15 +238,22 @@ async function readBody(request) {
 
 createServer(async (request, response) => {
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1:9080');
-	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/report`) {
+	if (
+		request.method === 'GET' &&
+		(url.pathname === `/api/households/${householdId}/report` ||
+			url.pathname === `/api/households/${rolloverHouseholdId}/report`)
+	) {
+		const responseCalendar = url.pathname.includes(rolloverHouseholdId)
+			? rolloverCalendar
+			: calendar;
 		return send(response, 200, {
 			household_id: householdId,
 			household_name: 'Bjornvik',
 			world_id: worldId,
 			setting_start_year: 980,
 			tick: 0,
-			game_day: 0,
-			calendar,
+			game_day: responseCalendar.game_day,
+			calendar: responseCalendar,
 			historical_date: '0980-01-01',
 			season: 'winter',
 			supply_days: 30.6,
@@ -292,16 +302,27 @@ createServer(async (request, response) => {
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/shipments`) {
 		return send(response, 200, { shipments });
 	}
-	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/calendar`) {
+	if (
+		request.method === 'GET' &&
+		(url.pathname === `/api/households/${householdId}/calendar` ||
+			url.pathname === `/api/households/${rolloverHouseholdId}/calendar`)
+	) {
+		const responseCalendar = url.pathname.includes(rolloverHouseholdId)
+			? rolloverCalendar
+			: calendar;
 		return send(response, 200, {
 			household_id: householdId,
 			world_id: worldId,
 			setting_start_year: 980,
-			current_game_day: 0,
-			calendar,
-			next_half_year: { type: 'winter', game_day: 182, days_until: 182 },
-			from_game_day: 0,
-			to_game_day: 182,
+			current_game_day: responseCalendar.game_day,
+			calendar: responseCalendar,
+			next_half_year: {
+				type: 'winter',
+				game_day: responseCalendar.game_day + 182,
+				days_until: 182
+			},
+			from_game_day: responseCalendar.game_day,
+			to_game_day: responseCalendar.game_day + 182,
 			events: calendarEvents()
 		});
 	}

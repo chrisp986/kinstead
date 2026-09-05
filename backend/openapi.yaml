@@ -457,7 +457,7 @@ components:
         phase: { type: string }
     CalendarEvent:
       type: object
-      required: [id, game_day, category, kind, importance, action_required, title]
+      required: [id, game_day, category, kind, importance, action_required]
       properties:
         id: { type: string }
         game_day: { type: integer, format: int64 }
@@ -465,7 +465,7 @@ components:
         kind:
           type: string
           enum: [season_start, festival, harvest, delivery_due, dispatch_deadline, shipment_arrival, political_deadline, assignment_end, assembly]
-        title: { type: string }
+        code: { type: string }
         end_game_day: { type: integer, format: int64 }
         importance: { type: string, enum: [critical, important, context] }
         action_required: { type: boolean }
