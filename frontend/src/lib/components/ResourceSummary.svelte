@@ -2,30 +2,31 @@
 	import { formatProjectedUnits, labelResource } from '$lib/domain/format';
 	let { resources, supplyDays }: { resources: Record<string, number>; supplyDays: number } =
 		$props();
+	let wholeSupplyDays = $derived(Math.max(0, Math.floor(supplyDays)));
 	let supplyTone = $derived(
-		supplyDays < 7
+		wholeSupplyDays < 7
 			? 'emergency'
-			: supplyDays < 15
+			: wholeSupplyDays < 15
 				? 'critical'
-				: supplyDays <= 30
+				: wholeSupplyDays <= 30
 					? 'warning'
 					: 'safe'
 	);
 	let supplyState = $derived(
-		supplyDays < 7
+		wholeSupplyDays < 7
 			? 'Emergency'
-			: supplyDays < 15
+			: wholeSupplyDays < 15
 				? 'Critical'
-				: supplyDays <= 30
+				: wholeSupplyDays <= 30
 					? 'Strained'
 					: 'Secure'
 	);
 	let supplyMessage = $derived(
-		supplyDays < 7
+		wholeSupplyDays < 7
 			? 'Food security needs immediate action.'
-			: supplyDays < 15
+			: wholeSupplyDays < 15
 				? 'Plan food work or trade before reserves become an emergency.'
-				: supplyDays <= 30
+				: wholeSupplyDays <= 30
 					? 'Reserves are adequate, but the household has little margin.'
 					: 'The household has a comfortable provisions buffer.'
 	);
@@ -42,7 +43,7 @@
 	<div class={`supply-callout ${supplyTone}`}>
 		<div>
 			<span class="supply-label">Provisions last</span>
-			<strong>{formatProjectedUnits(supplyDays)} days</strong>
+			<strong>{wholeSupplyDays} days</strong>
 		</div>
 		<div class="supply-copy">
 			<span class="state">{supplyState}</span>
