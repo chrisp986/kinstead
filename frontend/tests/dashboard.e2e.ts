@@ -11,8 +11,8 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page.getByText('Chronicle', { exact: true })).toBeVisible();
 
 	const provisions = page.getByLabel('Household status').getByRole('link').first();
-	await expect(provisions).toContainText(/\d+(?:\.\d)? days/);
-	await expect(provisions).not.toContainText(/\.\d{2,} days/);
+	await expect(provisions).toContainText('30 days');
+	await expect(provisions).not.toContainText(/\d+\.\d+ days/);
 
 	// Flow A: report → work → schedule → report.
 	await page.getByRole('link', { name: 'Work', exact: true }).click();
