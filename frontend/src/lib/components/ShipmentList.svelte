@@ -31,7 +31,10 @@
 					<div class="shipment-main">
 						<div>
 							<span class="direction">{direction(shipment)}</span>
-							<strong>{formatMilli(shipment.quantity_milli)} {labelResource(shipment.resource_type)}</strong>
+							<strong
+								>{formatMilli(shipment.quantity_milli)}
+								{labelResource(shipment.resource_type)}</strong
+							>
 							<p>Shipment …{shortId(shipment.id)}</p>
 						</div>
 						<StatusBadge status={shipment.status} />
@@ -42,7 +45,10 @@
 							<span class="marker" aria-hidden="true"></span>
 							<small>Prepared</small>
 						</div>
-						<div class:complete={shipment.status === 'in_transit' || shipment.status === 'arrived'} class="stage">
+						<div
+							class:complete={shipment.status === 'in_transit' || shipment.status === 'arrived'}
+							class="stage"
+						>
 							<span class="marker" aria-hidden="true"></span>
 							<small>On the road</small>
 						</div>
@@ -58,7 +64,11 @@
 							<strong>{formatRelativeGameDay(currentGameDay, shipment.departure_game_day)}</strong>
 						</div>
 						<div>
-							<span>{shipment.actual_arrival_game_day === undefined ? 'Expected arrival' : 'Arrival'}</span>
+							<span
+								>{shipment.actual_arrival_game_day === undefined
+									? 'Expected arrival'
+									: 'Arrival'}</span
+							>
 							<strong>
 								{shipment.actual_arrival_game_day === undefined
 									? formatRelativeGameDay(currentGameDay, shipment.expected_arrival_game_day)
