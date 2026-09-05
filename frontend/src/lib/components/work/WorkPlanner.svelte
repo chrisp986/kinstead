@@ -44,7 +44,9 @@
 		<div>
 			<p class="eyebrow">Labor decisions</p>
 			<h2 id="work-heading">Choose who should do the next useful work</h2>
-			<p class="section-copy">Start with the person: check fatigue and current work before changing the plan.</p>
+			<p class="section-copy">
+				Start with the person: check fatigue and current work before changing the plan.
+			</p>
 		</div>
 	</div>
 
@@ -81,7 +83,13 @@
 			{#if selectedWorker}
 				<div class:warning={selectedWorker.fatigue >= 50} class="worker-state">
 					<strong>Fatigue {selectedWorker.fatigue}</strong>
-					<span>{selectedWorker.fatigue >= 70 ? 'Reduced output' : selectedWorker.fatigue >= 50 ? 'Watch recovery' : 'Ready to work'}</span>
+					<span
+						>{selectedWorker.fatigue >= 70
+							? 'Reduced output'
+							: selectedWorker.fatigue >= 50
+								? 'Watch recovery'
+								: 'Ready to work'}</span
+					>
 				</div>
 			{/if}
 		</div>
@@ -115,7 +123,9 @@
 				<span>Duration</span>
 				<select name="duration_ticks" required bind:value={duration}>
 					{#each [1, 3, 6, 12] as durationOption (durationOption)}
-						<option value={durationOption}>{durationOption === 1 ? 'one period' : `${durationOption} periods`}</option>
+						<option value={durationOption}
+							>{durationOption === 1 ? 'one period' : `${durationOption} periods`}</option
+						>
 					{/each}
 				</select>
 			</label>
@@ -128,7 +138,11 @@
 			</div>
 			<div>
 				<span>Work pressure</span>
-				<strong>{activity === 'rest' ? 'Recovery · no production' : `${sentenceCase(intensity)} · ${intensityEffect}`}</strong>
+				<strong
+					>{activity === 'rest'
+						? 'Recovery · no production'
+						: `${sentenceCase(intensity)} · ${intensityEffect}`}</strong
+				>
 			</div>
 			<div>
 				<span>Duration</span>
