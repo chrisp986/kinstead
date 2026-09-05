@@ -7,6 +7,7 @@ DATABASE_URL="${TEST_DATABASE_URL:-postgres://game:game@localhost:5432/game?sslm
 COMPOSE_FILE="${COMPOSE_FILE:-$BACKEND_DIR/../docker-compose.yml}"
 DB_USER="${DB_USER:-game}"
 GOOSE_VERSION="v3.26.0"
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-$BACKEND_DIR/db/migrations}"
 
 psql_for_url() {
   local url="$1" database
@@ -22,8 +23,21 @@ psql_for_url() {
 }
 
 run_goose() {
-  (cd "$BACKEND_DIR" && go run "github.com/pressly/goose/v3/cmd/goose@$GOOSE_VERSION" \
-    -dir db/migrations postgres "$DATABASE_URL" "$@")
+	(cd "$BACKEND_DIR" && go run "github.com/pressly/goose/v3/cmd/goose@$GOOSE_VERSION" \
+	    -dir "$MIGRATIONS_DIR" postgres "$DATABASE_URL" "$@")
+}
+
+assert_goose_version() {
+  local expected="$1" actual
+  actual="$(psql_for_url "$DATABASE_URL" -Atqc '
+    SELECT COALESCE(max(version_id), 0)
+    FROM goose_db_version
+    WHERE is_applied
+  ')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Goose version mismatch: got $actual, want $expected" >&2
+    return 1
+  fi
 }
 
 assert_catalog_state() {
@@ -59,9 +73,29 @@ assert_catalog_state() {
   done
 }
 
-run_goose down
+# This test intentionally targets the 17 -> 18 transition. It must remain
+# independent of the repository's latest migration so future migrations do not
+# change which migration is rolled back or re-applied.
+latest_version="$(psql_for_url "$DATABASE_URL" -Atqc '
+  SELECT COALESCE(max(version_id), 0)
+  FROM goose_db_version
+  WHERE is_applied
+')"
+if (( latest_version < 18 )); then
+  echo "calendar rollback test requires migration 18, found version $latest_version" >&2
+  exit 1
+fi
+
+run_goose down-to 17
+assert_goose_version 17
 assert_catalog_state t
-run_goose up
+run_goose up-to 18
+assert_goose_version 18
 assert_catalog_state f
+
+if (( latest_version > 18 )); then
+  run_goose up-to "$latest_version"
+  assert_goose_version "$latest_version"
+fi
 
 echo "calendar migration rollback round-trip passed"
