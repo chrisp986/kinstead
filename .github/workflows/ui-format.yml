@@ -1,0 +1,26 @@
+name: UI format
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx prettier --write src/lib/components/FarmReportPanel.svelte
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: formatted-report
+          path: frontend/src/lib/components/FarmReportPanel.svelte
