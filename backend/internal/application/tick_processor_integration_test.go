@@ -182,8 +182,8 @@ func createTrustTickFixture(t *testing.T, ctx context.Context, store *postgres.S
 	}
 	defer tx.Rollback(ctx)
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO worlds(name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
-		VALUES ('contract trust integration test', DATE '0980-01-01', 0, 172800, now() - interval '1 day')
+		INSERT INTO worlds(name, historical_start_date, current_tick, current_game_day, calendar_remainder, tick_duration_seconds, next_tick_at)
+		VALUES ('contract trust integration test', DATE '0980-01-01', 0, 0, 0, 172800, now() - interval '1 day')
 		RETURNING id::text
 	`).Scan(&fixture.worldID); err != nil {
 		t.Fatal(err)
@@ -208,8 +208,8 @@ func createTrustTickFixture(t *testing.T, ctx context.Context, store *postgres.S
 	}
 	var contractID string
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO contracts(world_id, party_a_household_id, party_b_household_id, starts_tick, ends_tick, interval_ticks, status)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, 2, 6, 1, 'active')
+		INSERT INTO contracts(world_id, party_a_household_id, party_b_household_id, starts_tick, ends_tick, interval_ticks, start_game_day, end_game_day, interval_days, game_day_schedule, status)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, 2, 6, 1, 15, 45, 1, false, 'active')
 		RETURNING id::text
 	`, fixture.worldID, fixture.debtorID, fixture.creditorID).Scan(&contractID); err != nil {
 		t.Fatal(err)
@@ -230,8 +230,8 @@ func createTrustTickFixture(t *testing.T, ctx context.Context, store *postgres.S
 				INSERT INTO shipments(
 					world_id, sender_household_id, receiver_household_id,
 					origin_location_id, destination_location_id, resource_code,
-					quantity_milli, departure_tick, expected_arrival_tick, status
-				) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'provisions', 1000, 0, $6, 'in_transit')
+					quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, status
+				) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'provisions', 1000, 0, $6::bigint, 0, ($6::bigint * 91) / 12, 'in_transit')
 				RETURNING id::text
 			`, fixture.worldID, fixture.debtorID, fixture.creditorID, originID, destinationID, arrival).Scan(&id); err != nil {
 				t.Fatal(err)
@@ -242,8 +242,8 @@ func createTrustTickFixture(t *testing.T, ctx context.Context, store *postgres.S
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO contract_obligations(
 				contract_id, debtor_household_id, creditor_household_id,
-				resource_code, quantity_milli, due_arrival_tick, shipment_id, status
-			) VALUES ($1::uuid, $2::uuid, $3::uuid, 'provisions', 1000, $4, $5::uuid, $6)
+				resource_code, quantity_milli, due_arrival_tick, due_game_day, shipment_id, status
+			) VALUES ($1::uuid, $2::uuid, $3::uuid, 'provisions', 1000, $4::bigint, ($4::bigint * 91) / 12, $5::uuid, $6::text)
 		`, contractID, fixture.debtorID, fixture.creditorID, due, shipmentID, status); err != nil {
 			t.Fatal(err)
 		}
@@ -295,8 +295,8 @@ func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
 
 	var worldID string
 	if err := tx.QueryRow(ctx, `
-        INSERT INTO worlds(name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
-        VALUES ('tick shipment integration test', DATE '0980-01-01', 0, 172800, now() - interval '1 day')
+        INSERT INTO worlds(name, historical_start_date, current_tick, current_game_day, calendar_remainder, tick_duration_seconds, next_tick_at)
+        VALUES ('tick shipment integration test', DATE '0980-01-01', 0, 0, 0, 172800, now() - interval '1 day')
         RETURNING id::text
     `).Scan(&worldID); err != nil {
 		t.Fatal(err)
@@ -338,8 +338,8 @@ func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
         INSERT INTO shipments(
             world_id, sender_household_id, receiver_household_id,
             origin_location_id, destination_location_id, resource_code,
-            quantity_milli, departure_tick, expected_arrival_tick, status
-        ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',30000,0,2,'in_transit')
+				quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, status
+			) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',30000,0,2,0,15,'in_transit')
         RETURNING id::text
 	`, worldID, senderID, receiverID, originID, destinationID).Scan(&shipmentID); err != nil {
 		t.Fatal(err)
@@ -349,8 +349,8 @@ func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
 		INSERT INTO shipments(
 			world_id, sender_household_id, receiver_household_id,
 			origin_location_id, destination_location_id, resource_code,
-			quantity_milli, departure_tick, expected_arrival_tick, status
-		) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'trade_goods',1000,0,6,'in_transit')
+			quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, status
+		) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'trade_goods',1000,0,6,0,45,'in_transit')
 		RETURNING id::text
 	`, worldID, senderID, receiverID, originID, destinationID).Scan(&delayedShipmentID); err != nil {
 		t.Fatal(err)
@@ -359,8 +359,8 @@ func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO contracts(
 			world_id, party_a_household_id, party_b_household_id,
-			starts_tick, ends_tick, interval_ticks, status
-		) VALUES ($1::uuid, $2::uuid, $3::uuid, 2, 2, 1, 'active')
+			starts_tick, ends_tick, interval_ticks, start_game_day, end_game_day, interval_days, game_day_schedule, status
+		) VALUES ($1::uuid, $2::uuid, $3::uuid, 2, 2, 1, 15, 15, 1, false, 'active')
 		RETURNING id::text
 	`, worldID, senderID, receiverID).Scan(&contractID); err != nil {
 		t.Fatal(err)
@@ -377,11 +377,11 @@ func createTickShipmentFixture(t *testing.T, ctx context.Context, store *postgre
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO contract_obligations(
 			contract_id, debtor_household_id, creditor_household_id,
-			resource_code, quantity_milli, due_arrival_tick, shipment_id, status
+			resource_code, quantity_milli, due_arrival_tick, due_game_day, shipment_id, status
 		) VALUES
-			($1::uuid, $2::uuid, $3::uuid, 'provisions', 30000, 2, $4::uuid, 'dispatched'),
-			($1::uuid, $2::uuid, $3::uuid, 'wood', 1000, 2, NULL, 'pending'),
-			($1::uuid, $2::uuid, $3::uuid, 'trade_goods', 1000, 2, $5::uuid, 'dispatched')
+			($1::uuid, $2::uuid, $3::uuid, 'provisions', 30000, 2, 15, $4::uuid, 'dispatched'),
+			($1::uuid, $2::uuid, $3::uuid, 'wood', 1000, 2, 15, NULL, 'pending'),
+			($1::uuid, $2::uuid, $3::uuid, 'trade_goods', 1000, 2, 15, $5::uuid, 'dispatched')
 	`, contractID, senderID, receiverID, shipmentID, delayedShipmentID); err != nil {
 		t.Fatal(err)
 	}

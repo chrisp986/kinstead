@@ -49,7 +49,8 @@ SELECT c.id::text AS id, c.world_id::text AS world_id,
        c.party_b_household_id::text AS party_b_household_id,
        c.starts_tick, c.ends_tick, c.interval_ticks,
        c.start_game_day, c.end_game_day, c.interval_days, c.game_day_schedule, c.status,
-       w.current_tick, w.current_game_day
+       w.current_tick, w.current_game_day, w.calendar_remainder,
+       w.game_days_per_tick_num, w.game_days_per_tick_den
 FROM contracts c
 JOIN worlds w ON w.id = c.world_id
 WHERE c.id = $1::uuid
@@ -75,13 +76,12 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        o.resource_code, o.quantity_milli, o.due_arrival_tick, o.due_game_day,
        COALESCE(o.shipment_id::text, ''::text)::text AS shipment_id,
        o.status, o.fulfilled_tick, o.fulfilled_game_day, c.game_day_schedule,
-       (o.due_game_day - (
-         (CASE lr.distance_class
-            WHEN 'neighbor' THEN 1 WHEN 'local' THEN 2
-            WHEN 'near_regional' THEN 3 WHEN 'regional' THEN 5
-            WHEN 'far_regional' THEN 8 ELSE 0 END) * w.game_days_per_tick_num
-           + w.game_days_per_tick_den - 1
-       ) / w.game_days_per_tick_den)::bigint AS latest_dispatch_game_day,
+       (CASE lr.distance_class
+          WHEN 'neighbor' THEN 1 WHEN 'local' THEN 2
+          WHEN 'near_regional' THEN 3 WHEN 'regional' THEN 5
+          WHEN 'far_regional' THEN 8 ELSE 0 END)::bigint AS travel_ticks,
+       w.current_game_day, w.calendar_remainder,
+       w.game_days_per_tick_num, w.game_days_per_tick_den,
        s.departure_game_day, s.expected_arrival_game_day
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id
@@ -112,8 +112,8 @@ LEFT JOIN shipments s ON s.id = o.shipment_id
 WHERE c.world_id = $1::uuid
   AND c.status IN ('active', 'broken')
   AND o.status IN ('pending', 'dispatched', 'late', 'broken')
-  AND ((c.game_day_schedule AND (o.due_game_day <= $2 OR s.actual_arrival_game_day IS NOT NULL))
-       OR (NOT c.game_day_schedule AND (o.due_arrival_tick <= w.current_tick OR s.actual_arrival_tick IS NOT NULL)))
+  AND ((c.game_day_schedule AND (o.due_game_day <= sqlc.arg(game_day) OR s.actual_arrival_game_day IS NOT NULL))
+       OR (NOT c.game_day_schedule AND (o.due_arrival_tick <= sqlc.arg(tick) OR s.actual_arrival_tick IS NOT NULL)))
   AND ((c.game_day_schedule AND (o.status <> 'broken' OR (o.fulfilled_game_day IS NULL AND s.actual_arrival_game_day IS NOT NULL)))
        OR (NOT c.game_day_schedule AND (o.status <> 'broken' OR (o.fulfilled_tick IS NULL AND s.actual_arrival_tick IS NOT NULL))))
   AND (c.status = 'active' OR o.status = 'broken')
@@ -141,7 +141,8 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
        c.world_id::text AS world_id, c.status AS contract_status,
        debtor.location_id::text AS origin_location_id,
        creditor.location_id::text AS destination_location_id,
-       w.current_tick, w.current_game_day, w.game_days_per_tick_num, w.game_days_per_tick_den,
+       w.current_tick, w.current_game_day, w.calendar_remainder,
+       w.game_days_per_tick_num, w.game_days_per_tick_den,
        c.game_day_schedule, gen_random_uuid()::text AS proposed_shipment_id
 FROM contract_obligations o
 JOIN contracts c ON c.id = o.contract_id

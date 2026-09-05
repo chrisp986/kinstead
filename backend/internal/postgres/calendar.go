@@ -4,7 +4,10 @@ package postgres
 
 import (
 	"context"
+	"fmt"
+	"math"
 
+	"game/backend/internal/calendar"
 	"game/backend/internal/port"
 )
 
@@ -46,7 +49,7 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 		  AND o.due_game_day BETWEEN $2 AND $3
 		  AND o.status IN ('pending', 'dispatched', 'late')
 		ORDER BY o.due_game_day, o.id
-	`, id, from, to+91)
+	`, id, from, calendarQueryEnd(to))
 	if err != nil {
 		return port.CalendarContext{}, err
 	}
@@ -59,7 +62,19 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 			rows.Close()
 			return port.CalendarContext{}, err
 		}
-		item.LatestDispatchGameDay = item.DueGameDay - ceilTravelDays(travelTicks, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)
+		deadline, err := calendar.LatestDispatchGameDay(
+			calendar.GameDay(snapshot.CurrentGameDay),
+			snapshot.CalendarRemainder,
+			snapshot.GameDaysPerTickNum,
+			snapshot.GameDaysPerTickDen,
+			calendar.GameDay(item.DueGameDay),
+			travelTicks,
+		)
+		if err != nil {
+			rows.Close()
+			return port.CalendarContext{}, fmt.Errorf("calculate calendar dispatch deadline: %w", err)
+		}
+		item.LatestDispatchGameDay = int64(deadline)
 		contextValue.Obligations = append(contextValue.Obligations, item)
 	}
 	rows.Close()
@@ -76,8 +91,10 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 		JOIN households sender ON sender.id = s.sender_household_id
 		JOIN households receiver ON receiver.id = s.receiver_household_id
 		WHERE (s.sender_household_id = $1::uuid OR s.receiver_household_id = $1::uuid)
-		  AND s.expected_arrival_game_day BETWEEN $2 AND $3
-		ORDER BY s.expected_arrival_game_day, s.id
+		  AND s.status IN ('in_transit', 'arrived')
+		  AND (s.expected_arrival_game_day BETWEEN $2 AND $3
+		       OR s.actual_arrival_game_day BETWEEN $2 AND $3)
+		ORDER BY COALESCE(s.actual_arrival_game_day, s.expected_arrival_game_day), s.id
 	`, id, from, to)
 	if err != nil {
 		return port.CalendarContext{}, err
@@ -98,7 +115,7 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	}
 
 	deadlineRows, err := s.Pool.Query(ctx, `
-		SELECT d.id::text, d.decision_type, d.expires_game_day
+		SELECT d.id::text, d.expires_game_day
 		FROM household_decisions d
 		WHERE d.household_id = $1::uuid AND d.status = 'pending'
 		ORDER BY d.expires_tick, d.id
@@ -108,12 +125,11 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	}
 	for deadlineRows.Next() {
 		var item port.CalendarDeadlineRecord
-		if err := deadlineRows.Scan(&item.ID, &item.Title, &item.DeadlineGameDay); err != nil {
+		if err := deadlineRows.Scan(&item.ID, &item.DeadlineGameDay); err != nil {
 			deadlineRows.Close()
 			return port.CalendarContext{}, err
 		}
 		item.Kind, item.Category, item.Importance = "political_deadline", "politics", "critical"
-		item.Title = "Answer the Jarl"
 		contextValue.Deadlines = append(contextValue.Deadlines, item)
 	}
 	deadlineRows.Close()
@@ -146,11 +162,13 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	return contextValue, nil
 }
 
-func ceilTravelDays(ticks, numerator, denominator int64) int64 {
-	if ticks <= 0 || numerator <= 0 || denominator <= 0 {
-		return 0
+var ErrCalendarArithmetic = calendar.ErrArithmeticOverflow
+
+func calendarQueryEnd(to int64) int64 {
+	if to <= math.MaxInt64-91 {
+		return to + 91
 	}
-	return (ticks*numerator + denominator - 1) / denominator
+	return to
 }
 
 var _ port.CalendarReader = (*Store)(nil)

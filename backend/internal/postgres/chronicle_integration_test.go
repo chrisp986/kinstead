@@ -56,7 +56,7 @@ func TestAssignmentChronicleLifecycle(t *testing.T) {
 			ID: characterID, Name: "Chronicle worker", LaborPermille: 1000,
 		}},
 	}}
-	if err := store.SaveHouseholdTick(ctx, tx, householdID, result); err != nil {
+	if err := store.SaveHouseholdTick(ctx, tx, householdID, result, 7); err != nil {
 		tx.Rollback(ctx)
 		t.Fatal(err)
 	}

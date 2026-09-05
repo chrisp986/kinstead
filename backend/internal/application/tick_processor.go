@@ -46,8 +46,10 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	if processed {
 		return false, fmt.Errorf("world %s tick %d already processed while current_tick is %d", world.ID, tick, world.CurrentTick)
 	}
+	startGameDay := calendar.GameDay(world.CurrentGameDay)
+	productionSeason := calendar.ProductionSeasonAt(startGameDay)
 	nextGameDay, nextRemainder, err := calendar.Advance(
-		calendar.GameDay(world.CurrentGameDay), world.CalendarRemainder,
+		startGameDay, world.CalendarRemainder,
 		world.GameDaysPerTickNum, world.GameDaysPerTickDen,
 	)
 	if err != nil {
@@ -77,24 +79,24 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("load household %s: %w", householdID, err)
 		}
-		tickContext := simulation.NeutralTickContext(simulation.Season(calendar.ProductionSeasonAt(nextGameDay)))
+		tickContext := simulation.NeutralTickContext(simulation.Season(productionSeason))
 		result, err := simulation.ProcessTick(snap.State, tick, assignments, tickContext, p.Balance)
 		if err != nil {
 			return false, fmt.Errorf("simulate household %s: %w", householdID, err)
 		}
-		if err := tx.SaveHouseholdTick(ctx, householdID, result); err != nil {
+		if err := tx.SaveHouseholdTick(ctx, householdID, result, int64(nextGameDay)); err != nil {
 			return false, fmt.Errorf("save household %s: %w", householdID, err)
 		}
 		results[householdID] = result
 	}
 	// Canonical tick step 7: resolve political events after fatigue/health.
-	if err := p.processPolitics(ctx, tx, world.ID, tick); err != nil {
+	if err := p.processPolitics(ctx, tx, world.ID, tick, int64(nextGameDay)); err != nil {
 		return false, err
 	}
 	// Canonical tick step 8: conservative emergency supply protection after
 	// all events and political consequences have been applied.
 	for _, householdID := range householdIDs {
-		if err := p.processEmergencyFoodWork(ctx, tx, householdID, results[householdID], tick); err != nil {
+		if err := p.processEmergencyFoodWork(ctx, tx, householdID, results[householdID], tick, int64(nextGameDay)); err != nil {
 			return false, err
 		}
 	}
@@ -111,7 +113,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 // processEmergencyFoodWork is deliberately narrow: only a full-capacity,
 // otherwise free worker may receive one normal food-producing assignment for
 // the next tick when provisions are below seven days.
-func (p *TickProcessor) processEmergencyFoodWork(ctx context.Context, tx port.WorldTickTransaction, householdID string, result simulation.TickResult, tick int64) error {
+func (p *TickProcessor) processEmergencyFoodWork(ctx context.Context, tx port.WorldTickTransaction, householdID string, result simulation.TickResult, tick, effectiveGameDay int64) error {
 	if result.State.SupplyDays(p.Balance) >= 7 {
 		return nil
 	}
@@ -123,7 +125,7 @@ func (p *TickProcessor) processEmergencyFoodWork(ctx context.Context, tx port.Wo
 		if c.Specialization == simulation.Agriculture || (c.Specialization != simulation.Fishing && result.State.FarmSpecialization == simulation.Agriculture) {
 			activity = simulation.Agriculture
 		}
-		scheduled, err := tx.ScheduleEmergencyFoodWork(ctx, householdID, c.ID, string(activity), tick+1, tick+1, result.State.SupplyDays(p.Balance))
+		scheduled, err := tx.ScheduleEmergencyFoodWork(ctx, householdID, c.ID, string(activity), tick+1, tick+1, effectiveGameDay, result.State.SupplyDays(p.Balance))
 		if err != nil {
 			return err
 		}
@@ -134,7 +136,7 @@ func (p *TickProcessor) processEmergencyFoodWork(ctx context.Context, tx port.Wo
 	return nil
 }
 
-func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64) error {
+func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick, effectiveGameDay int64) error {
 	decisions, err := tx.LoadExpiringPoliticalDecisions(ctx, worldID, tick)
 	if err != nil {
 		return fmt.Errorf("load expiring political demands: %w", err)
@@ -159,7 +161,7 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 			return err
 		}
 		data, _ := json.Marshal(map[string]any{"actor_id": d.PoliticalActorID, "demand_type": d.EventType, "selected_option": resolution.Option, "standing_delta": resolution.StandingDelta, "deadline_tick": d.ExpiresTick, "deadline_game_day": d.ExpiresGameDay})
-		if err := tx.InsertPoliticalChronicle(ctx, d.HouseholdID, tick, "political_demand_auto_resolved", d.ID, d.PoliticalActorID, "", data); err != nil {
+		if err := tx.InsertPoliticalChronicle(ctx, d.HouseholdID, tick, effectiveGameDay, "political_demand_auto_resolved", d.ID, d.PoliticalActorID, "", data); err != nil {
 			return err
 		}
 	}
@@ -187,7 +189,7 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 				continue
 			}
 			data, _ := json.Marshal(map[string]any{"actor_id": event.PoliticalActorID, "demand_type": event.EventType, "deadline_tick": event.ExpiresTick, "deadline_game_day": event.ExpiresGameDay})
-			if err := tx.InsertPoliticalReceivedChronicle(ctx, householdID, tick, event.ID, event.PoliticalActorID, data); err != nil {
+			if err := tx.InsertPoliticalReceivedChronicle(ctx, householdID, tick, effectiveGameDay, event.ID, event.PoliticalActorID, data); err != nil {
 				return err
 			}
 		}
@@ -196,7 +198,7 @@ func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTr
 }
 
 func (p *TickProcessor) processContractObligations(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64, gameDay calendar.GameDay) error {
-	assessments, err := tx.LoadContractObligationsForTick(ctx, worldID, int64(gameDay))
+	assessments, err := tx.LoadContractObligationsForTick(ctx, worldID, tick, int64(gameDay))
 	if err != nil {
 		return fmt.Errorf("load contract obligations: %w", err)
 	}

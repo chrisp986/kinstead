@@ -2,8 +2,7 @@ package calendar
 
 import (
 	"errors"
-	"math"
-	"time"
+	"math/big"
 )
 
 const (
@@ -14,6 +13,7 @@ const (
 )
 
 var ErrInvalidClock = errors.New("invalid historical clock")
+var ErrArithmeticOverflow = errors.New("calendar arithmetic overflow")
 
 type GameDay int64
 
@@ -132,12 +132,150 @@ func DaysUntil(from, target GameDay) int64 { return int64(target - from) }
 // and remainder. The remainder is part of authoritative world state so that
 // repeated ticks are deterministic and no fractional days are lost.
 func Advance(day GameDay, remainder, numerator, denominator int64) (GameDay, int64, error) {
-	if remainder < 0 || numerator <= 0 || denominator <= 0 || remainder >= denominator ||
-		int64(day) > math.MaxInt64-numerator || numerator > math.MaxInt64-remainder {
+	return AdvanceTicks(day, remainder, numerator, denominator, 1)
+}
+
+// AdvanceTicks applies ticks steps of a rational game-day clock. The
+// remainder is carried between calls; wall-clock tick duration is deliberately
+// not an input because it only controls when a worker invokes this function.
+func AdvanceTicks(day GameDay, remainder, numerator, denominator, ticks int64) (GameDay, int64, error) {
+	if remainder < 0 || numerator <= 0 || denominator <= 0 || remainder >= denominator || ticks < 0 {
 		return 0, 0, ErrInvalidClock
 	}
-	total := remainder + numerator
-	return day + GameDay(total/denominator), total % denominator, nil
+	total := new(big.Int).SetInt64(remainder)
+	total.Add(total, new(big.Int).Mul(new(big.Int).SetInt64(numerator), new(big.Int).SetInt64(ticks)))
+	delta, nextRemainder := new(big.Int), new(big.Int)
+	delta.QuoRem(total, new(big.Int).SetInt64(denominator), nextRemainder)
+	result := new(big.Int).Add(new(big.Int).SetInt64(int64(day)), delta)
+	if !result.IsInt64() || !nextRemainder.IsInt64() {
+		return 0, 0, ErrInvalidClock
+	}
+	return GameDay(result.Int64()), nextRemainder.Int64(), nil
+}
+
+// GameDayAfterTicks returns only the absolute day after ticks execution
+// steps. It is useful for projecting an execution deadline without duplicating
+// the rational-clock formula in application or persistence code.
+func GameDayAfterTicks(day GameDay, remainder, numerator, denominator, ticks int64) (GameDay, error) {
+	result, _, err := AdvanceTicks(day, remainder, numerator, denominator, ticks)
+	return result, err
+}
+
+// GameDayAtTick projects a signed execution-tick offset from a known clock
+// state. The returned day is the floor of the rational position and is useful
+// for read projections of both queued and recently completed work.
+func GameDayAtTick(day GameDay, remainder, numerator, denominator, tickOffset int64) (GameDay, error) {
+	if remainder < 0 || numerator <= 0 || denominator <= 0 || remainder >= denominator {
+		return 0, ErrInvalidClock
+	}
+	position := new(big.Int).Mul(new(big.Int).SetInt64(int64(day)), new(big.Int).SetInt64(denominator))
+	position.Add(position, new(big.Int).SetInt64(remainder))
+	position.Add(position, new(big.Int).Mul(new(big.Int).SetInt64(numerator), new(big.Int).SetInt64(tickOffset)))
+	projected, residual := new(big.Int), new(big.Int)
+	projected.QuoRem(position, new(big.Int).SetInt64(denominator), residual)
+	if residual.Sign() < 0 {
+		projected.Sub(projected, big.NewInt(1))
+	}
+	if !projected.IsInt64() {
+		return 0, ErrInvalidClock
+	}
+	return GameDay(projected.Int64()), nil
+}
+
+// CeilDaysForTicks converts a positive execution-tick travel duration into
+// whole game days using the world's rational calendar pacing. It deliberately
+// uses integer arithmetic and rejects values that cannot be represented.
+func CeilDaysForTicks(ticks, numerator, denominator int64) (int64, error) {
+	if ticks < 0 || numerator <= 0 || denominator <= 0 {
+		return 0, ErrInvalidClock
+	}
+	if ticks == 0 {
+		return 0, nil
+	}
+	value := new(big.Int).Mul(new(big.Int).SetInt64(ticks), new(big.Int).SetInt64(numerator))
+	value.Add(value, new(big.Int).Sub(new(big.Int).SetInt64(denominator), big.NewInt(1)))
+	value.Quo(value, new(big.Int).SetInt64(denominator))
+	if !value.IsInt64() {
+		return 0, ErrArithmeticOverflow
+	}
+	return value.Int64(), nil
+}
+
+// LatestDispatchGameDay projects the exact dispatch deadline from the world's
+// current clock state. CeilDaysForTicks is suitable for duration display, but
+// cannot determine an exact deadline because the current remainder matters.
+func LatestDispatchGameDay(
+	currentDay GameDay,
+	remainder int64,
+	numerator int64,
+	denominator int64,
+	dueGameDay GameDay,
+	travelTicks int64,
+) (GameDay, error) {
+	if numerator <= 0 || denominator <= 0 || remainder < 0 || remainder >= denominator || travelTicks < 0 {
+		return 0, ErrInvalidClock
+	}
+
+	denominatorBig := big.NewInt(denominator)
+	currentPosition := new(big.Int).Mul(big.NewInt(int64(currentDay)), denominatorBig)
+	currentPosition.Add(currentPosition, big.NewInt(remainder))
+
+	arrivalBoundary := new(big.Int).Add(big.NewInt(int64(dueGameDay)), big.NewInt(1))
+	arrivalBoundary.Mul(arrivalBoundary, denominatorBig)
+	arrivalBoundary.Sub(arrivalBoundary, big.NewInt(1))
+	arrivalBoundary.Sub(arrivalBoundary, currentPosition)
+
+	latestArrivalOffset := floorDivBigInt(arrivalBoundary, big.NewInt(numerator))
+	latestDispatchOffset := new(big.Int).Sub(latestArrivalOffset, big.NewInt(travelTicks))
+	if !latestDispatchOffset.IsInt64() {
+		return 0, ErrArithmeticOverflow
+	}
+
+	return GameDayAtTick(currentDay, remainder, numerator, denominator, latestDispatchOffset.Int64())
+}
+
+func floorDivBigInt(numerator, denominator *big.Int) *big.Int {
+	quotient := new(big.Int)
+	remainder := new(big.Int)
+	quotient.QuoRem(numerator, denominator, remainder)
+	if remainder.Sign() < 0 {
+		quotient.Sub(quotient, big.NewInt(1))
+	}
+	return quotient
+}
+
+// SubtractInt64 subtracts two signed integers without allowing wraparound.
+func SubtractInt64(a, b int64) (int64, error) {
+	result := new(big.Int).Sub(new(big.Int).SetInt64(a), new(big.Int).SetInt64(b))
+	if !result.IsInt64() {
+		return 0, ErrArithmeticOverflow
+	}
+	return result.Int64(), nil
+}
+
+// TicksUntilGameDay returns the smallest non-negative number of execution
+// ticks whose end position reaches target. A target at or before day needs no
+// execution steps. The calculation is integer-only and checks int64 bounds.
+func TicksUntilGameDay(day GameDay, remainder, numerator, denominator int64, target GameDay) (int64, error) {
+	if remainder < 0 || numerator <= 0 || denominator <= 0 || remainder >= denominator {
+		return 0, ErrInvalidClock
+	}
+	if target <= day {
+		return 0, nil
+	}
+
+	neededDays := new(big.Int).Sub(new(big.Int).SetInt64(int64(target)), new(big.Int).SetInt64(int64(day)))
+	needed := new(big.Int).Mul(neededDays, new(big.Int).SetInt64(denominator))
+	needed.Sub(needed, new(big.Int).SetInt64(remainder))
+	if needed.Sign() <= 0 {
+		return 0, nil
+	}
+	needed.Add(needed, new(big.Int).SetInt64(numerator-1))
+	ticks := needed.Quo(needed, new(big.Int).SetInt64(numerator))
+	if !ticks.IsInt64() {
+		return 0, ErrInvalidClock
+	}
+	return ticks.Int64(), nil
 }
 
 // Age returns completed 364-day calendar years. Birth days before GameDay
@@ -187,49 +325,4 @@ func floorDivMod(value, divisor int64) (int64, int64) {
 func floorDivModValue(value, divisor int64) int64 {
 	_, remainder := floorDivMod(value, divisor)
 	return remainder
-}
-
-// Clock maps sequential simulation ticks onto the historical calendar.
-// Tick 0 is the start-date snapshot. Tick N ends floor(N*num/den) days
-// after StartDate; the remainder is intentionally carried by the formula.
-type Clock struct {
-	StartDate   time.Time
-	DaysPerTick Rational
-}
-
-type Rational struct {
-	Numerator   int64
-	Denominator int64
-}
-
-func (c Clock) DateAtTick(tick int64) (time.Time, error) {
-	if c.StartDate.IsZero() || c.DaysPerTick.Numerator <= 0 || c.DaysPerTick.Denominator <= 0 || tick < 0 {
-		return time.Time{}, ErrInvalidClock
-	}
-	if tick > math.MaxInt64/c.DaysPerTick.Numerator {
-		return time.Time{}, ErrInvalidClock
-	}
-	days := tick * c.DaysPerTick.Numerator / c.DaysPerTick.Denominator
-	return dateOnly(c.StartDate).AddDate(0, 0, int(days)), nil
-}
-
-// AgeOn returns completed historical years, respecting whether the birthday
-// has occurred in the year. Dates before birth are rejected.
-func AgeOn(birthDate, onDate time.Time) (int, error) {
-	birthDate = dateOnly(birthDate)
-	onDate = dateOnly(onDate)
-	if birthDate.IsZero() || onDate.Before(birthDate) {
-		return 0, ErrInvalidClock
-	}
-	age := onDate.Year() - birthDate.Year()
-	anniversary := birthDate.AddDate(age, 0, 0)
-	if anniversary.After(onDate) {
-		age--
-	}
-	return age, nil
-}
-
-func dateOnly(value time.Time) time.Time {
-	y, m, d := value.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }

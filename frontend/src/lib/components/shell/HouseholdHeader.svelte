@@ -1,14 +1,13 @@
 <script lang="ts">
 	import type { HouseholdReport } from '$lib/api/generated';
-	import { formatCalendarPosition, formatRelativeGameDay } from '$lib/domain/time';
+	import {
+		formatCalendarPosition,
+		formatRelativeGameDay,
+		nextHalfYearStart,
+		settingYear
+	} from '$lib/domain/time';
 
 	let { report }: { report: HouseholdReport } = $props();
-
-	function nextHalfDay(gameDay: number): number {
-		const year = Math.floor(gameDay / 364);
-		const day = ((gameDay % 364) + 364) % 364;
-		return day < 182 ? year * 364 + 182 : (year + 1) * 364;
-	}
 </script>
 
 <header class="household-header">
@@ -16,7 +15,7 @@
 		<p class="eyebrow">Household seat</p>
 		<h1>{report.household_name}</h1>
 		<p class="date">
-			{formatCalendarPosition(
+			{settingYear(report.setting_start_year, report.calendar)} CE · {formatCalendarPosition(
 				report.calendar.phase ||
 					report.calendar.seasonal_phase ||
 					report.calendar.production_season,
@@ -24,10 +23,8 @@
 			)}
 		</p>
 		<p class="next-half">
-			{formatRelativeGameDay(report.calendar.game_day, nextHalfDay(report.calendar.game_day))} until {report
-				.calendar.half_year === 'summer'
-				? 'winter'
-				: 'summer'} begins
+			{formatRelativeGameDay(report.calendar.game_day, nextHalfYearStart(report.calendar.game_day))} until
+			{report.calendar.half_year === 'summer' ? 'winter' : 'summer'} begins
 		</p>
 	</div>
 </header>

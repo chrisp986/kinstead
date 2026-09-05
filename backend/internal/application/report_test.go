@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"game/backend/internal/balance"
 	"game/backend/internal/port"
@@ -35,8 +34,7 @@ func (s farmReportReaderStub) ListContractObligationsForReport(context.Context, 
 func TestFarmReportSerializesEmptyCollectionsAsArrays(t *testing.T) {
 	reader := reportReaderStub{snapshot: port.HouseholdSnapshot{
 		HouseholdID: "household", HouseholdName: "Empty household", WorldID: "world",
-		HistoricalStart:          time.Date(980, time.January, 1, 0, 0, 0, 0, time.UTC),
-		HistoricalDaysPerTickNum: 365, HistoricalDaysPerTickDen: 48,
+		CurrentGameDay: 0, CalendarRemainder: 0, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12,
 	}}
 	report, err := (&ReportService{Store: reader, Balance: balance.V03()}).FarmReport(context.Background(), "household")
 	if err != nil {
@@ -61,21 +59,21 @@ func TestFarmReportSerializesEmptyCollectionsAsArrays(t *testing.T) {
 	}
 }
 
-func TestFarmReportDerivesHistoricalDateSeasonAndAge(t *testing.T) {
+func TestFarmReportDerivesCalendarSeasonAndAge(t *testing.T) {
 	reader := reportReaderStub{snapshot: port.HouseholdSnapshot{
 		HouseholdID: "household", HouseholdName: "Household", WorldID: "world",
-		CurrentTick: 48, HistoricalStart: time.Date(980, time.January, 1, 0, 0, 0, 0, time.UTC),
-		HistoricalDaysPerTickNum: 365, HistoricalDaysPerTickDen: 48,
-		State:      simulation.HouseholdState{ProvisionsMilli: 150_000},
-		Characters: []port.CharacterRecord{{ID: "character", Name: "Bjorn", BirthDate: "0948-01-01"}},
+		CurrentTick: 48, CurrentGameDay: 363, CalendarRemainder: 9, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12,
+		SettingStartYear: 980,
+		State:            simulation.HouseholdState{ProvisionsMilli: 150_000},
+		Characters:       []port.CharacterRecord{{ID: "character", Name: "Bjorn", BirthGameDay: -11648}},
 	}}
 	service := &ReportService{Store: reader, Balance: balance.V03()}
 	report, err := service.FarmReport(context.Background(), "household")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.HistoricalDate != "0980-12-31" || report.Season != simulation.Winter {
-		t.Fatalf("date/season = %s/%s", report.HistoricalDate, report.Season)
+	if report.HistoricalDate != "" || report.Calendar.ProductionSeason != "winter" || report.SettingStartYear != 980 {
+		t.Fatalf("calendar/season/year = %+v/%s/%d", report.Calendar, report.Season, report.SettingStartYear)
 	}
 	if got := report.Characters[0].Age; got != 32 {
 		t.Fatalf("age = %d, want 32", got)
@@ -84,8 +82,8 @@ func TestFarmReportDerivesHistoricalDateSeasonAndAge(t *testing.T) {
 
 func TestFarmReportSelectsSignificantRecentChangesAndDecisions(t *testing.T) {
 	reader := farmReportReaderStub{reportReaderStub: reportReaderStub{snapshot: port.HouseholdSnapshot{
-		HouseholdID: "household", HouseholdName: "Household", WorldID: "world", CurrentTick: 18,
-		HistoricalStart: time.Date(980, time.January, 1, 0, 0, 0, 0, time.UTC), HistoricalDaysPerTickNum: 365, HistoricalDaysPerTickDen: 48,
+		HouseholdID: "household", HouseholdName: "Household", WorldID: "world", CurrentTick: 18, CurrentGameDay: 136,
+		CalendarRemainder: 4, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12,
 		TickDurationSeconds: 3600, State: simulation.HouseholdState{ProvisionsMilli: 6500},
 	}}, entries: []port.ChronicleEntryRecord{{ID: "routine", EntryType: "assignment_completed", OccurredTick: 18}, {ID: "arrival", EntryType: "shipment_arrived", OccurredTick: 17}, {ID: "late", EntryType: "contract_obligation_late", OccurredTick: 16}, {ID: "purchase", EntryType: "market_purchase", OccurredTick: 15}}}
 	report, err := (&ReportService{Store: reader, Balance: balance.V03()}).FarmReport(context.Background(), "household")

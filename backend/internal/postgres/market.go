@@ -102,11 +102,11 @@ func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buye
 	offer := marketOfferFromSQLC(locked.ID, locked.WorldID, locked.SellerHouseholdID, locked.OriginLocationID,
 		locked.ResourceCode, locked.QuantityRemainingMilli, locked.PricePerUnitMilli, locked.CreatedTick, locked.ExpiresTick, locked.Status)
 
-	var currentTick, currentGameDay, rateNumerator, rateDenominator int64
+	var currentTick, currentGameDay, calendarRemainder, rateNumerator, rateDenominator int64
 	if err := tx.QueryRow(ctx, `
-	        SELECT current_tick, current_game_day, game_days_per_tick_num, game_days_per_tick_den
+	        SELECT current_tick, current_game_day, calendar_remainder, game_days_per_tick_num, game_days_per_tick_den
         FROM worlds WHERE id = $1::uuid FOR UPDATE
-    `, offer.WorldID).Scan(&currentTick, &currentGameDay, &rateNumerator, &rateDenominator); err != nil {
+	`, offer.WorldID).Scan(&currentTick, &currentGameDay, &calendarRemainder, &rateNumerator, &rateDenominator); err != nil {
 		return MarketPurchaseSnapshot{}, err
 	}
 
@@ -187,7 +187,8 @@ func (s *Store) LoadMarketPurchase(ctx context.Context, tx pgx.Tx, offerID, buye
 		Route:            route,
 		SellerStockMilli: marketdomain.QuantityMilli(sellerStock),
 		CurrentTick:      currentTick,
-		CurrentGameDay:   currentGameDay, GameDaysPerTickNum: rateNumerator, GameDaysPerTickDen: rateDenominator,
+		CurrentGameDay:   currentGameDay, CalendarRemainder: calendarRemainder,
+		GameDaysPerTickNum: rateNumerator, GameDaysPerTickDen: rateDenominator,
 	}, nil
 }
 
@@ -299,10 +300,10 @@ func insertMarketChronicleFacts(ctx context.Context, tx pgx.Tx, purchase marketd
 	} {
 		if _, err := tx.Exec(ctx, `
             INSERT INTO chronicle_entries(
-                household_id, occurred_tick, entry_type, related_household_id,
+                household_id, occurred_tick, occurred_game_day, entry_type, related_household_id,
                 related_shipment_id, data
             ) VALUES (
-                $1::uuid, $2, $3, $4::uuid, $5::uuid,
+                $1::uuid, $2, $12, $3, $4::uuid, $5::uuid,
                 jsonb_build_object(
                     'offer_id', $6::text,
                     'resource_type', $7::text,
@@ -314,7 +315,8 @@ func insertMarketChronicleFacts(ctx context.Context, tx pgx.Tx, purchase marketd
             )
         `, fact.householdID, purchase.CurrentTick, fact.entryType, fact.relatedID, shipment.ID,
 			purchase.Offer.ID, purchase.Offer.ResourceType, purchase.QuantityMilli,
-			purchase.GoodsCostMilli, purchase.TransportCostMilli, purchase.TotalCostMilli); err != nil {
+			purchase.GoodsCostMilli, purchase.TransportCostMilli, purchase.TotalCostMilli,
+			shipment.DepartureGameDay); err != nil {
 			return fmt.Errorf("insert %s chronicle fact: %w", fact.entryType, err)
 		}
 	}

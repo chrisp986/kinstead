@@ -59,6 +59,12 @@ ticks are execution cadence and must not become calendar semantics. The
 v0.3 balancing model's `48 ticks/year, 12/season` remains synthetic
 balancing data and must not define the production calendar.
 
+At the default `91 / 12` pacing, production on ticks 1--12 uses spring,
+13--24 summer, 25--36 autumn, and 37--48 winter. Tick 12 commits day 91, so
+the calendar displays summer only after that tick and tick 13 is the first
+summer production interval. Wall-clock tick duration changes only waiting time
+between ticks.
+
 ## Starting household
 
 Reference farm: **Hof Björnvik**.
@@ -118,8 +124,10 @@ Market purchase must be atomic: lock offer → validate → debit/reserve →
 update offer → create shipment → commit.
 
 Contracts generate obligations. Fulfillment is based on **arrival**, not
-dispatch. 1--2 ticks late = late; 3+ = broken/unfulfilled. Relationship
-history is the main consequence, not a generic money penalty.
+dispatch. Calendar contracts are on time through the due game day, late at
+1--7 days, late at 8--14 days, and broken at 15+ days. Relationship history
+is the main consequence, not a generic money penalty. Legacy tick-backed v0.3
+contracts retain their frozen tick classification for compatibility only.
 
 Recurring contract schedules use the game calendar rather than civil
 calendar dates. The default recurring form is an interval in game days;

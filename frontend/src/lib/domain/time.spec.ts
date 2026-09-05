@@ -5,7 +5,8 @@ import {
 	formatCalendarPosition,
 	formatInterval,
 	formatPhaseName,
-	formatRelativeGameDay
+	formatRelativeGameDay,
+	settingYear
 } from './time';
 
 describe('game calendar presentation', () => {
@@ -26,6 +27,12 @@ describe('game calendar presentation', () => {
 		expect(formatPhaseName(calendarForGameDay(0).production_season)).toBe('Spring');
 		expect(formatCalendarPosition('spring', 1)).toBe('Spring · first week');
 		expect(formatPhaseName('late_winter')).toBe('Late winter');
+	});
+
+	it('formats the historical setting year from the projected year index', () => {
+		expect(settingYear(980, { year_index: 0 })).toBe(980);
+		expect(settingYear(980, { year_index: 1 })).toBe(981);
+		expect(settingYear(980, { year_index: 5 })).toBe(985);
 	});
 
 	it('groups urgent action before ordinary upcoming events', () => {

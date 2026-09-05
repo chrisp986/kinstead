@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"game/backend/internal/calendar"
 	contractdomain "game/backend/internal/domain/contract"
 	"game/backend/internal/domain/geography"
 	relationshipdomain "game/backend/internal/domain/relationship"
@@ -76,13 +77,15 @@ func (t *contractProposalTx) LoadParties(ctx context.Context, partyA, partyB con
 	}
 	var snapshot port.ContractPartiesSnapshot
 	err := t.tx.QueryRow(ctx, `
-		SELECT a.world_id::text, w.current_tick, w.current_game_day
+		SELECT a.world_id::text, w.current_tick, w.current_game_day,
+		       w.calendar_remainder, w.game_days_per_tick_num, w.game_days_per_tick_den
 		FROM households a
 		JOIN households b ON b.id = $2::uuid AND b.world_id = a.world_id
 		JOIN worlds w ON w.id = a.world_id
 		WHERE a.id = $1::uuid
 		FOR UPDATE OF w
-	`, partyA, partyB).Scan(&snapshot.WorldID, &snapshot.CurrentTick, &snapshot.CurrentGameDay)
+	`, partyA, partyB).Scan(&snapshot.WorldID, &snapshot.CurrentTick, &snapshot.CurrentGameDay,
+		&snapshot.CalendarRemainder, &snapshot.GameDaysPerTickNum, &snapshot.GameDaysPerTickDen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return port.ContractPartiesSnapshot{}, ErrInvalidContractParticipants
 	}
@@ -99,8 +102,10 @@ func (t *contractProposalTx) Create(ctx context.Context, value contractdomain.Co
 		value.PartyAHouseholdID != t.partyA || value.PartyBHouseholdID != t.partyB {
 		return contractdomain.Contract{}, contractdomain.ErrInvalidContract
 	}
-	value = normalizeContractSchedule(value)
-	value.GameDaySchedule = true
+	value, err := normalizeContractSchedule(value, *t.snapshot)
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
 	worldID, err := uuidParam(string(value.WorldID))
 	if err != nil {
 		return contractdomain.Contract{}, err
@@ -209,7 +214,10 @@ func (t *contractResponseTx) LoadForResponse(ctx context.Context, id contractdom
 	if err != nil {
 		return port.ContractResponseSnapshot{}, err
 	}
-	return port.ContractResponseSnapshot{Contract: value, CurrentTick: contractdomain.Tick(row.CurrentTick), CurrentGameDay: contractdomain.GameDay(row.CurrentGameDay)}, nil
+	return port.ContractResponseSnapshot{
+		Contract: value, CurrentTick: contractdomain.Tick(row.CurrentTick), CurrentGameDay: contractdomain.GameDay(row.CurrentGameDay),
+		CalendarRemainder: row.CalendarRemainder, GameDaysPerTickNum: row.GameDaysPerTickNum, GameDaysPerTickDen: row.GameDaysPerTickDen,
+	}, nil
 }
 
 func (t *contractResponseTx) SetStatus(ctx context.Context, id contractdomain.ID, from, to contractdomain.Status) error {
@@ -284,7 +292,17 @@ func contractObligationsFromRows(rows []sqlcdb.ListContractObligationsRow) ([]co
 			value.DueGameDay = contractdomain.GameDay(row.DueGameDay)
 		}
 		if row.GameDaySchedule {
-			latest := contractdomain.GameDay(row.LatestDispatchGameDay)
+			latest, err := calendar.LatestDispatchGameDay(
+				calendar.GameDay(row.CurrentGameDay),
+				row.CalendarRemainder,
+				row.GameDaysPerTickNum,
+				row.GameDaysPerTickDen,
+				calendar.GameDay(row.DueGameDay),
+				row.TravelTicks,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("calculate contract dispatch deadline: %w", err)
+			}
 			value.LatestDispatchGameDay = &latest
 		}
 		if row.ExpectedArrivalGameDay.Valid {
@@ -310,13 +328,13 @@ func contractObligationsFromRows(rows []sqlcdb.ListContractObligationsRow) ([]co
 	return values, nil
 }
 
-func (s *Store) LoadContractObligationsForTick(ctx context.Context, tx pgx.Tx, worldID string, tick int64) ([]port.ContractObligationAssessment, error) {
+func (s *Store) LoadContractObligationsForTick(ctx context.Context, tx pgx.Tx, worldID string, tick, gameDay int64) ([]port.ContractObligationAssessment, error) {
 	id, err := uuidParam(worldID)
 	if err != nil {
 		return nil, err
 	}
 	rows, err := sqlcdb.New(tx).LoadContractObligationsForTick(ctx, sqlcdb.LoadContractObligationsForTickParams{
-		Column1: id, DueGameDay: tick,
+		Column1: id, Tick: tick, GameDay: gameDay,
 	})
 	if err != nil {
 		return nil, err
@@ -492,6 +510,8 @@ func relationshipGameDay(event relationshipdomain.Event) int64 {
 	if event.GameDayBased {
 		return int64(event.OccurredGameDay)
 	}
+	// Legacy relationship fixtures may still carry only an execution tick.
+	// Production calendar outcomes set GameDayBased and never use this fallback.
 	return int64(event.OccurredTick) * 91 / 12
 }
 
@@ -570,18 +590,41 @@ func sameContractExceptStatus(a, b contractdomain.Contract) bool {
 	return true
 }
 
-func normalizeContractSchedule(value contractdomain.Contract) contractdomain.Contract {
+func normalizeContractSchedule(value contractdomain.Contract, snapshot port.ContractPartiesSnapshot) (contractdomain.Contract, error) {
 	if value.IntervalDays > 0 {
-		return value
+		return value, nil
 	}
-	value.StartGameDay = contractdomain.GameDay(int64(value.StartsTick) * 91 / 12)
-	value.EndGameDay = contractdomain.GameDay(int64(value.EndsTick) * 91 / 12)
-	interval := int64(value.IntervalTicks) * 91 / 12
+	startOffset, err := calendar.SubtractInt64(int64(value.StartsTick), int64(snapshot.CurrentTick))
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	start, err := calendar.GameDayAtTick(calendar.GameDay(snapshot.CurrentGameDay), snapshot.CalendarRemainder,
+		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, startOffset)
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	endOffset, err := calendar.SubtractInt64(int64(value.EndsTick), int64(snapshot.CurrentTick))
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	end, err := calendar.GameDayAtTick(calendar.GameDay(snapshot.CurrentGameDay), snapshot.CalendarRemainder,
+		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, endOffset)
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	intervalDay, err := calendar.GameDayAfterTicks(0, 0, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, value.IntervalTicks)
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	value.StartGameDay = contractdomain.GameDay(start)
+	value.EndGameDay = contractdomain.GameDay(end)
+	interval := int64(intervalDay)
 	if interval < 1 {
 		interval = 1
 	}
 	value.IntervalDays = interval
-	return value
+	value.GameDaySchedule = false
+	return value, nil
 }
 
 func (t *contractDispatchTx) LoadForDispatch(ctx context.Context, obligationID contractdomain.ObligationID, _ contractdomain.HouseholdID) (port.ContractDispatchSnapshot, error) {
@@ -620,7 +663,7 @@ func (t *contractDispatchTx) LoadForDispatch(ctx context.Context, obligationID c
 		Obligation: obligation, WorldID: contractdomain.WorldID(row.WorldID), ContractStatus: contractdomain.Status(row.ContractStatus),
 		OriginLocationID: shipmentdomain.LocationID(row.OriginLocationID), DestinationLocationID: shipmentdomain.LocationID(row.DestinationLocationID),
 		CurrentTick: contractdomain.Tick(row.CurrentTick), CurrentGameDay: contractdomain.GameDay(row.CurrentGameDay),
-		GameDaysPerTickNum: row.GameDaysPerTickNum, GameDaysPerTickDen: row.GameDaysPerTickDen,
+		CalendarRemainder: row.CalendarRemainder, GameDaysPerTickNum: row.GameDaysPerTickNum, GameDaysPerTickDen: row.GameDaysPerTickDen,
 		GameDaySchedule: row.GameDaySchedule, ProposedShipmentID: shipmentdomain.ID(row.ProposedShipmentID),
 	}
 	if obligation.ShipmentID != "" {
@@ -732,16 +775,18 @@ func (t *contractDispatchTx) PersistDispatch(ctx context.Context, before, after 
 	} {
 		if _, err := t.tx.Exec(ctx, `
 			INSERT INTO chronicle_entries(
-				household_id, occurred_tick, entry_type, related_household_id,
+				household_id, occurred_tick, occurred_game_day, entry_type, related_household_id,
 				related_contract_id, related_shipment_id, data
 			) VALUES (
-				$1::uuid, $2, 'contract_shipment_dispatched', $3::uuid,
+				$1::uuid, $2, $10, 'contract_shipment_dispatched', $3::uuid,
 				$4::uuid, $5::uuid,
 				jsonb_build_object('resource_type', $6::text, 'quantity_milli', $7::bigint,
-				                   'due_arrival_tick', $8::bigint, 'expected_arrival_tick', $9::bigint)
+				                   'due_arrival_tick', $8::bigint, 'expected_arrival_tick', $9::bigint,
+				                   'due_game_day', $11::bigint, 'expected_arrival_game_day', $12::bigint)
 			)
 		`, fact.household, shipment.DepartureTick, fact.related, before.ContractID, created.ID,
-			before.ResourceType, before.QuantityMilli, before.DueArrivalTick, shipment.ExpectedArrivalTick); err != nil {
+			before.ResourceType, before.QuantityMilli, before.DueArrivalTick, shipment.ExpectedArrivalTick,
+			shipment.DepartureGameDay, before.DueGameDay, shipment.ExpectedArrivalGameDay); err != nil {
 			return shipmentdomain.Shipment{}, err
 		}
 	}

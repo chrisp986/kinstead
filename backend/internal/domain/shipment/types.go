@@ -56,16 +56,17 @@ func (s Shipment) Validate() error {
 		s.OriginLocationID == "" || s.DestinationLocationID == "" || s.ResourceType == "" ||
 		s.SenderHouseholdID == s.ReceiverHouseholdID || s.OriginLocationID == s.DestinationLocationID ||
 		s.QuantityMilli <= 0 || s.TransportCostMilli < 0 || s.DepartureTick < 0 ||
+		s.DepartureGameDay < 0 || s.ExpectedArrivalGameDay < s.DepartureGameDay ||
 		s.ExpectedArrivalTick <= s.DepartureTick {
 		return ErrInvalidShipment
 	}
 	switch s.Status {
 	case StatusPrepared, StatusInTransit, StatusCancelled:
-		if s.ActualArrivalTick != nil {
+		if s.ActualArrivalTick != nil || s.ActualArrivalGameDay != nil {
 			return ErrInvalidShipment
 		}
 	case StatusArrived:
-		if s.ActualArrivalTick == nil || *s.ActualArrivalTick < s.ExpectedArrivalTick {
+		if s.ActualArrivalTick == nil || *s.ActualArrivalTick < s.ExpectedArrivalTick || s.ActualArrivalGameDay == nil || *s.ActualArrivalGameDay < s.ExpectedArrivalGameDay {
 			return ErrInvalidShipment
 		}
 		if s.ActualArrivalGameDay != nil && *s.ActualArrivalGameDay < s.ExpectedArrivalGameDay {

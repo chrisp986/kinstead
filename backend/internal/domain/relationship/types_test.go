@@ -81,6 +81,35 @@ func TestTrustDeltaRejectsInvalidOutcomeCombinations(t *testing.T) {
 	}
 }
 
+func TestTrustDeltaForContractOutcomeGameDayUsesCalendarBuckets(t *testing.T) {
+	due := contractdomain.GameDay(100)
+	for _, test := range []struct {
+		name    string
+		arrival contractdomain.GameDay
+		want    int
+	}{
+		{"on time", 100, TrustDeltaContractFulfilled},
+		{"late tier one", 107, TrustDeltaContractLateOneTick},
+		{"late tier two", 114, TrustDeltaContractLateTwoTicks},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			arrival := test.arrival
+			typeForOutcome := EventContractFulfilled
+			if arrival > due && arrival <= due+14 {
+				typeForOutcome = EventContractLate
+			}
+			got, err := TrustDeltaForContractOutcomeGameDay(typeForOutcome, due, &arrival)
+			if err != nil || got != test.want {
+				t.Fatalf("trust delta = %d, %v; want %d", got, err, test.want)
+			}
+		})
+	}
+	arrival := contractdomain.GameDay(115)
+	if got, err := TrustDeltaForContractOutcomeGameDay(EventContractBroken, due, &arrival); err != nil || got != TrustDeltaContractBroken {
+		t.Fatalf("broken trust delta = %d, %v; want %d", got, err, TrustDeltaContractBroken)
+	}
+}
+
 func TestContractOutcomeEmitsFinalTrustConsequences(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { CalendarEvent, ChronicleEntry, ReportItem } from '$lib/api/generated';
 	import { resolve } from '$app/paths';
+	import { calendarEventLabel } from '$lib/domain/calendar';
 	import { describeChronicleEntry } from '$lib/domain/chronicle';
 	import { describeReportItem } from '$lib/domain/report';
 	import { formatRelativeGameDay } from '$lib/domain/time';
@@ -101,7 +102,7 @@
 					{#each upcoming as event (event.id)}
 						<li class:critical={event.action_required}>
 							<strong>{formatRelativeGameDay(report.game_day, event.game_day)}</strong>
-							<span>{event.title}</span>
+							<span>{calendarEventLabel(event)}</span>
 						</li>
 					{/each}
 				</ul>

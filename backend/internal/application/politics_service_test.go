@@ -65,7 +65,7 @@ func (t *fakePoliticsTransaction) ResolvePoliticalDecision(context.Context, stri
 func (t *fakePoliticsTransaction) ApplyPoliticalScoreDelta(context.Context, string, string, string, int) error {
 	return nil
 }
-func (t *fakePoliticsTransaction) InsertPoliticalChronicle(context.Context, string, int64, string, string, string, string, []byte) error {
+func (t *fakePoliticsTransaction) InsertPoliticalChronicle(context.Context, string, int64, int64, string, string, string, string, []byte) error {
 	return nil
 }
 func (t *fakePoliticsTransaction) Commit(context.Context) error {

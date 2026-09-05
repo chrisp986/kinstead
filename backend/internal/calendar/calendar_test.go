@@ -2,6 +2,7 @@ package calendar
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 )
@@ -134,5 +135,195 @@ func TestAdvancePreservesRemainderAndCompletesYear(t *testing.T) {
 	}
 	if day != 364 || remainder != 0 {
 		t.Fatalf("48 ticks = day %d remainder %d, want 364/0", day, remainder)
+	}
+}
+
+func TestDefaultClockBoundaries(t *testing.T) {
+	day, remainder, err := AdvanceTicks(0, 0, 91, 12, 1)
+	if err != nil || day != 7 || remainder != 7 {
+		t.Fatalf("tick 1 = day %d remainder %d, err %v; want 7/7", day, remainder, err)
+	}
+	day, remainder, err = AdvanceTicks(0, 0, 91, 12, 11)
+	if err != nil || day != 83 || remainder != 5 {
+		t.Fatalf("tick 11 = day %d remainder %d, err %v; want 83/5", day, remainder, err)
+	}
+	day, remainder, err = AdvanceTicks(0, 0, 91, 12, 12)
+	if err != nil || day != 91 || remainder != 0 {
+		t.Fatalf("tick 12 = day %d remainder %d, err %v; want 91/0", day, remainder, err)
+	}
+	if got := ProductionSeasonAt(90); got != Spring {
+		t.Fatalf("day 90 season = %s, want spring", got)
+	}
+	if got := ProductionSeasonAt(91); got != Summer {
+		t.Fatalf("day 91 season = %s, want summer", got)
+	}
+	day, remainder, err = AdvanceTicks(0, 0, 91, 12, 48)
+	if err != nil || day != 364 || remainder != 0 || ProductionSeasonAt(day) != Spring {
+		t.Fatalf("tick 48 = day %d remainder %d season %s, err %v; want 364/0/spring", day, remainder, ProductionSeasonAt(day), err)
+	}
+}
+
+func TestProductionSeasonUsesTheStartOfEachTickInterval(t *testing.T) {
+	day, remainder := GameDay(0), int64(0)
+	for tick := int64(1); tick <= 48; tick++ {
+		want := Spring
+		switch {
+		case tick >= 13 && tick <= 24:
+			want = Summer
+		case tick >= 25 && tick <= 36:
+			want = Autumn
+		case tick >= 37:
+			want = Winter
+		}
+		if got := ProductionSeasonAt(day); got != want {
+			t.Fatalf("tick %d starts on day %d in %s, want %s", tick, day, got, want)
+		}
+		var err error
+		day, remainder, err = Advance(day, remainder, 91, 12)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tick == 12 && day != 91 {
+			t.Fatalf("after tick 12 day = %d, want 91", day)
+		}
+		if tick == 48 && (day != 364 || remainder != 0) {
+			t.Fatalf("after tick 48 = day %d remainder %d, want 364/0", day, remainder)
+		}
+	}
+}
+
+func TestTickGameDayConversions(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		target GameDay
+		want   int64
+	}{
+		{name: "zero", target: 0, want: 0},
+		{name: "first day", target: 1, want: 1},
+		{name: "spring boundary", target: 91, want: 12},
+		{name: "next year", target: 364, want: 48},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := TicksUntilGameDay(0, 0, 91, 12, tt.target)
+			if err != nil || got != tt.want {
+				t.Fatalf("ticks until %d = %d, err %v; want %d", tt.target, got, err, tt.want)
+			}
+		})
+	}
+	for _, ticks := range []int64{0, 1, 2, 5, 12, 48, 1_000_000} {
+		got, err := GameDayAfterTicks(0, 0, 91, 12, ticks)
+		if err != nil {
+			t.Fatalf("ticks %d: %v", ticks, err)
+		}
+		want := GameDay(ticks * 91 / 12)
+		if got != want {
+			t.Fatalf("ticks %d = day %d, want %d", ticks, got, want)
+		}
+	}
+}
+
+func TestInvalidAndLargeClockInputs(t *testing.T) {
+	for _, value := range [][5]int64{{0, -1, 91, 12, 1}, {0, 0, 0, 12, 1}, {0, 0, 91, 0, 1}, {0, 12, 91, 12, 1}, {0, 0, 91, 12, -1}} {
+		if _, _, err := AdvanceTicks(GameDay(value[0]), value[1], value[2], value[3], value[4]); err == nil {
+			t.Fatalf("AdvanceTicks(%v) accepted invalid clock", value)
+		}
+	}
+	if _, err := GameDayAfterTicks(1, 0, 1, 1, math.MaxInt64); err == nil {
+		t.Fatal("overflowing game-day projection was accepted")
+	}
+}
+
+func TestCeilDaysForTicksUsesIntegerCalendarPacing(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		ticks int64
+		want  int64
+	}{
+		{name: "neighbor", ticks: 1, want: 8},
+		{name: "local", ticks: 2, want: 16},
+		{name: "regional", ticks: 5, want: 38},
+		{name: "far regional", ticks: 8, want: 61},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CeilDaysForTicks(tt.ticks, 91, 12)
+			if err != nil || got != tt.want {
+				t.Fatalf("CeilDaysForTicks(%d, 91, 12) = %d, %v; want %d", tt.ticks, got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLatestDispatchGameDayUsesExactClockProjection(t *testing.T) {
+	deadline, err := LatestDispatchGameDay(0, 0, 91, 12, 15, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() error = %v", err)
+	}
+
+	// Tick 0 is day 0, tick 1 is day 7, and tick 2 is day 15. A shipment
+	// dispatched on day 0 therefore arrives exactly on the due day.
+	if deadline != 0 {
+		t.Fatalf("LatestDispatchGameDay() = %d, want 0", deadline)
+	}
+}
+
+func TestLatestDispatchGameDayUsesCalendarRemainder(t *testing.T) {
+	deadline, err := LatestDispatchGameDay(7, 7, 91, 12, 22, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() error = %v", err)
+	}
+	if deadline != 7 {
+		t.Fatalf("LatestDispatchGameDay() = %d, want 7", deadline)
+	}
+
+	withRemainder, err := LatestDispatchGameDay(7, 7, 91, 12, 21, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() with remainder error = %v", err)
+	}
+	withoutRemainder, err := LatestDispatchGameDay(7, 0, 91, 12, 21, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() without remainder error = %v", err)
+	}
+	if withRemainder != 0 || withoutRemainder != -1 {
+		t.Fatalf("remainder-sensitive deadlines = %d and %d, want 0 and -1", withRemainder, withoutRemainder)
+	}
+}
+
+func TestLatestDispatchGameDayRejectsInvalidClock(t *testing.T) {
+	tests := []struct {
+		name        string
+		remainder   int64
+		numerator   int64
+		denominator int64
+		travelTicks int64
+	}{
+		{name: "zero numerator", numerator: 0, denominator: 12},
+		{name: "zero denominator", numerator: 91, denominator: 0},
+		{name: "negative remainder", remainder: -1, numerator: 91, denominator: 12},
+		{name: "remainder at denominator", remainder: 12, numerator: 91, denominator: 12},
+		{name: "negative travel ticks", numerator: 91, denominator: 12, travelTicks: -1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := LatestDispatchGameDay(0, test.remainder, test.numerator, test.denominator, 15, test.travelTicks)
+			if !errors.Is(err, ErrInvalidClock) {
+				t.Fatalf("LatestDispatchGameDay() error = %v, want %v", err, ErrInvalidClock)
+			}
+		})
+	}
+}
+
+func TestCalendarDeadlineArithmeticRejectsInvalidAndOverflowingInputs(t *testing.T) {
+	if _, err := CeilDaysForTicks(math.MaxInt64, math.MaxInt64, 1); !errors.Is(err, ErrArithmeticOverflow) {
+		t.Fatalf("overflowing travel calculation error = %v", err)
+	}
+	if _, err := CeilDaysForTicks(1, 91, 0); !errors.Is(err, ErrInvalidClock) {
+		t.Fatalf("invalid denominator error = %v", err)
+	}
+	if _, err := LatestDispatchGameDay(math.MinInt64, 0, 1, 1, math.MaxInt64, 0); !errors.Is(err, ErrArithmeticOverflow) {
+		t.Fatalf("overflowing deadline projection error = %v", err)
+	}
+	if _, err := SubtractInt64(math.MinInt64, 1); !errors.Is(err, ErrArithmeticOverflow) {
+		t.Fatalf("overflowing tick subtraction error = %v", err)
 	}
 }

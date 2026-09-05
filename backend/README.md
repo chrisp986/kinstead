@@ -59,9 +59,10 @@ game_days_per_tick_den` (default `91 / 12`). Characters store an absolute
 Calendar scheduling is persisted separately from execution cadence. Contract
 obligations use absolute `due_game_day` values, shipment projections snapshot
 departure/expected/actual arrival days, and political demands snapshot their
-response deadline. Calendar contracts classify 1--7 days late as the first
-late bucket, 8--14 as the second, and 15+ as broken; old tick-backed v0.3
-contracts retain their tick behavior.
+response deadline. Calendar contracts classify 0 days late as on time (+2
+trust), 1--7 days late as the first late bucket (-1), 8--14 as the second
+(-2), and 15+ as broken (-8); old tick-backed v0.3 contracts retain their
+tick behavior as compatibility data.
 
 The calendar projection is available at
 `GET /api/households/{id}/calendar` and includes seasonal anchors, farm and
@@ -145,6 +146,11 @@ To apply tracked migrations without resetting data:
 ```bash
 ./scripts/migrate_db.sh
 ```
+
+This uses the pinned Goose CLI and the `goose_db_version` ledger. It applies
+only pending migrations and is safe to repeat. The root launcher runs it
+before checking or seeding Bjornvik, so an existing development world keeps
+its data while receiving schema upgrades.
 
 ## 4. Start API and worker
 

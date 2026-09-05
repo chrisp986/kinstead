@@ -3,13 +3,15 @@
 	import type { CalendarEvent } from '$lib/api/generated';
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { formatMilli, labelResource } from '$lib/domain/format';
+	import { calendarEventLabel } from '$lib/domain/calendar';
 	import {
 		calendarForGameDay,
 		calendarGroupForEvent,
 		type CalendarGroup,
 		formatCalendarPosition,
 		formatPhaseName,
-		formatRelativeGameDay
+		formatRelativeGameDay,
+		settingYear
 	} from '$lib/domain/time';
 
 	let { data } = $props();
@@ -17,10 +19,11 @@
 	let view = $state<'upcoming' | 'cycle'>('upcoming');
 	const filters = [
 		['all', 'All'],
-		['obligations', 'My obligations'],
-		['trade', 'Trade'],
+		['season', 'Seasons'],
+		['contract', 'Contracts'],
+		['shipment', 'Shipments'],
 		['farm', 'Farm'],
-		['festivals', 'Festivals & assemblies'],
+		['world', 'World'],
 		['politics', 'Politics']
 	] as const;
 	const groupOrder: CalendarGroup[] = [
@@ -44,12 +47,6 @@
 
 	function matchesFilter(event: CalendarEvent): boolean {
 		if (filter === 'all') return true;
-		if (filter === 'obligations') {
-			return (
-				event.category === 'trade' && ['delivery_due', 'dispatch_deadline'].includes(event.kind)
-			);
-		}
-		if (filter === 'festivals') return event.category === 'festivals';
 		return event.category === filter;
 	}
 
@@ -159,6 +156,7 @@
 		<div>
 			<p class="eyebrow" id="current-heading">Today</p>
 			<h2>
+				{settingYear(data.calendar.setting_start_year, data.calendar.calendar)} CE ·
 				{formatCalendarPosition(
 					data.calendar.calendar.phase ||
 						data.calendar.calendar.seasonal_phase ||
@@ -235,7 +233,7 @@
 											<small>{eventPosition(event.game_day)}</small>
 										</div>
 										<div class="event-copy">
-											<strong>{event.title}</strong>
+											<strong>{calendarEventLabel(event)}</strong>
 											{#if eventDetail(event)}<small>{eventDetail(event)}</small>{/if}
 										</div>
 									</li>
@@ -267,7 +265,9 @@
 										<strong>{row.label}</strong>
 										{#if cycleRowIsNow(row)}<span class="now-label">Now</span>{/if}
 										{#each events as event (event.id)}
-											<small class:action-text={event.action_required}>{event.title}</small>
+											<small class:action-text={event.action_required}
+												>{calendarEventLabel(event)}</small
+											>
 										{/each}
 									</div>
 								</li>

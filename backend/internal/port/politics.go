@@ -78,8 +78,8 @@ type PoliticsTickStore interface {
 	LoadExpiringPoliticalDecisions(context.Context, string, int64) ([]PoliticalDecisionRecord, error)
 	AutoResolvePoliticalDecision(context.Context, PoliticalDecisionRecord, int64, string, int) (bool, error)
 	ApplyPoliticalScoreDelta(context.Context, string, string, string, int) error
-	InsertPoliticalChronicle(context.Context, string, int64, string, string, string, string, []byte) error
-	InsertPoliticalReceivedChronicle(context.Context, string, int64, string, string, []byte) error
+	InsertPoliticalChronicle(context.Context, string, int64, int64, string, string, string, string, []byte) error
+	InsertPoliticalReceivedChronicle(context.Context, string, int64, int64, string, string, []byte) error
 }
 
 type PoliticsReader interface {
@@ -95,7 +95,7 @@ type PoliticsResponseTransaction interface {
 	CreateRulerServiceAssignment(context.Context, string, string, int64, int64, string) (string, error)
 	ResolvePoliticalDecision(context.Context, string, string, int64, int, string) (bool, error)
 	ApplyPoliticalScoreDelta(context.Context, string, string, string, int) error
-	InsertPoliticalChronicle(context.Context, string, int64, string, string, string, string, []byte) error
+	InsertPoliticalChronicle(context.Context, string, int64, int64, string, string, string, string, []byte) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
 }

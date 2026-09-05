@@ -246,6 +246,9 @@ wait_for_process_group_exit() {
   force_process_group_stop "$pid"
 }
 
+# cleanup is invoked indirectly through traps; ShellCheck cannot follow that
+# control flow and otherwise reports SC2317 for the cleanup commands.
+# shellcheck disable=SC2317
 cleanup() {
   local status=$?
   trap - EXIT INT TERM

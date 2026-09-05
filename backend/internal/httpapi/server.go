@@ -78,23 +78,47 @@ func (s *Server) householdPolitics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) householdCalendar(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	from, to := int64(0), int64(0)
+	var from, to int64
+	fromSupplied, toSupplied := false, false
 	var err error
-	if raw := query.Get("from_game_day"); raw != "" {
+	if values, ok := query["from_game_day"]; ok {
+		if len(values) != 1 || values[0] == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_calendar_range"})
+			return
+		}
+		fromSupplied = true
+		raw := values[0]
 		from, err = strconv.ParseInt(raw, 10, 64)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_calendar_range"})
 			return
 		}
 	}
-	if raw := query.Get("to_game_day"); raw != "" {
+	if values, ok := query["to_game_day"]; ok {
+		if len(values) != 1 || values[0] == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_calendar_range"})
+			return
+		}
+		toSupplied = true
+		raw := values[0]
 		to, err = strconv.ParseInt(raw, 10, 64)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_calendar_range"})
 			return
 		}
 	}
-	projection, err := s.calendar.Household(r.Context(), r.PathValue("id"), from, to, query.Get("category"))
+	if toSupplied && !fromSupplied {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "from_game_day_required"})
+		return
+	}
+	var fromPtr, toPtr *int64
+	if fromSupplied {
+		fromPtr = &from
+	}
+	if toSupplied {
+		toPtr = &to
+	}
+	projection, err := s.calendar.HouseholdRange(r.Context(), r.PathValue("id"), fromPtr, toPtr, query.Get("category"))
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -128,15 +152,17 @@ func (s *Server) householdContracts(w http.ResponseWriter, r *http.Request) {
 }
 
 type proposeContractRequest struct {
-	ProposerHouseholdID     string                           `json:"proposer_household_id"`
-	CounterpartyHouseholdID string                           `json:"counterparty_household_id"`
-	FirstDueGameDay         *int64                           `json:"first_due_game_day,omitempty"`
-	IntervalDays            *int64                           `json:"interval_days,omitempty"`
-	EndCondition            application.ContractEndCondition `json:"end_condition,omitempty"`
-	StartsTick              *int64                           `json:"starts_tick,omitempty"`
-	EndsTick                *int64                           `json:"ends_tick,omitempty"`
-	IntervalTicks           *int64                           `json:"interval_ticks,omitempty"`
-	Terms                   []application.ContractTermIntent `json:"terms"`
+	ProposerHouseholdID     string                            `json:"proposer_household_id"`
+	CounterpartyHouseholdID string                            `json:"counterparty_household_id"`
+	StartGameDay            *int64                            `json:"start_game_day,omitempty"`
+	EndGameDay              *int64                            `json:"end_game_day,omitempty"`
+	FirstDueGameDay         *int64                            `json:"first_due_game_day,omitempty"`
+	IntervalDays            *int64                            `json:"interval_days,omitempty"`
+	EndCondition            *application.ContractEndCondition `json:"end_condition,omitempty"`
+	StartsTick              *int64                            `json:"starts_tick,omitempty"`
+	EndsTick                *int64                            `json:"ends_tick,omitempty"`
+	IntervalTicks           *int64                            `json:"interval_ticks,omitempty"`
+	Terms                   []application.ContractTermIntent  `json:"terms"`
 }
 
 func (s *Server) proposeContract(w http.ResponseWriter, r *http.Request) {
@@ -149,8 +175,29 @@ func (s *Server) proposeContract(w http.ResponseWriter, r *http.Request) {
 		ProposerHouseholdID: req.ProposerHouseholdID, CounterpartyHouseholdID: req.CounterpartyHouseholdID,
 		Terms: req.Terms,
 	}
-	if req.FirstDueGameDay != nil && req.IntervalDays != nil {
-		command.StartGameDay, command.IntervalDays, command.EndCondition = *req.FirstDueGameDay, *req.IntervalDays, req.EndCondition
+	dayFields := req.StartGameDay != nil || req.EndGameDay != nil || req.FirstDueGameDay != nil || req.IntervalDays != nil
+	tickFields := req.StartsTick != nil || req.EndsTick != nil || req.IntervalTicks != nil
+	if dayFields && tickFields {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "conflicting_contract_schedule"})
+		return
+	}
+	if (req.StartGameDay != nil || req.EndGameDay != nil) && req.FirstDueGameDay != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "conflicting_contract_schedule"})
+		return
+	}
+	if req.StartGameDay != nil && req.IntervalDays != nil && (req.EndGameDay != nil || req.EndCondition != nil) {
+		command.StartGameDay, command.IntervalDays = *req.StartGameDay, *req.IntervalDays
+		if req.EndGameDay != nil {
+			command.EndGameDay = *req.EndGameDay
+		}
+		if req.EndCondition != nil {
+			command.EndCondition = *req.EndCondition
+		}
+	} else if req.FirstDueGameDay != nil && req.IntervalDays != nil {
+		command.StartGameDay, command.IntervalDays = *req.FirstDueGameDay, *req.IntervalDays
+		if req.EndCondition != nil {
+			command.EndCondition = *req.EndCondition
+		}
 	} else if req.StartsTick != nil && req.EndsTick != nil && req.IntervalTicks != nil {
 		command.StartsTick, command.EndsTick, command.IntervalTicks = *req.StartsTick, *req.EndsTick, *req.IntervalTicks
 	} else {
@@ -449,6 +496,14 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_contract", "message": err.Error()})
 		return
 	}
+	if errors.Is(err, application.ErrInvalidContractSchedule) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_contract_schedule"})
+		return
+	}
+	if errors.Is(err, application.ErrInvalidCalendarCategory) || errors.Is(err, application.ErrInvalidCalendarRange) || errors.Is(err, application.ErrCalendarFromRequired) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_calendar_request"})
+		return
+	}
 	if errors.Is(err, application.ErrContractResponseForbidden) || errors.Is(err, application.ErrContractDispatchForbidden) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "contract_action_forbidden", "message": err.Error()})
 		return
@@ -459,7 +514,8 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, application.ErrContractStartsInPast) || errors.Is(err, contractdomain.ErrInvalidTransition) ||
 		errors.Is(err, contractdomain.ErrShipmentMismatch) || errors.Is(err, geography.ErrRouteUnavailable) ||
-		errors.Is(err, postgres.ErrContractDispatchStateChanged) || errors.Is(err, postgres.ErrInsufficientResources) {
+		errors.Is(err, postgres.ErrContractDispatchStateChanged) || errors.Is(err, postgres.ErrInsufficientResources) ||
+		errors.Is(err, postgres.ErrShipmentGameDayConflict) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "contract_conflict", "message": err.Error()})
 		return
 	}
