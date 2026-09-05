@@ -102,6 +102,10 @@ Fatigue: 0--49 normal; 50--69 warning; 70--84 -10% production; 85--100
 Communicate supply as "Provisions last X days." Thresholds: >30 safe;
 15--30 strained; <15 critical; <7 emergency.
 
+The primary household status surface displays **whole completed supply days**
+by flooring the projected value. Decimal precision may be used in diagnostics,
+but not in the main decision header.
+
 Emergency AI should pause nonessential construction, stop high-intensity
 work, shift labor toward food, sell limited reserves, and buy NPC food
 if needed. Preserve ~10 silver where possible. Log all automatic
@@ -194,11 +198,34 @@ emergency actions.
 
 ## UI
 
-Primary screens: 1. Farm Report 2. Farm 3. Work Planning 4. Trade 5. Calendar
-6. Chronicle
+Primary screens: 1. Farm Report 2. Calendar 3. Farm 4. Work Planning 5. Trade
+6. Chronicle.
 
-Farm Report answers: What changed? What needs attention? What meaningful
-decisions matter now? Prefer 2--3 important actions.
+The six screens live inside a persistent household shell. The shell shows the
+household identity and current historical-calendar context plus four compact,
+route-linked status signals:
+
+- **Provisions** — floored whole supply days and severity state
+- **Labor** — planned workers versus labor-capable household members
+- **Fatigue** — number of strained characters
+- **Matters** — unresolved attention items and decisions
+
+Farm Report is the return briefing. It answers: What changed? What needs
+attention? What meaningful decisions matter now? Prefer 2--3 important actions
+before secondary detail.
+
+Work Planning is **person-first**: choose a household member, understand their
+capacity/fatigue and current assignment, then preview the consequence of the
+new plan. Rest is an explicit work-plan choice, not an invisible recovery
+state.
+
+Trade is presented as a lifecycle rather than one mixed dashboard:
+**market → agreements → journeys → people**. Contracts and shipments must make
+clear what was promised, when it must arrive or be dispatched, where goods are
+now, and what relationship consequence follows.
+
+Relationship and Chronicle views should translate structured facts into
+readable history instead of exposing raw event codes or implementation fields.
 
 Time-sensitive UI should prefer derived, readable game-calendar labels such
 as season/week and relative durations. Exact internal `game_day` values may
@@ -209,6 +236,13 @@ The Calendar screen offers `Upcoming` (grouped by urgency and half-year) and
 projects contract due dates, dispatch deadlines, shipment arrivals, political
 response deadlines, farm markers, festivals, and assemblies without creating a
 second source of truth.
+
+Desktop navigation is inline. On mobile, household navigation is a fixed bottom
+bar with a visible icon and text label for every section, active-state feedback,
+and safe-area inset support. Content must reserve space above the fixed bar.
+Small-phone layouts, including iPhone-mini widths, must not require horizontal
+page scrolling and must keep headings/status information dense enough that the
+primary decision remains visible.
 
 ## Vertical Slice scope
 
