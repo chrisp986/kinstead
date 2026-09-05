@@ -9,10 +9,14 @@
 	} from '$lib/domain/time';
 
 	let { report }: { report: HouseholdReport } = $props();
-	let workerCount = $derived(report.characters.filter((character) => character.labor_permille > 0).length);
+	let workerCount = $derived(
+		report.characters.filter((character) => character.labor_permille > 0).length
+	);
 	let assignedCount = $derived.by(() => {
 		const workerIds = new Set(
-			report.characters.filter((character) => character.labor_permille > 0).map((character) => character.id)
+			report.characters
+				.filter((character) => character.labor_permille > 0)
+				.map((character) => character.id)
 		);
 		return new Set(
 			report.assignments
@@ -20,7 +24,9 @@
 				.map((assignment) => assignment.character_id)
 		).size;
 	});
-	let tiredCount = $derived(report.characters.filter((character) => character.fatigue >= 50).length);
+	let tiredCount = $derived(
+		report.characters.filter((character) => character.fatigue >= 50).length
+	);
 	let matterCount = $derived(report.attention.length + report.decisions.length);
 	let supplyTone = $derived(
 		report.supply_days < 7
