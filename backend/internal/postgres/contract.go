@@ -292,7 +292,10 @@ func contractObligationsFromRows(rows []sqlcdb.ListContractObligationsRow) ([]co
 			value.DueGameDay = contractdomain.GameDay(row.DueGameDay)
 		}
 		if row.GameDaySchedule {
-			latest := contractdomain.GameDay(row.LatestDispatchGameDay)
+			latest, err := calendar.LatestDispatchGameDay(row.DueGameDay, row.TravelTicks, row.GameDaysPerTickNum, row.GameDaysPerTickDen)
+			if err != nil {
+				return nil, fmt.Errorf("calculate contract dispatch deadline: %w", err)
+			}
 			value.LatestDispatchGameDay = &latest
 		}
 		if row.ExpectedArrivalGameDay.Valid {
@@ -584,13 +587,21 @@ func normalizeContractSchedule(value contractdomain.Contract, snapshot port.Cont
 	if value.IntervalDays > 0 {
 		return value, nil
 	}
+	startOffset, err := calendar.SubtractInt64(int64(value.StartsTick), int64(snapshot.CurrentTick))
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
 	start, err := calendar.GameDayAtTick(calendar.GameDay(snapshot.CurrentGameDay), snapshot.CalendarRemainder,
-		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, int64(value.StartsTick)-int64(snapshot.CurrentTick))
+		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, startOffset)
+	if err != nil {
+		return contractdomain.Contract{}, err
+	}
+	endOffset, err := calendar.SubtractInt64(int64(value.EndsTick), int64(snapshot.CurrentTick))
 	if err != nil {
 		return contractdomain.Contract{}, err
 	}
 	end, err := calendar.GameDayAtTick(calendar.GameDay(snapshot.CurrentGameDay), snapshot.CalendarRemainder,
-		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, int64(value.EndsTick)-int64(snapshot.CurrentTick))
+		snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, endOffset)
 	if err != nil {
 		return contractdomain.Contract{}, err
 	}

@@ -232,3 +232,38 @@ func TestInvalidAndLargeClockInputs(t *testing.T) {
 		t.Fatal("overflowing game-day projection was accepted")
 	}
 }
+
+func TestCeilDaysForTicksUsesIntegerCalendarPacing(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		ticks int64
+		want  int64
+	}{
+		{name: "neighbor", ticks: 1, want: 8},
+		{name: "local", ticks: 2, want: 16},
+		{name: "regional", ticks: 5, want: 38},
+		{name: "far regional", ticks: 8, want: 61},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CeilDaysForTicks(tt.ticks, 91, 12)
+			if err != nil || got != tt.want {
+				t.Fatalf("CeilDaysForTicks(%d, 91, 12) = %d, %v; want %d", tt.ticks, got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCalendarDeadlineArithmeticRejectsInvalidAndOverflowingInputs(t *testing.T) {
+	if _, err := CeilDaysForTicks(math.MaxInt64, math.MaxInt64, 1); !errors.Is(err, ErrArithmeticOverflow) {
+		t.Fatalf("overflowing travel calculation error = %v", err)
+	}
+	if _, err := CeilDaysForTicks(1, 91, 0); !errors.Is(err, ErrInvalidClock) {
+		t.Fatalf("invalid denominator error = %v", err)
+	}
+	if _, err := LatestDispatchGameDay(math.MinInt64, 1, 91, 12); !errors.Is(err, ErrArithmeticOverflow) {
+		t.Fatalf("overflowing deadline subtraction error = %v", err)
+	}
+	if _, err := SubtractInt64(math.MinInt64, 1); !errors.Is(err, ErrArithmeticOverflow) {
+		t.Fatalf("overflowing tick subtraction error = %v", err)
+	}
+}

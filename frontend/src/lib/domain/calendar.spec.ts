@@ -41,6 +41,21 @@ describe('calendar event presentation', () => {
 				event({ kind: 'shipment_arrival', category: 'shipment', status: 'in_transit' })
 			)
 		).toBe('Shipment expected');
+		expect(
+			calendarEventLabel(
+				event({ kind: 'shipment_arrival', category: 'shipment', status: 'cancelled' })
+			)
+		).toBe('Shipment');
+		expect(
+			calendarEventLabel(
+				event({ kind: 'shipment_arrival', category: 'shipment', status: 'prepared' })
+			)
+		).toBe('Shipment');
+		expect(
+			calendarEventLabel(
+				event({ kind: 'shipment_arrival', category: 'shipment', status: 'unknown_future_status' })
+			)
+		).toBe('Shipment');
 		expect(calendarEventLabel(event({ kind: 'political_deadline', category: 'politics' }))).toBe(
 			'Answer the Jarl'
 		);

@@ -13,6 +13,7 @@ const (
 )
 
 var ErrInvalidClock = errors.New("invalid historical clock")
+var ErrArithmeticOverflow = errors.New("calendar arithmetic overflow")
 
 type GameDay int64
 
@@ -179,6 +180,48 @@ func GameDayAtTick(day GameDay, remainder, numerator, denominator, tickOffset in
 		return 0, ErrInvalidClock
 	}
 	return GameDay(projected.Int64()), nil
+}
+
+// CeilDaysForTicks converts a positive execution-tick travel duration into
+// whole game days using the world's rational calendar pacing. It deliberately
+// uses integer arithmetic and rejects values that cannot be represented.
+func CeilDaysForTicks(ticks, numerator, denominator int64) (int64, error) {
+	if ticks < 0 || numerator <= 0 || denominator <= 0 {
+		return 0, ErrInvalidClock
+	}
+	if ticks == 0 {
+		return 0, nil
+	}
+	value := new(big.Int).Mul(new(big.Int).SetInt64(ticks), new(big.Int).SetInt64(numerator))
+	value.Add(value, new(big.Int).Sub(new(big.Int).SetInt64(denominator), big.NewInt(1)))
+	value.Quo(value, new(big.Int).SetInt64(denominator))
+	if !value.IsInt64() {
+		return 0, ErrArithmeticOverflow
+	}
+	return value.Int64(), nil
+}
+
+// LatestDispatchGameDay returns the latest absolute game day on which a
+// shipment may depart and still cover its travel duration before dueGameDay.
+func LatestDispatchGameDay(dueGameDay, travelTicks, numerator, denominator int64) (GameDay, error) {
+	travelDays, err := CeilDaysForTicks(travelTicks, numerator, denominator)
+	if err != nil {
+		return 0, err
+	}
+	result := new(big.Int).Sub(new(big.Int).SetInt64(dueGameDay), new(big.Int).SetInt64(travelDays))
+	if !result.IsInt64() {
+		return 0, ErrArithmeticOverflow
+	}
+	return GameDay(result.Int64()), nil
+}
+
+// SubtractInt64 subtracts two signed integers without allowing wraparound.
+func SubtractInt64(a, b int64) (int64, error) {
+	result := new(big.Int).Sub(new(big.Int).SetInt64(a), new(big.Int).SetInt64(b))
+	if !result.IsInt64() {
+		return 0, ErrArithmeticOverflow
+	}
+	return result.Int64(), nil
 }
 
 // TicksUntilGameDay returns the smallest non-negative number of execution

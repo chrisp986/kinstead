@@ -22,6 +22,8 @@ type shipmentFixture struct {
 	destinationID string
 	dueIDs        []string
 	cancelled     string
+	prepared      string
+	arrived       string
 }
 
 func TestShipmentArrivalPersistence(t *testing.T) {
@@ -219,6 +221,47 @@ func TestCancelDirectShipmentRefundsReservationExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestCalendarShipmentProjectionFiltersInactiveStatuses(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	store, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	fixture := createShipmentFixture(t, ctx, store)
+	t.Cleanup(func() { removeShipmentFixture(t, ctx, store, fixture) })
+
+	calendarContext, err := store.LoadCalendarContext(ctx, fixture.receiverID, 0, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calendarContext.Shipments) != 3 {
+		t.Fatalf("calendar shipments = %+v, want two in-transit and one arrived", calendarContext.Shipments)
+	}
+	statuses := map[string]string{}
+	for _, shipment := range calendarContext.Shipments {
+		statuses[shipment.ID] = shipment.Status
+	}
+	for _, id := range fixture.dueIDs {
+		if statuses[id] != string(shipmentdomain.StatusInTransit) {
+			t.Fatalf("in-transit shipment %s status = %q", id, statuses[id])
+		}
+	}
+	if statuses[fixture.arrived] != string(shipmentdomain.StatusArrived) {
+		t.Fatalf("arrived shipment status = %q", statuses[fixture.arrived])
+	}
+	if _, ok := statuses[fixture.cancelled]; ok {
+		t.Fatal("cancelled shipment appeared in calendar context")
+	}
+	if _, ok := statuses[fixture.prepared]; ok {
+		t.Fatal("prepared shipment appeared in calendar context")
+	}
+}
+
 func createShipmentFixture(t *testing.T, ctx context.Context, store *Store) shipmentFixture {
 	t.Helper()
 	tx, err := store.Begin(ctx)
@@ -287,7 +330,28 @@ func createShipmentFixture(t *testing.T, ctx context.Context, store *Store) ship
             quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, status
         ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',7000,1,2,7,15,'cancelled')
         RETURNING id::text
-    `, f.worldID, f.senderID, f.receiverID, f.originID, f.destinationID).Scan(&f.cancelled); err != nil {
+	`, f.worldID, f.senderID, f.receiverID, f.originID, f.destinationID).Scan(&f.cancelled); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `
+        INSERT INTO shipments(
+            world_id, sender_household_id, receiver_household_id,
+            origin_location_id, destination_location_id, resource_code,
+            quantity_milli, departure_tick, expected_arrival_tick, departure_game_day, expected_arrival_game_day, status
+        ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',6000,1,2,7,15,'prepared')
+        RETURNING id::text
+    `, f.worldID, f.senderID, f.receiverID, f.originID, f.destinationID).Scan(&f.prepared); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `
+        INSERT INTO shipments(
+            world_id, sender_household_id, receiver_household_id,
+            origin_location_id, destination_location_id, resource_code,
+            quantity_milli, departure_tick, expected_arrival_tick, actual_arrival_tick,
+            departure_game_day, expected_arrival_game_day, actual_arrival_game_day, status
+        ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'provisions',4000,1,2,3,7,15,22,'arrived')
+        RETURNING id::text
+    `, f.worldID, f.senderID, f.receiverID, f.originID, f.destinationID).Scan(&f.arrived); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {

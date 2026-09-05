@@ -24,7 +24,14 @@ export function calendarEventLabel(event: CalendarEvent): string {
 		case 'dispatch_deadline':
 			return 'Dispatch shipment';
 		case 'shipment_arrival':
-			return event.status === 'arrived' ? 'Shipment arrived' : 'Shipment expected';
+			switch (event.status) {
+				case 'arrived':
+					return 'Shipment arrived';
+				case 'in_transit':
+					return 'Shipment expected';
+				default:
+					return 'Shipment';
+			}
 		case 'political_deadline':
 			return 'Answer the Jarl';
 		case 'assignment_end':

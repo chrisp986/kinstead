@@ -3,31 +3,34 @@
 package postgres
 
 import (
+	"errors"
 	"math"
 	"testing"
+
+	"game/backend/internal/calendar"
 )
 
 func TestCeilTravelDays(t *testing.T) {
-	got, err := ceilTravelDays(5, 91, 12)
+	got, err := calendar.CeilDaysForTicks(5, 91, 12)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != 38 {
-		t.Fatalf("ceilTravelDays(5, 91, 12) = %d, want 38", got)
+		t.Fatalf("CeilDaysForTicks(5, 91, 12) = %d, want 38", got)
 	}
 
-	got, err = ceilTravelDays(1, 1, 2)
+	got, err = calendar.CeilDaysForTicks(1, 1, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != 1 {
-		t.Fatalf("ceilTravelDays(1, 1, 2) = %d, want 1", got)
+		t.Fatalf("CeilDaysForTicks(1, 1, 2) = %d, want 1", got)
 	}
 }
 
 func TestCeilTravelDaysRejectsOverflow(t *testing.T) {
-	if _, err := ceilTravelDays(math.MaxInt64, math.MaxInt64, 1); err != ErrCalendarArithmetic {
-		t.Fatalf("overflow error = %v, want %v", err, ErrCalendarArithmetic)
+	if _, err := calendar.CeilDaysForTicks(math.MaxInt64, math.MaxInt64, 1); !errors.Is(err, calendar.ErrArithmeticOverflow) {
+		t.Fatalf("overflow error = %v, want %v", err, calendar.ErrArithmeticOverflow)
 	}
 }
 

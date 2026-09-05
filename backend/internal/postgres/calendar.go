@@ -4,11 +4,10 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
-	"math/big"
 
+	"game/backend/internal/calendar"
 	"game/backend/internal/port"
 )
 
@@ -63,16 +62,12 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 			rows.Close()
 			return port.CalendarContext{}, err
 		}
-		travelDays, err := ceilTravelDays(travelTicks, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)
+		deadline, err := calendar.LatestDispatchGameDay(item.DueGameDay, travelTicks, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)
 		if err != nil {
 			rows.Close()
 			return port.CalendarContext{}, fmt.Errorf("calculate calendar dispatch deadline: %w", err)
 		}
-		if travelDays > 0 && item.DueGameDay < math.MinInt64+travelDays {
-			rows.Close()
-			return port.CalendarContext{}, fmt.Errorf("calculate calendar dispatch deadline: %w", ErrCalendarArithmetic)
-		}
-		item.LatestDispatchGameDay = item.DueGameDay - travelDays
+		item.LatestDispatchGameDay = int64(deadline)
 		contextValue.Obligations = append(contextValue.Obligations, item)
 	}
 	rows.Close()
@@ -89,6 +84,7 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 		JOIN households sender ON sender.id = s.sender_household_id
 		JOIN households receiver ON receiver.id = s.receiver_household_id
 		WHERE (s.sender_household_id = $1::uuid OR s.receiver_household_id = $1::uuid)
+		  AND s.status IN ('in_transit', 'arrived')
 		  AND (s.expected_arrival_game_day BETWEEN $2 AND $3
 		       OR s.actual_arrival_game_day BETWEEN $2 AND $3)
 		ORDER BY COALESCE(s.actual_arrival_game_day, s.expected_arrival_game_day), s.id
@@ -159,26 +155,13 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 	return contextValue, nil
 }
 
-var ErrCalendarArithmetic = errors.New("calendar arithmetic overflow")
+var ErrCalendarArithmetic = calendar.ErrArithmeticOverflow
 
 func calendarQueryEnd(to int64) int64 {
 	if to <= math.MaxInt64-91 {
 		return to + 91
 	}
 	return to
-}
-
-func ceilTravelDays(ticks, numerator, denominator int64) (int64, error) {
-	if ticks <= 0 || numerator <= 0 || denominator <= 0 {
-		return 0, nil
-	}
-	value := new(big.Int).Mul(new(big.Int).SetInt64(ticks), new(big.Int).SetInt64(numerator))
-	value.Add(value, new(big.Int).Sub(new(big.Int).SetInt64(denominator), big.NewInt(1)))
-	value.Quo(value, new(big.Int).SetInt64(denominator))
-	if !value.IsInt64() {
-		return 0, ErrCalendarArithmetic
-	}
-	return value.Int64(), nil
 }
 
 var _ port.CalendarReader = (*Store)(nil)

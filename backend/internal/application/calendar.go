@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"game/backend/internal/calendar"
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 )
 
@@ -142,7 +143,11 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	events := seasonalEvents(from, to)
 	events = append(events, anchorEvents(from, to)...)
 	if s.Reader != nil {
-		events = append(events, sourceEvents(contextValue, from, to)...)
+		sourcedEvents, err := sourceEvents(contextValue, from, to)
+		if err != nil {
+			return CalendarProjection{}, err
+		}
+		events = append(events, sourcedEvents...)
 	}
 	events = filterCalendarEvents(events, category)
 	sort.SliceStable(events, func(i, j int) bool {
@@ -217,7 +222,7 @@ func anchorEvents(from, to int64) []CalendarEvent {
 	return events
 }
 
-func sourceEvents(value port.CalendarContext, from, to int64) []CalendarEvent {
+func sourceEvents(value port.CalendarContext, from, to int64) ([]CalendarEvent, error) {
 	var events []CalendarEvent
 	for _, item := range value.Obligations {
 		if item.DueGameDay >= from && item.DueGameDay <= to {
@@ -231,14 +236,15 @@ func sourceEvents(value port.CalendarContext, from, to int64) []CalendarEvent {
 		}
 	}
 	for _, item := range value.Shipments {
-		if item.ActualArrivalGameDay != nil {
-			if *item.ActualArrivalGameDay >= from && *item.ActualArrivalGameDay <= to {
+		switch item.Status {
+		case string(shipmentdomain.StatusArrived):
+			if item.ActualArrivalGameDay != nil && *item.ActualArrivalGameDay >= from && *item.ActualArrivalGameDay <= to {
 				events = append(events, CalendarEvent{ID: "shipment-arrived-" + item.ID, Kind: CalendarShipmentArrival, Category: CalendarCategoryShipment, GameDay: *item.ActualArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status})
 			}
-			continue
-		}
-		if item.ExpectedArrivalGameDay >= from && item.ExpectedArrivalGameDay <= to {
-			events = append(events, CalendarEvent{ID: "shipment-" + item.ID, Kind: CalendarShipmentArrival, Category: CalendarCategoryShipment, GameDay: item.ExpectedArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status})
+		case string(shipmentdomain.StatusInTransit):
+			if item.ExpectedArrivalGameDay >= from && item.ExpectedArrivalGameDay <= to {
+				events = append(events, CalendarEvent{ID: "shipment-" + item.ID, Kind: CalendarShipmentArrival, Category: CalendarCategoryShipment, GameDay: item.ExpectedArrivalGameDay, Importance: "important", RelatedID: item.ID, ResourceType: item.ResourceType, QuantityMilli: item.QuantityMilli, CounterpartyHouseholdName: item.CounterpartyName, Status: item.Status})
+			}
 		}
 	}
 	for _, item := range value.Deadlines {
@@ -248,12 +254,15 @@ func sourceEvents(value port.CalendarContext, from, to int64) []CalendarEvent {
 		}
 	}
 	for _, item := range value.Assignments {
-		day := tickGameDay(value.Snapshot, item.EndsTick)
+		day, err := tickGameDay(value.Snapshot, item.EndsTick)
+		if err != nil {
+			return nil, fmt.Errorf("project assignment end game day: %w", err)
+		}
 		if day >= from && day <= to {
 			events = append(events, CalendarEvent{ID: "assignment-" + item.ID, Kind: CalendarAssignmentEnd, Category: CalendarCategoryFarm, GameDay: day, Importance: item.Importance, RelatedID: item.ID})
 		}
 	}
-	return events
+	return events, nil
 }
 
 func oppositeHousehold(current, debtor, creditor string) string {
@@ -297,13 +306,17 @@ func importanceRank(value string) int {
 	}
 }
 
-func tickGameDay(snap port.HouseholdSnapshot, tick int64) int64 {
-	day, err := calendar.GameDayAtTick(calendar.GameDay(snap.CurrentGameDay), snap.CalendarRemainder,
-		snap.GameDaysPerTickNum, snap.GameDaysPerTickDen, tick-snap.CurrentTick)
+func tickGameDay(snap port.HouseholdSnapshot, tick int64) (int64, error) {
+	tickOffset, err := calendar.SubtractInt64(tick, snap.CurrentTick)
 	if err != nil {
-		return snap.CurrentGameDay
+		return 0, err
 	}
-	return int64(day)
+	day, err := calendar.GameDayAtTick(calendar.GameDay(snap.CurrentGameDay), snap.CalendarRemainder,
+		snap.GameDaysPerTickNum, snap.GameDaysPerTickDen, tickOffset)
+	if err != nil {
+		return 0, err
+	}
+	return int64(day), nil
 }
 
 func calendarEventPriority(kind CalendarEventKind) int {

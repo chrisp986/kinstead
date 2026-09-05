@@ -6,6 +6,8 @@ import (
 	"math"
 	"testing"
 
+	"game/backend/internal/calendar"
+	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 )
 
@@ -125,3 +127,66 @@ func TestCalendarRangePresenceAndValidation(t *testing.T) {
 		t.Fatalf("overflowing next half-year error = %v", err)
 	}
 }
+
+func TestCalendarShipmentProjectionExcludesInactiveStatuses(t *testing.T) {
+	snapshot := port.HouseholdSnapshot{
+		HouseholdID: "household", WorldID: "world", CurrentGameDay: 0,
+		GameDaysPerTickNum: 91, GameDaysPerTickDen: 12,
+	}
+	actual := int64(12)
+	reader := calendarReaderStub{
+		snapshot: snapshot,
+		value: port.CalendarContext{
+			Snapshot: snapshot,
+			Shipments: []port.CalendarShipmentRecord{
+				{ID: "in-transit", ExpectedArrivalGameDay: 15, Status: string(shipmentdomain.StatusInTransit)},
+				{ID: "arrived", ActualArrivalGameDay: &actual, Status: string(shipmentdomain.StatusArrived)},
+				{ID: "cancelled", ExpectedArrivalGameDay: 15, Status: string(shipmentdomain.StatusCancelled)},
+				{ID: "prepared", ExpectedArrivalGameDay: 15, Status: string(shipmentdomain.StatusPrepared)},
+			},
+		},
+	}
+	projection, err := NewCalendarService(reader).HouseholdRange(context.Background(), "household", ptr(int64(0)), ptr(int64(30)), CalendarCategoryShipment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projection.Events) != 2 {
+		t.Fatalf("shipment events = %+v, want only in-transit and arrived", projection.Events)
+	}
+	seen := map[string]string{}
+	for _, event := range projection.Events {
+		seen[event.RelatedID] = event.Status
+	}
+	if _, ok := seen["in-transit"]; !ok {
+		t.Fatal("in-transit shipment was not projected")
+	}
+	if _, ok := seen["arrived"]; !ok {
+		t.Fatal("arrived shipment was not projected")
+	}
+	if _, ok := seen["cancelled"]; ok {
+		t.Fatal("cancelled shipment was projected")
+	}
+	if _, ok := seen["prepared"]; ok {
+		t.Fatal("prepared shipment was projected")
+	}
+}
+
+func TestCalendarProjectionPropagatesAssignmentArithmeticErrors(t *testing.T) {
+	snapshot := port.HouseholdSnapshot{
+		HouseholdID: "household", WorldID: "world", CurrentGameDay: 0,
+		CurrentTick: math.MinInt64, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12,
+	}
+	reader := calendarReaderStub{
+		snapshot: snapshot,
+		value: port.CalendarContext{
+			Snapshot:    snapshot,
+			Assignments: []port.CalendarAssignmentRecord{{ID: "assignment", EndsTick: math.MaxInt64}},
+		},
+	}
+	_, err := NewCalendarService(reader).HouseholdRange(context.Background(), "household", ptr(int64(0)), ptr(int64(0)), CalendarCategoryFarm)
+	if !errors.Is(err, calendar.ErrArithmeticOverflow) {
+		t.Fatalf("assignment arithmetic error = %v, want overflow", err)
+	}
+}
+
+func ptr(value int64) *int64 { return &value }
