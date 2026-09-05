@@ -41,6 +41,8 @@ body {
 	margin: 0;
 	min-width: 320px;
 	min-height: 100vh;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
 	background:
 		linear-gradient(rgba(255, 253, 247, 0.84), rgba(255, 253, 247, 0.84)),
 		repeating-linear-gradient(90deg, transparent 0 28px, rgba(53, 49, 37, 0.035) 29px 30px),
@@ -156,10 +158,27 @@ main {
 	.shell {
 		width: min(100% - 1rem, var(--content-max));
 	}
-	nav span {
+	.primary-nav > span {
 		display: none;
 	}
 	.panel {
 		padding: 1rem;
+	}
+}
+@media (max-width: 390px) {
+	.shell {
+		width: min(100% - 0.75rem, var(--content-max));
+	}
+	.primary-nav {
+		padding: 0.7rem 0;
+	}
+	.primary-nav .brand {
+		font-size: 1.08rem;
+	}
+	.panel {
+		padding: 0.8rem;
+	}
+	.eyebrow {
+		font-size: 0.62rem;
 	}
 }
