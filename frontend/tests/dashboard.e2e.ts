@@ -5,8 +5,8 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await page.goto('/');
 	await expect(page.getByRole('heading', { level: 1, name: 'Bjornvik' })).toBeVisible();
 	await expect(page.getByText('980 CE · Spring · first week')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Farm report' }).first()).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Decide now' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Household report' }).first()).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'What needs your decision?' })).toBeVisible();
 	await expect(page.getByRole('navigation', { name: 'Household sections' })).toBeVisible();
 
 	// Flow A: report → work → schedule → report.
@@ -14,7 +14,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page).toHaveURL(/\/work$/);
 	await page.getByLabel('Who?').selectOption({ label: 'Astrid' });
 	await page.getByLabel('Activity').selectOption('fishing');
-	await page.getByRole('button', { name: 'Schedule work' }).click();
+	await page.getByRole('button', { name: 'Assign Astrid' }).click();
 	await expect(page.getByRole('status')).toContainText("Astrid's work was scheduled");
 	await page.getByRole('link', { name: 'Report' }).click();
 	await expect(page).toHaveURL(/\/households\/[^/]+$/);
@@ -30,7 +30,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page).toHaveURL(/\/trade$/);
 	await page.getByRole('button', { name: 'Buy for delivery' }).click();
 	await expect(page.getByRole('status')).toContainText('shipment is on its way');
-	await expect(page.getByRole('heading', { name: 'Shipments' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Journeys' })).toBeVisible();
 
 	// Flow D: accept and dispatch a contract, then inspect Transit.
 	await page.getByRole('button', { name: /Propose recurring delivery/ }).click();
@@ -73,8 +73,8 @@ test('mobile navigation leaves room for the final controls', async ({ page }) =>
 	await page.goto('/households/00000000-0000-0000-0000-000000000020/work');
 	const nav = page.getByRole('navigation', { name: 'Household sections' });
 	await expect(nav).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Schedule work' })).toBeVisible();
-	const button = page.getByRole('button', { name: 'Schedule work' });
+	const button = page.getByRole('button', { name: /^Assign / });
+	await expect(button).toBeVisible();
 	await button.scrollIntoViewIfNeeded();
 	const navBox = await nav.boundingBox();
 	const buttonBox = await button.boundingBox();
@@ -95,7 +95,7 @@ test('household surfaces fit the supported viewport range', async ({ page }) => 
 	]) {
 		await page.setViewportSize(viewport);
 		await page.goto('/households/00000000-0000-0000-0000-000000000020');
-		await expect(page.getByRole('heading', { name: 'Farm report' }).first()).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Household report' }).first()).toBeVisible();
 		const overflow = await page.evaluate(
 			() => document.documentElement.scrollWidth > window.innerWidth + 1
 		);
