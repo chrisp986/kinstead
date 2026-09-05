@@ -36,7 +36,9 @@
 			})
 			.slice(0, 4);
 	});
-	let criticalAttention = $derived(report.attention.filter((item) => item.severity === 'critical').length);
+	let criticalAttention = $derived(
+		report.attention.filter((item) => item.severity === 'critical').length
+	);
 
 	function decisionHref(target?: string): string {
 		const id = householdId ?? report.household_id;
@@ -59,9 +61,15 @@
 		<div>
 			<p class="eyebrow">Priority briefing</p>
 			<h2 id="decision-heading">What needs your decision?</h2>
-			<p>Resolve the few choices that change the household before reviewing background information.</p>
+			<p>
+				Resolve the few choices that change the household before reviewing background information.
+			</p>
 		</div>
-		<div class:clear={report.decisions.length === 0} class="matter-count" aria-label="Immediate decisions">
+		<div
+			class:clear={report.decisions.length === 0}
+			class="matter-count"
+			aria-label="Immediate decisions"
+		>
 			<strong>{report.decisions.length}</strong>
 			<span>{report.decisions.length === 1 ? 'decision' : 'decisions'}</span>
 		</div>
@@ -72,14 +80,20 @@
 		{#if report.decisions.length === 0}
 			<div class="calm-state">
 				<strong>No immediate decision is waiting.</strong>
-				<span>Use the risks and timeline below to prepare before pressure turns into a deadline.</span>
+				<span
+					>Use the risks and timeline below to prepare before pressure turns into a deadline.</span
+				>
 			</div>
 		{:else}
 			<ol>
 				{#each report.decisions as item (item.code + item.related_id)}
 					<li>
 						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-						<a class:critical={item.severity === 'critical'} class="decision-card" href={decisionHref(item.target)}>
+						<a
+							class:critical={item.severity === 'critical'}
+							class="decision-card"
+							href={decisionHref(item.target)}
+						>
 							<span class="decision-kicker">{item.target ?? 'Household decision'}</span>
 							<strong>{describeReportItem(item, report.game_day)}</strong>
 							<span class="review">Review and decide →</span>
@@ -94,7 +108,8 @@
 		<section class="attention" aria-labelledby="attention-heading">
 			<div class="support-heading">
 				<h3 id="attention-heading">Risks to watch</h3>
-				{#if criticalAttention > 0}<span class="alert-count">{criticalAttention} critical</span>{/if}
+				{#if criticalAttention > 0}<span class="alert-count">{criticalAttention} critical</span
+					>{/if}
 			</div>
 			{#if report.attention.length === 0}
 				<p class="empty">Nothing currently needs attention.</p>
