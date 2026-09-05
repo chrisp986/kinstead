@@ -18,7 +18,9 @@
 	}
 
 	function direction(relationship: Relationship): string {
-		return relationship.source_household_id === householdId ? 'Your trust in them' : 'Their trust in you';
+		return relationship.source_household_id === householdId
+			? 'Your trust in them'
+			: 'Their trust in you';
 	}
 
 	function standingSummary(standing: string): string {
@@ -51,7 +53,8 @@
 		if (due === null) return null;
 		if (arrived !== null && arrived <= due) return 'Arrived by the agreed deadline';
 		if (arrived !== null) return 'Arrived after the agreed deadline';
-		if (event.event_type === 'contract_obligation_broken') return 'Deadline passed without fulfillment';
+		if (event.event_type === 'contract_obligation_broken')
+			return 'Deadline passed without fulfillment';
 		return null;
 	}
 </script>
