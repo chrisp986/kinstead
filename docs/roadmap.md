@@ -2,8 +2,13 @@
 
 ## Current objective
 
-Build a testable Vertical Slice proving **labor + supply +
+Build and validate a testable Vertical Slice proving **labor + supply +
 relationships** under asynchronous time.
+
+The core simulation, historical game-time model, calendar projection, and
+household decision UI are implemented. The immediate product task is to merge
+and validate the decision-focused household UX in PR #5, then use playtesting
+to decide which post-slice retention/depth work earns priority.
 
 ## Foundation correction --- complete
 
@@ -19,9 +24,6 @@ relationships** under asynchronous time.
 -   narrow application ports added for stable persistence workflows
 -   existing world/market/shipment SQL migrated toward generated `sqlc` queries
 -   CI added for backend, PostgreSQL integration, frontend, and Playwright
-
-The completed Chronicle, Farm Report, and SvelteKit milestones now feed the
-calendar/time-model hardening work below.
 
 ## Implementation order
 
@@ -104,15 +106,13 @@ the player's plan.
 
 ### 7. SvelteKit Vertical Slice --- complete
 
-Complete: nested household routes for Farm Report, Farm, Work Planning, Trade,
-and Chronicle; shared household shell with responsive navigation; mobile-first
+Complete: nested household routes for **Report, Calendar, Farm, Work, Trade,
+and Chronicle**; shared household shell with responsive navigation; mobile-first
 decision cards and route-linked actions; route-owned data loading/forms;
-responsive work, politics, market, contract, transit, relationship, and
-chronicle surfaces; accessible feedback and mobile workflow coverage.
+responsive work, politics, market, contract, transit, relationship, calendar,
+and chronicle surfaces; accessible feedback and mobile workflow coverage.
 
-Generate API client/types from OpenAPI.
-
-The final Vertical Slice UI organization is now the next product-polish focus.
+The OpenAPI contract remains the Go↔SvelteKit source for generated client/types.
 
 ### 8. Game-Time Model Migration --- complete
 
@@ -128,11 +128,61 @@ existing Farm Report accelerated-world cap prove that wall-clock tick duration
 does not change calendar results. Tick fields retained in the schema are
 execution, compatibility, or diagnostic projections only.
 
+### 9. Decision-focused household UX --- implementation complete in PR #5
+
+The product-polish pass identified after the initial vertical slice has now been
+implemented on `ui/decision-focused-polish`:
+
+-   persistent household status header for provisions, labor, fatigue, and
+    unresolved matters
+-   Report reorganized around immediate decisions, risks, deadlines, and recent
+    changes
+-   provisions shown as floored whole supply days with actionable severity
+    states
+-   person-first Work Planning with clearer fatigue/capacity consequences and
+    explicit rest planning
+-   Trade clarified as market → agreements → journeys → people
+-   shipment journeys and relationship history rendered as readable lifecycle
+    information
+-   six-section household navigation kept consistent across Report, Calendar,
+    Farm, Work, Trade, and Chronicle
+-   fixed mobile bottom navigation with visible icons/labels, active states, and
+    safe-area support
+-   small-phone density/overflow fixes, including iPhone-mini regression
+    coverage and Chronicle overflow protection
+-   Playwright coverage updated for the decision-focused route flow and mobile
+    navigation regressions
+
+PR #5 is still draft, so **merge/CI validation is the remaining delivery step**;
+no new simulation or persistence semantics are introduced by this milestone.
+
 ## First end-to-end economic scenario
 
 Björnvik is low on provisions → player buys nearby provisions → silver
 is debited → shipment travels → ticks advance → shipment arrives → stock
 increases → chronicle records it → Farm Report reflects improved supply.
+
+This scenario remains the minimum smoke/playtest path for validating that the
+vertical slice communicates cause and effect clearly after UI changes.
+
+## Next product validation
+
+After PR #5 is merged, avoid adding another broad subsystem immediately. Use
+playtesting of complete return sessions to validate:
+
+1. whether the Report makes the next meaningful decision obvious within the
+   first screenful;
+2. whether Calendar deadlines create useful forward planning rather than extra
+   checking;
+3. whether Work, Trade, and relationship consequences are understandable
+   without inspecting implementation details;
+4. whether absence/return creates a compelling reason to come back without
+   punishing the player for being away; and
+5. which repeated loop deserves the next retention investment before scope is
+   expanded.
+
+Promote a post-slice feature only when it strengthens **labor, supply, or
+relationships** and can be measured against the core return-session loop.
 
 ## After the Vertical Slice
 
