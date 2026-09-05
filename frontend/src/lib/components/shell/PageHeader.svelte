@@ -28,4 +28,18 @@
 		color: var(--ink-soft);
 		font-size: 0.88rem;
 	}
+	@media (max-width: 390px) {
+		.page-header {
+			padding: 0.8rem 0 0.35rem;
+		}
+		h2 {
+			font-size: 1.5rem;
+			line-height: 1.05;
+		}
+		.page-header > p:last-child {
+			margin-top: 0.3rem;
+			font-size: 0.78rem;
+			line-height: 1.35;
+		}
+	}
 </style>
