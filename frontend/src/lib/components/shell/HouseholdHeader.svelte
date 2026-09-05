@@ -47,8 +47,8 @@
 					: 'Secure'
 	);
 
-	function householdHref(suffix = ''): string {
-		return resolve(`/households/${report.household_id}${suffix}` as `/households/${string}`);
+	function householdPath(suffix = ''): `/households/${string}` {
+		return `/households/${report.household_id}${suffix}` as `/households/${string}`;
 	}
 </script>
 
@@ -71,22 +71,22 @@
 	</div>
 
 	<div class="status-strip" aria-label="Household status">
-		<a class={`status ${supplyTone}`} href={householdHref('/farm')}>
+		<a class={`status ${supplyTone}`} href={resolve(householdPath('/farm'))}>
 			<span>Provisions</span>
 			<strong>{report.supply_days} days</strong>
 			<small>{supplyState}</small>
 		</a>
-		<a class="status" href={householdHref('/work')}>
+		<a class="status" href={resolve(householdPath('/work'))}>
 			<span>Labor</span>
 			<strong>{assignedCount}/{workerCount}</strong>
 			<small>workers planned</small>
 		</a>
-		<a class:tired={tiredCount > 0} class="status" href={householdHref('/work')}>
+		<a class:tired={tiredCount > 0} class="status" href={resolve(householdPath('/work'))}>
 			<span>Fatigue</span>
 			<strong>{tiredCount}</strong>
 			<small>{tiredCount === 1 ? 'person strained' : 'people strained'}</small>
 		</a>
-		<a class:urgent={matterCount > 0} class="status" href={householdHref()}>
+		<a class:urgent={matterCount > 0} class="status" href={resolve(householdPath())}>
 			<span>Matters</span>
 			<strong>{matterCount}</strong>
 			<small>{matterCount === 1 ? 'needs review' : 'need review'}</small>
