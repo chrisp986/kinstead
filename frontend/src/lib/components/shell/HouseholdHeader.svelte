@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { HouseholdReport } from '$lib/api/generated';
+	import { formatProjectedUnits } from '$lib/domain/format';
 	import {
 		formatCalendarPosition,
 		formatRelativeGameDay,
@@ -73,7 +74,7 @@
 	<div class="status-strip" aria-label="Household status">
 		<a class={`status ${supplyTone}`} href={resolve(householdPath('/farm'))}>
 			<span>Provisions</span>
-			<strong>{report.supply_days} days</strong>
+			<strong>{formatProjectedUnits(report.supply_days)} days</strong>
 			<small>{supplyState}</small>
 		</a>
 		<a class="status" href={resolve(householdPath('/work'))}>
@@ -156,8 +157,10 @@
 	.status strong {
 		font-family: var(--font-display);
 		font-size: 1.18rem;
+		font-variant-numeric: tabular-nums;
 		font-weight: 600;
 		line-height: 1.1;
+		white-space: nowrap;
 	}
 	.status.safe strong {
 		color: var(--positive);
@@ -193,6 +196,33 @@
 		}
 		.status:nth-child(-n + 2) {
 			border-bottom: 1px solid var(--line-light);
+		}
+	}
+	@media (max-width: 390px) {
+		.household-header {
+			gap: 0.7rem;
+			padding: 0.85rem 0 0.7rem;
+		}
+		h1 {
+			font-size: 1.85rem;
+		}
+		.date {
+			margin-top: 0.25rem;
+			font-size: 0.8rem;
+		}
+		.next-half {
+			margin-top: 0.15rem;
+			font-size: 0.7rem;
+		}
+		.status {
+			padding: 0.5rem 0.6rem;
+		}
+		.status span,
+		.status small {
+			font-size: 0.61rem;
+		}
+		.status strong {
+			font-size: 1.02rem;
 		}
 	}
 </style>
