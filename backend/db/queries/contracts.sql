@@ -80,6 +80,7 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
           WHEN 'neighbor' THEN 1 WHEN 'local' THEN 2
           WHEN 'near_regional' THEN 3 WHEN 'regional' THEN 5
           WHEN 'far_regional' THEN 8 ELSE 0 END)::bigint AS travel_ticks,
+       w.current_game_day, w.calendar_remainder,
        w.game_days_per_tick_num, w.game_days_per_tick_den,
        s.departure_game_day, s.expected_arrival_game_day
 FROM contract_obligations o

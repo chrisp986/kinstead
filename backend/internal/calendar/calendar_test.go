@@ -253,6 +253,66 @@ func TestCeilDaysForTicksUsesIntegerCalendarPacing(t *testing.T) {
 	}
 }
 
+func TestLatestDispatchGameDayUsesExactClockProjection(t *testing.T) {
+	deadline, err := LatestDispatchGameDay(0, 0, 91, 12, 15, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() error = %v", err)
+	}
+
+	// Tick 0 is day 0, tick 1 is day 7, and tick 2 is day 15. A shipment
+	// dispatched on day 0 therefore arrives exactly on the due day.
+	if deadline != 0 {
+		t.Fatalf("LatestDispatchGameDay() = %d, want 0", deadline)
+	}
+}
+
+func TestLatestDispatchGameDayUsesCalendarRemainder(t *testing.T) {
+	deadline, err := LatestDispatchGameDay(7, 7, 91, 12, 22, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() error = %v", err)
+	}
+	if deadline != 7 {
+		t.Fatalf("LatestDispatchGameDay() = %d, want 7", deadline)
+	}
+
+	withRemainder, err := LatestDispatchGameDay(7, 7, 91, 12, 21, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() with remainder error = %v", err)
+	}
+	withoutRemainder, err := LatestDispatchGameDay(7, 0, 91, 12, 21, 2)
+	if err != nil {
+		t.Fatalf("LatestDispatchGameDay() without remainder error = %v", err)
+	}
+	if withRemainder != 0 || withoutRemainder != -1 {
+		t.Fatalf("remainder-sensitive deadlines = %d and %d, want 0 and -1", withRemainder, withoutRemainder)
+	}
+}
+
+func TestLatestDispatchGameDayRejectsInvalidClock(t *testing.T) {
+	tests := []struct {
+		name        string
+		remainder   int64
+		numerator   int64
+		denominator int64
+		travelTicks int64
+	}{
+		{name: "zero numerator", numerator: 0, denominator: 12},
+		{name: "zero denominator", numerator: 91, denominator: 0},
+		{name: "negative remainder", remainder: -1, numerator: 91, denominator: 12},
+		{name: "remainder at denominator", remainder: 12, numerator: 91, denominator: 12},
+		{name: "negative travel ticks", numerator: 91, denominator: 12, travelTicks: -1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := LatestDispatchGameDay(0, test.remainder, test.numerator, test.denominator, 15, test.travelTicks)
+			if !errors.Is(err, ErrInvalidClock) {
+				t.Fatalf("LatestDispatchGameDay() error = %v, want %v", err, ErrInvalidClock)
+			}
+		})
+	}
+}
+
 func TestCalendarDeadlineArithmeticRejectsInvalidAndOverflowingInputs(t *testing.T) {
 	if _, err := CeilDaysForTicks(math.MaxInt64, math.MaxInt64, 1); !errors.Is(err, ErrArithmeticOverflow) {
 		t.Fatalf("overflowing travel calculation error = %v", err)
@@ -260,8 +320,8 @@ func TestCalendarDeadlineArithmeticRejectsInvalidAndOverflowingInputs(t *testing
 	if _, err := CeilDaysForTicks(1, 91, 0); !errors.Is(err, ErrInvalidClock) {
 		t.Fatalf("invalid denominator error = %v", err)
 	}
-	if _, err := LatestDispatchGameDay(math.MinInt64, 1, 91, 12); !errors.Is(err, ErrArithmeticOverflow) {
-		t.Fatalf("overflowing deadline subtraction error = %v", err)
+	if _, err := LatestDispatchGameDay(math.MinInt64, 0, 1, 1, math.MaxInt64, 0); !errors.Is(err, ErrArithmeticOverflow) {
+		t.Fatalf("overflowing deadline projection error = %v", err)
 	}
 	if _, err := SubtractInt64(math.MinInt64, 1); !errors.Is(err, ErrArithmeticOverflow) {
 		t.Fatalf("overflowing tick subtraction error = %v", err)

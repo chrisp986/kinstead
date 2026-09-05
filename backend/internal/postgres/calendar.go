@@ -62,7 +62,14 @@ func (s *Store) LoadCalendarContext(ctx context.Context, householdID string, fro
 			rows.Close()
 			return port.CalendarContext{}, err
 		}
-		deadline, err := calendar.LatestDispatchGameDay(item.DueGameDay, travelTicks, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen)
+		deadline, err := calendar.LatestDispatchGameDay(
+			calendar.GameDay(snapshot.CurrentGameDay),
+			snapshot.CalendarRemainder,
+			snapshot.GameDaysPerTickNum,
+			snapshot.GameDaysPerTickDen,
+			calendar.GameDay(item.DueGameDay),
+			travelTicks,
+		)
 		if err != nil {
 			rows.Close()
 			return port.CalendarContext{}, fmt.Errorf("calculate calendar dispatch deadline: %w", err)

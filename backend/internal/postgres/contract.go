@@ -292,7 +292,14 @@ func contractObligationsFromRows(rows []sqlcdb.ListContractObligationsRow) ([]co
 			value.DueGameDay = contractdomain.GameDay(row.DueGameDay)
 		}
 		if row.GameDaySchedule {
-			latest, err := calendar.LatestDispatchGameDay(row.DueGameDay, row.TravelTicks, row.GameDaysPerTickNum, row.GameDaysPerTickDen)
+			latest, err := calendar.LatestDispatchGameDay(
+				calendar.GameDay(row.CurrentGameDay),
+				row.CalendarRemainder,
+				row.GameDaysPerTickNum,
+				row.GameDaysPerTickDen,
+				calendar.GameDay(row.DueGameDay),
+				row.TravelTicks,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("calculate contract dispatch deadline: %w", err)
 			}

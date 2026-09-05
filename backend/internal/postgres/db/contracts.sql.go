@@ -287,6 +287,7 @@ SELECT o.id::text AS id, o.contract_id::text AS contract_id,
           WHEN 'neighbor' THEN 1 WHEN 'local' THEN 2
           WHEN 'near_regional' THEN 3 WHEN 'regional' THEN 5
           WHEN 'far_regional' THEN 8 ELSE 0 END)::bigint AS travel_ticks,
+       w.current_game_day, w.calendar_remainder,
        w.game_days_per_tick_num, w.game_days_per_tick_den,
        s.departure_game_day, s.expected_arrival_game_day
 FROM contract_obligations o
@@ -318,6 +319,8 @@ type ListContractObligationsRow struct {
 	FulfilledGameDay       pgtype.Int8
 	GameDaySchedule        bool
 	TravelTicks            int64
+	CurrentGameDay         int64
+	CalendarRemainder      int64
 	GameDaysPerTickNum     int64
 	GameDaysPerTickDen     int64
 	DepartureGameDay       pgtype.Int8
@@ -348,6 +351,8 @@ func (q *Queries) ListContractObligations(ctx context.Context, dollar_1 pgtype.U
 			&i.FulfilledGameDay,
 			&i.GameDaySchedule,
 			&i.TravelTicks,
+			&i.CurrentGameDay,
+			&i.CalendarRemainder,
 			&i.GameDaysPerTickNum,
 			&i.GameDaysPerTickDen,
 			&i.DepartureGameDay,

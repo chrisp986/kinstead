@@ -201,18 +201,47 @@ func CeilDaysForTicks(ticks, numerator, denominator int64) (int64, error) {
 	return value.Int64(), nil
 }
 
-// LatestDispatchGameDay returns the latest absolute game day on which a
-// shipment may depart and still cover its travel duration before dueGameDay.
-func LatestDispatchGameDay(dueGameDay, travelTicks, numerator, denominator int64) (GameDay, error) {
-	travelDays, err := CeilDaysForTicks(travelTicks, numerator, denominator)
-	if err != nil {
-		return 0, err
+// LatestDispatchGameDay projects the exact dispatch deadline from the world's
+// current clock state. CeilDaysForTicks is suitable for duration display, but
+// cannot determine an exact deadline because the current remainder matters.
+func LatestDispatchGameDay(
+	currentDay GameDay,
+	remainder int64,
+	numerator int64,
+	denominator int64,
+	dueGameDay GameDay,
+	travelTicks int64,
+) (GameDay, error) {
+	if numerator <= 0 || denominator <= 0 || remainder < 0 || remainder >= denominator || travelTicks < 0 {
+		return 0, ErrInvalidClock
 	}
-	result := new(big.Int).Sub(new(big.Int).SetInt64(dueGameDay), new(big.Int).SetInt64(travelDays))
-	if !result.IsInt64() {
+
+	denominatorBig := big.NewInt(denominator)
+	currentPosition := new(big.Int).Mul(big.NewInt(int64(currentDay)), denominatorBig)
+	currentPosition.Add(currentPosition, big.NewInt(remainder))
+
+	arrivalBoundary := new(big.Int).Add(big.NewInt(int64(dueGameDay)), big.NewInt(1))
+	arrivalBoundary.Mul(arrivalBoundary, denominatorBig)
+	arrivalBoundary.Sub(arrivalBoundary, big.NewInt(1))
+	arrivalBoundary.Sub(arrivalBoundary, currentPosition)
+
+	latestArrivalOffset := floorDivBigInt(arrivalBoundary, big.NewInt(numerator))
+	latestDispatchOffset := new(big.Int).Sub(latestArrivalOffset, big.NewInt(travelTicks))
+	if !latestDispatchOffset.IsInt64() {
 		return 0, ErrArithmeticOverflow
 	}
-	return GameDay(result.Int64()), nil
+
+	return GameDayAtTick(currentDay, remainder, numerator, denominator, latestDispatchOffset.Int64())
+}
+
+func floorDivBigInt(numerator, denominator *big.Int) *big.Int {
+	quotient := new(big.Int)
+	remainder := new(big.Int)
+	quotient.QuoRem(numerator, denominator, remainder)
+	if remainder.Sign() < 0 {
+		quotient.Sub(quotient, big.NewInt(1))
+	}
+	return quotient
 }
 
 // SubtractInt64 subtracts two signed integers without allowing wraparound.
