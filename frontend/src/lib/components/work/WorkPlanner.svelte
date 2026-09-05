@@ -105,7 +105,7 @@
 			</label>
 			<label>
 				<span>Intensity</span>
-				<select name="intensity" required bind:value={intensity} disabled={activity === 'rest'}>
+				<select name="intensity" required bind:value={intensity}>
 					{#each ['light', 'normal', 'high'] as intensityOption (intensityOption)}
 						<option value={intensityOption}>{sentenceCase(intensityOption)}</option>
 					{/each}
