@@ -10,7 +10,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page.getByRole('navigation', { name: 'Household sections' })).toBeVisible();
 
 	// Flow A: report → work → schedule → report.
-	await page.getByRole('link', { name: 'Work' }).click();
+	await page.getByRole('link', { name: 'Work', exact: true }).click();
 	await expect(page).toHaveURL(/\/work$/);
 	await page.getByLabel('Who?').selectOption({ label: 'Astrid' });
 	await page.getByLabel('Activity').selectOption('fishing');
