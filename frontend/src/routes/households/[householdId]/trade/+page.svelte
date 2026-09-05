@@ -14,12 +14,13 @@
 	<PageHeader
 		eyebrow="Exchange and promises"
 		title="Trade"
-		description="Market, recurring agreements, transit, and relationships all meet here."
+		description="Move from opportunity to agreement, journey, arrival, and the relationship consequence that follows."
 	/>
 	<nav class="trade-nav" aria-label="Trade sections">
-		<a href="#market">Market</a><a href="#contracts">Contracts</a><a href="#transit">Transit</a><a
-			href="#relations">Relations</a
-		>
+		<a href="#market"><span>1</span> Market</a>
+		<a href="#contracts"><span>2</span> Agreements</a>
+		<a href="#transit"><span>3</span> Journeys</a>
+		<a href="#relations"><span>4</span> People</a>
 	</nav>
 	<div id="market">
 		<MarketPanel offers={data.offers} householdId={data.report.household_id} feedback={form} />
@@ -64,6 +65,9 @@
 		background: rgba(248, 244, 233, 0.96);
 	}
 	.trade-nav a {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
 		min-height: var(--tap-min);
 		padding: 0.65rem 0.8rem;
 		color: var(--ink-soft);
@@ -71,6 +75,15 @@
 		font-weight: 700;
 		text-decoration: none;
 		white-space: nowrap;
+	}
+	.trade-nav a span {
+		display: grid;
+		place-items: center;
+		width: 1.25rem;
+		height: 1.25rem;
+		border: 1px solid var(--line);
+		border-radius: 50%;
+		font-size: 0.65rem;
 	}
 	.trade-nav a:hover,
 	.trade-nav a:focus-visible {
