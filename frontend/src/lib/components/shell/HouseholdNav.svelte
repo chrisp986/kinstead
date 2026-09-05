@@ -27,7 +27,7 @@
 <nav class="household-nav" aria-label="Household sections">
 	{#each items as item (item.key)}
 		<a
-			href={resolve(item.path.replace('[householdId]', householdId) as `/households/${string}`)}
+			href={href(item.path)}
 			aria-label={item.label}
 			aria-current={active(item.path) ? 'page' : undefined}
 			data-icon={item.icon}
@@ -56,6 +56,14 @@
 		text-decoration: none;
 		visibility: visible;
 		opacity: 1;
+	}
+	/*
+	 * HMR can temporarily preserve children from older HouseholdNav versions.
+	 * The current navigation is intentionally rendered only through the two
+	 * pseudo-elements below, so suppress any stale child icon/label nodes.
+	 */
+	.household-nav a > * {
+		display: none !important;
 	}
 	.household-nav a::before,
 	.household-nav a::after {
