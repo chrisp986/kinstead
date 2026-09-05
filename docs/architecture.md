@@ -27,8 +27,8 @@ Application services depend on narrow ports for report reads, shipment
 storage, market-purchase transactions, contract proposal/response/dispatch
 transactions, chronicle reads, and world-tick transactions. PostgreSQL adapters
 implement those ports; transaction ordering and game decisions remain in the
-application/domain layers. Stable locking and
-projection queries are generated with `sqlc`.
+application/domain layers. Stable locking and projection queries are generated
+with `sqlc`.
 
 Politics uses a dedicated narrow port for Jarl-demand projections, responses,
 and tick generation/expiry. Demand terms are snapshotted in the decision;
@@ -139,6 +139,37 @@ from it.
 API projections may expose derived calendar labels and relative durations,
 but commands should submit domain intent or validated schedule rules rather
 than client-computed civil dates.
+
+## Frontend household shell
+
+The playable household UI uses one shared nested SvelteKit shell for the six
+canonical sections: **Report, Calendar, Farm, Work, Trade, Chronicle**. The
+shell renders a persistent household identity/status header and section
+navigation around route-owned page content.
+
+The status header is a compact decision surface, not a second simulation
+model. It derives presentation values from the authoritative household report:
+
+- provisions as floored whole supply days with secure/strained/critical/emergency states
+- labor as planned workers versus available labor-capable characters
+- fatigue as the number of strained characters
+- unresolved matters as attention items plus decisions
+
+Each status item links to the section where the player can act. The Report is
+the return briefing and prioritizes decisions, risks, deadlines, and recent
+changes. Work planning is person-first; Trade presents the lifecycle from
+market to agreements to journeys; relationship and Chronicle surfaces render
+structured history as readable consequences.
+
+On desktop the section navigation is inline. Below the mobile breakpoint it is
+a fixed bottom navigation with visible icon + label pairs and safe-area inset
+support; household page content reserves bottom space so controls and text do
+not sit behind the bar. Small-phone layouts must remain usable at iPhone-mini
+widths and must not create horizontal page overflow.
+
+Frontend code may format and rank already-projected facts for clarity, but it
+must not duplicate authoritative calendar arithmetic, simulation rules,
+contract outcomes, or persistence state.
 
 ## Concurrency
 
