@@ -19,13 +19,13 @@
 	} = $props();
 	let working = $state(false);
 	const workers = $derived(characters.filter((character) => character.labor_permille > 0));
-	let selectedCharacterId = $state(
-		characters.find((character) => character.labor_permille > 0)?.id ?? ''
-	);
+	let selectedCharacterId = $state('');
 	let activity = $state('agriculture');
 	let intensity = $state('normal');
 	let duration = $state(3);
-	let selectedWorker = $derived(workers.find((character) => character.id === selectedCharacterId));
+	let selectedWorker = $derived(
+		workers.find((character) => character.id === selectedCharacterId) ?? workers[0]
+	);
 	let intensityEffect = $derived(
 		intensity === 'light'
 			? '80% output · +2 fatigue'
@@ -33,6 +33,16 @@
 				? '120% output · +7 fatigue'
 				: '100% output · +4 fatigue'
 	);
+
+	$effect(() => {
+		if (workers.length === 0) {
+			selectedCharacterId = '';
+			return;
+		}
+		if (!workers.some((character) => character.id === selectedCharacterId)) {
+			selectedCharacterId = workers[0].id;
+		}
+	});
 
 	function assignmentFor(id: string) {
 		return assignments.find((assignment) => assignment.character_id === id);
@@ -56,7 +66,7 @@
 				{character}
 				assignment={assignmentFor(character.id)}
 				{currentGameDay}
-				selected={selectedCharacterId === character.id}
+				selected={selectedWorker?.id === character.id}
 				onselect={() => (selectedCharacterId = character.id)}
 			/>
 		{/each}
