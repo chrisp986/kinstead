@@ -8,6 +8,11 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page.getByRole('heading', { name: 'Household report' }).first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'What needs your decision?' })).toBeVisible();
 	await expect(page.getByRole('navigation', { name: 'Household sections' })).toBeVisible();
+	await expect(page.getByText('Chronicle', { exact: true })).toBeVisible();
+
+	const provisions = page.getByLabel('Household status').getByRole('link').first();
+	await expect(provisions).toContainText(/\d+(?:\.\d)? days/);
+	await expect(provisions).not.toContainText(/\.\d{2,} days/);
 
 	// Flow A: report → work → schedule → report.
 	await page.getByRole('link', { name: 'Work', exact: true }).click();
@@ -73,6 +78,7 @@ test('mobile navigation leaves room for the final controls', async ({ page }) =>
 	await page.goto('/households/00000000-0000-0000-0000-000000000020/work');
 	const nav = page.getByRole('navigation', { name: 'Household sections' });
 	await expect(nav).toBeVisible();
+	await expect(page.getByText('Chronicle', { exact: true })).toBeVisible();
 	const button = page.getByRole('button', { name: /^Assign / });
 	await expect(button).toBeVisible();
 	await button.scrollIntoViewIfNeeded();
@@ -87,6 +93,7 @@ test('household surfaces fit the supported viewport range', async ({ page }) => 
 	for (const viewport of [
 		{ width: 320, height: 568 },
 		{ width: 375, height: 667 },
+		{ width: 375, height: 812 },
 		{ width: 390, height: 844 },
 		{ width: 430, height: 932 },
 		{ width: 768, height: 1024 },
