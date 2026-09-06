@@ -27,7 +27,14 @@
 	let tiredCount = $derived(
 		report.characters.filter((character) => character.fatigue >= 50).length
 	);
-	let matterCount = $derived(report.attention.length + report.decisions.length);
+	let matterCount = $derived.by(() => {
+		const matters = new Set(
+			[...report.attention, ...report.decisions].map(
+				(item) => `${item.code}:${item.related_id ?? ''}`
+			)
+		);
+		return matters.size;
+	});
 	let supplyDays = $derived(Math.max(0, Math.floor(report.supply_days)));
 	let supplyTone = $derived(
 		supplyDays < 7
@@ -73,8 +80,8 @@
 
 	<div class="status-strip" aria-label="Household status">
 		<a class={`status ${supplyTone}`} href={resolve(householdPath('/farm'))}>
-			<span>Provisions</span>
-			<strong>{supplyDays} days</strong>
+			<span>Food coverage</span>
+			<strong>{supplyDays} periods</strong>
 			<small>{supplyState}</small>
 		</a>
 		<a class="status" href={resolve(householdPath('/work'))}>

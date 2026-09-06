@@ -148,7 +148,7 @@
 	</div>
 
 	<section class="recent" aria-labelledby="recent-heading">
-		<h3 id="recent-heading">Since your last visit</h3>
+		<h3 id="recent-heading">Recent changes</h3>
 		{#if report.recent_changes.length === 0}
 			<p class="empty">No recent changes.</p>
 		{:else}
