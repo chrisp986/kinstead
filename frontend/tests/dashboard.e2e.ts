@@ -33,12 +33,14 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expectMobileNavContent(page);
 
 	const provisions = page.getByLabel('Household status').getByRole('link').first();
-	await expect(provisions).toContainText('30 days');
-	await expect(provisions).not.toContainText(/\d+\.\d+ days/);
+	await expect(provisions).toContainText('30 periods');
+	await expect(provisions).not.toContainText(/\d+ days/);
+	await expect(page.getByRole('heading', { name: 'Recent changes' })).toBeVisible();
 
 	// Flow A: report → work → schedule → report.
 	await page.getByRole('link', { name: 'Work', exact: true }).click();
 	await expect(page).toHaveURL(/\/work$/);
+	await expect(page.getByRole('heading', { name: 'Assignment summary' })).toBeVisible();
 	await page.getByLabel('Who?').selectOption({ label: 'Astrid' });
 	await page.getByLabel('Activity').selectOption('fishing');
 	await page.getByRole('button', { name: 'Assign Astrid' }).click();
@@ -133,4 +135,14 @@ test('household surfaces fit the supported viewport range', async ({ page }) => 
 test('shared household header advances the historical year after rollover', async ({ page }) => {
 	await page.goto('/households/00000000-0000-0000-0000-000000000022');
 	await expect(page.getByText('981 CE · Spring · first week')).toBeVisible();
+});
+
+test('normal household screens never expose opaque identifiers', async ({ page }) => {
+	for (const section of ['', '/farm', '/work', '/trade', '/calendar', '/chronicle']) {
+		await page.goto(`/households/00000000-0000-0000-0000-000000000020${section}`);
+		await expect(page.locator('body')).not.toContainText(/(?:…|\.{3})[0-9a-f]{6}\b/i);
+		await expect(page.locator('body')).not.toContainText(
+			/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
+		);
+	}
 });

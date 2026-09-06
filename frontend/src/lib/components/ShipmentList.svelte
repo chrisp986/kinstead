@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Shipment } from '$lib/api/generated';
-	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
+	import { formatMilli, labelResource } from '$lib/domain/format';
 	import { formatRelativeGameDay } from '$lib/domain/time';
 	import StatusBadge from './StatusBadge.svelte';
 	let {
@@ -35,7 +35,7 @@
 								>{formatMilli(shipment.quantity_milli)}
 								{labelResource(shipment.resource_type)}</strong
 							>
-							<p>Shipment …{shortId(shipment.id)}</p>
+							<p>Nearby household</p>
 						</div>
 						<StatusBadge status={shipment.status} />
 					</div>

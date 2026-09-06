@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { Contract, MarketOffer, Relationship } from '$lib/api/generated';
-	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
+	import { formatMilli, labelResource } from '$lib/domain/format';
 	import { calendarForGameDay, formatInterval, formatRelativeGameDay } from '$lib/domain/time';
 	import StatusBadge from './StatusBadge.svelte';
 	import ActionFeedback from './shell/ActionFeedback.svelte';
@@ -48,17 +48,11 @@
 		}
 		for (const offer of offers) {
 			if (offer.seller_household_id !== householdId && !values[offer.seller_household_id]) {
-				values[offer.seller_household_id] = `Household …${shortId(offer.seller_household_id)}`;
+				values[offer.seller_household_id] = 'Nearby household';
 			}
 		}
 		return Object.entries(values).map(([id, name]) => ({ id, name }));
 	});
-
-	function counterpart(contract: Contract): string {
-		return contract.party_a_household_id === householdId
-			? contract.party_b_household_id
-			: contract.party_a_household_id;
-	}
 
 	function agreementEnd(contract: Contract): string {
 		const date = calendarForGameDay(contract.end_game_day);
@@ -89,7 +83,7 @@
 				<article class="contract">
 					<div class="contract-heading">
 						<div>
-							<span class="contract-label">With household …{shortId(counterpart(contract))}</span>
+							<span class="contract-label">With a nearby household</span>
 							<h3>{formatInterval(contract.interval_days)} · recurring delivery</h3>
 						</div>
 						<StatusBadge status={contract.status} />

@@ -42,8 +42,8 @@
 
 	<div class={`supply-callout ${supplyTone}`}>
 		<div>
-			<span class="supply-label">Provisions last</span>
-			<strong>{wholeSupplyDays} days</strong>
+			<span class="supply-label">Food coverage</span>
+			<strong>{wholeSupplyDays} periods</strong>
 		</div>
 		<div class="supply-copy">
 			<span class="state">{supplyState}</span>

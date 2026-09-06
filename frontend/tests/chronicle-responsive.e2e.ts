@@ -18,6 +18,8 @@ test('Chronicle timeline stacks dates above events on narrow screens', async ({ 
 		expect(eventsBox.y).toBeGreaterThanOrEqual(markerBox.y + markerBox.height - 1);
 	}
 
-	const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+	const overflow = await page.evaluate(
+		() => document.documentElement.scrollWidth > window.innerWidth + 1
+	);
 	expect(overflow).toBe(false);
 });

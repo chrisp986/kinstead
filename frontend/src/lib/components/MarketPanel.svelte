@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { MarketOffer } from '$lib/api/generated';
-	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
+	import { formatMilli, labelResource } from '$lib/domain/format';
 	import { enhance } from '$app/forms';
 	import ActionFeedback from './shell/ActionFeedback.svelte';
 
@@ -31,7 +31,7 @@
 			{#each offers as offer (offer.id)}
 				<article class="offer">
 					<div>
-						<span class="offer-label">From household …{shortId(offer.seller_household_id)}</span>
+						<span class="offer-label">From a nearby household</span>
 						<h3>{labelResource(offer.resource_type)}</h3>
 						<p>
 							<strong>{formatMilli(offer.quantity_remaining_milli)}</strong> available ·

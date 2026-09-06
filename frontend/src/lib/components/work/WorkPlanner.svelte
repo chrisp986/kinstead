@@ -141,6 +141,8 @@
 			</label>
 		</div>
 
+		<h4>Assignment summary</h4>
+		<p>General work trade-offs only; this is not a calculated outcome.</p>
 		<div class="plan-preview" aria-live="polite">
 			<div>
 				<span>Planned work</span>
