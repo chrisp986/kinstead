@@ -16,7 +16,8 @@ function mattersMarkup(
 		calendar: { game_day: 0, year_index: 0, production_season: 'spring', week_of_half: 1 },
 		characters: [],
 		assignments: [],
-		supply_days: 31,
+		supply_game_days: 31,
+		supply_status: 'safe',
 		attention,
 		decisions
 	} as unknown as HouseholdReport;

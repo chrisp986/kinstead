@@ -24,6 +24,8 @@ const (
 	PoliticalDemandResolved     = "political_demand_resolved"
 	PoliticalDemandAutoResolved = "political_demand_auto_resolved"
 
-	EmergencyFoodWorkScheduled = "emergency_food_work_scheduled"
-	EmergencyWorkOverridden    = "emergency_work_overridden"
+	EmergencyFoodWorkScheduled  = "emergency_food_work_scheduled"
+	EmergencyFoodPolicyNoAction = "emergency_food_policy_no_action"
+	EmergencyWorkOverridden     = "emergency_work_overridden"
+	FoodShortage                = "food_shortage"
 )

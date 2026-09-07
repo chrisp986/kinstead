@@ -408,7 +408,7 @@ components:
     HouseholdReport:
       type: object
       required:
-        [household_id, household_name, world_id, setting_start_year, tick, game_day, calendar, supply_days, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
+        [household_id, household_name, world_id, setting_start_year, tick, game_day, calendar, supply_game_days, supply_status, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
       properties:
         household_id: { type: string, format: uuid }
         household_name: { type: string }
@@ -418,7 +418,8 @@ components:
         game_day: { type: integer, format: int64 }
         calendar: { $ref: '#/components/schemas/CalendarBreakdown' }
         season: { type: string }
-        supply_days: { type: number }
+        supply_game_days: { type: integer, format: int64 }
+        supply_status: { type: string, enum: [safe, strained, critical, emergency] }
         resources:
           type: object
           additionalProperties: { type: number }

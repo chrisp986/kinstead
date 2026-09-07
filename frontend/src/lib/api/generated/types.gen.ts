@@ -61,7 +61,8 @@ export type HouseholdReport = {
 	game_day: number;
 	calendar: CalendarBreakdown;
 	season?: string;
-	supply_days: number;
+	supply_game_days: number;
+	supply_status: 'safe' | 'strained' | 'critical' | 'emergency';
 	resources: {
 		[key: string]: number;
 	};

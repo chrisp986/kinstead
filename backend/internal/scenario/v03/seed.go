@@ -8,11 +8,11 @@ func NewBjornvikState() HouseholdState {
 		TradeGoodsMilli:    4_000,
 		SilverMilli:        30_000,
 		Characters: []Character{
-			{Name: "Bjorn", LaborPermille: 1000, Specialization: Agriculture},
-			{Name: "Astrid", LaborPermille: 1000, Specialization: Fishing},
-			{Name: "Einar", LaborPermille: 1000},
-			{Name: "Ragnhild", LaborPermille: 500},
-			{Name: "Sven", LaborPermille: 0},
+			{ID: "bjorn", Name: "Bjorn", LaborPermille: 1000, Specialization: Agriculture},
+			{ID: "astrid", Name: "Astrid", LaborPermille: 1000, Specialization: Fishing},
+			{ID: "einar", Name: "Einar", LaborPermille: 1000},
+			{ID: "ragnhild", Name: "Ragnhild", LaborPermille: 500},
+			{ID: "sven", Name: "Sven", LaborPermille: 0},
 		},
 		Buildings: []BuildingState{
 			{Name: "storage", WoodCostMilli: 30_000, WorkerDaysPermille: 6_000},

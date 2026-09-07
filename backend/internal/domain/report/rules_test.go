@@ -4,24 +4,24 @@ import "testing"
 
 func TestSupplyAttentionThresholds(t *testing.T) {
 	for _, tc := range []struct {
-		days float64
+		days int64
 		code string
 	}{
-		{31, ""}, {30, "supply_strained"}, {15, "supply_strained"}, {14.9, "supply_critical"}, {7, "supply_critical"}, {6.9, "supply_emergency"},
+		{31, ""}, {30, "supply_strained"}, {15, "supply_strained"}, {14, "supply_critical"}, {7, "supply_critical"}, {6, "supply_emergency"},
 	} {
-		items := BuildAttention(Input{SupplyDays: tc.days})
+		items := BuildAttention(Input{SupplyGameDays: tc.days})
 		got := ""
 		if len(items) > 0 {
 			got = items[0].Code
 		}
 		if got != tc.code {
-			t.Errorf("supply %.1f code %q, want %q", tc.days, got, tc.code)
+			t.Errorf("supply %d code %q, want %q", tc.days, got, tc.code)
 		}
 	}
 }
 
 func TestDecisionRankingIsStableAndCapped(t *testing.T) {
-	in := Input{CurrentTick: 10, SupplyDays: 6.5,
+	in := Input{CurrentTick: 10, SupplyGameDays: 6,
 		Characters:          []Character{{ID: "c", Name: "Bjorn", Fatigue: 90}},
 		PoliticalDemands:    []PoliticalDemand{{ID: "p", ActorName: "Eirik", ExpiresTick: 11}},
 		ContractObligations: []ContractObligation{{ID: "o", ResourceType: "wood", QuantityMilli: 10000, DueArrivalTick: 11}},
@@ -45,7 +45,7 @@ func TestFatigueThresholds(t *testing.T) {
 		fatigue int
 		code    string
 	}{{69, ""}, {70, "character_fatigue_high"}, {84, "character_fatigue_high"}, {85, "character_fatigue_critical"}, {100, "character_fatigue_critical"}} {
-		items := BuildAttention(Input{SupplyDays: 31, Characters: []Character{{ID: "c", Name: "Bjorn", Fatigue: tc.fatigue}}})
+		items := BuildAttention(Input{SupplyGameDays: 31, Characters: []Character{{ID: "c", Name: "Bjorn", Fatigue: tc.fatigue}}})
 		got := ""
 		if len(items) > 0 {
 			got = items[0].Code

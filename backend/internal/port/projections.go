@@ -187,6 +187,11 @@ type WorldClaim struct {
 	NextTickAt          time.Time
 }
 
+type EmergencyFoodContext struct {
+	Assignments       []AssignmentRecord
+	IncomingShipments []ShipmentRecord
+}
+
 type ContractObligationAssessment struct {
 	WorldID              contractdomain.WorldID
 	Obligation           contractdomain.Obligation
@@ -215,10 +220,25 @@ type WorldTickTransaction interface {
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult, int64) error
-	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, int64, float64) (bool, error)
+	LoadEmergencyFoodContext(context.Context, string, int64) (EmergencyFoodContext, error)
+	ScheduleEmergencyFoodWork(context.Context, string, EmergencyFoodDecisionRecord) (bool, error)
+	RecordEmergencyFoodDecision(context.Context, string, EmergencyFoodDecisionRecord) error
 	FinishWorldTick(context.Context, WorldClaim, int64, int64, int64) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
+}
+
+type EmergencyFoodDecisionRecord struct {
+	CharacterID             string
+	Activity                string
+	StartsTick              int64
+	EndsTick                int64
+	OccurredTick            int64
+	OccurredGameDay         int64
+	Reason                  string
+	SupplyGameDays          int64
+	ExpectedProductionMilli int64
+	RemainsAtRisk           bool
 }
 
 type TickRepository interface {

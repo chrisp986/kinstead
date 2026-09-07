@@ -30,6 +30,9 @@ func (s farmReportReaderStub) ListPendingPoliticalDemandsForReport(context.Conte
 func (s farmReportReaderStub) ListContractObligationsForReport(context.Context, string) ([]port.ContractReportObligation, error) {
 	return []port.ContractReportObligation{{ID: "obligation", ResourceType: "wood", QuantityMilli: 10000, DueArrivalTick: 12}}, nil
 }
+func (s farmReportReaderStub) ListChronicleSinceGameDayForReport(context.Context, string, int64, int) ([]port.ChronicleEntryRecord, error) {
+	return append([]port.ChronicleEntryRecord(nil), s.entries...), nil
+}
 
 func TestFarmReportSerializesEmptyCollectionsAsArrays(t *testing.T) {
 	reader := reportReaderStub{snapshot: port.HouseholdSnapshot{
@@ -75,6 +78,9 @@ func TestFarmReportDerivesCalendarSeasonAndAge(t *testing.T) {
 	if report.HistoricalDate != "" || report.Calendar.ProductionSeason != "winter" || report.SettingStartYear != 980 {
 		t.Fatalf("calendar/season/year = %+v/%s/%d", report.Calendar, report.Season, report.SettingStartYear)
 	}
+	if report.SupplyStatus != "safe" {
+		t.Fatalf("supply status = %q, want safe", report.SupplyStatus)
+	}
 	if got := report.Characters[0].Age; got != 32 {
 		t.Fatalf("age = %d, want 32", got)
 	}
@@ -84,7 +90,7 @@ func TestFarmReportSelectsSignificantRecentChangesAndDecisions(t *testing.T) {
 	reader := farmReportReaderStub{reportReaderStub: reportReaderStub{snapshot: port.HouseholdSnapshot{
 		HouseholdID: "household", HouseholdName: "Household", WorldID: "world", CurrentTick: 18, CurrentGameDay: 136,
 		CalendarRemainder: 4, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12,
-		TickDurationSeconds: 3600, State: simulation.HouseholdState{ProvisionsMilli: 6500},
+		TickDurationSeconds: 3600, State: simulation.HouseholdState{ProvisionsMilli: 4000},
 	}}, entries: []port.ChronicleEntryRecord{{ID: "routine", EntryType: "assignment_completed", OccurredTick: 18}, {ID: "arrival", EntryType: "shipment_arrived", OccurredTick: 17}, {ID: "late", EntryType: "contract_obligation_late", OccurredTick: 16}, {ID: "purchase", EntryType: "market_purchase", OccurredTick: 15}}}
 	report, err := (&ReportService{Store: reader, Balance: balance.V03()}).FarmReport(context.Background(), "household")
 	if err != nil {

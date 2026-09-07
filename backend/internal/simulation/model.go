@@ -2,6 +2,8 @@ package simulation
 
 import (
 	"fmt"
+	"math"
+	"math/big"
 	"time"
 )
 
@@ -42,9 +44,9 @@ type Character struct {
 }
 
 type Assignment struct {
-	Character string
-	Activity  Activity
-	Intensity Intensity
+	CharacterID string
+	Activity    Activity
+	Intensity   Intensity
 }
 
 type BuildingState struct {
@@ -78,6 +80,8 @@ type TickContext struct {
 	Season                      Season
 	AgricultureModifierPermille int64
 	FishingModifierPermille     int64
+	GameDaysPerTickNum          int64
+	GameDaysPerTickDen          int64
 }
 
 // SeasonForDate is the production calendar convention for the northern
@@ -96,21 +100,70 @@ func SeasonForDate(date time.Time) Season {
 }
 
 func NeutralTickContext(season Season) TickContext {
-	return TickContext{Season: season, AgricultureModifierPermille: 1000, FishingModifierPermille: 1000}
+	return TickContext{Season: season, AgricultureModifierPermille: 1000, FishingModifierPermille: 1000, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12}
 }
 
-func (s HouseholdState) CharacterIndex(name string) (int, error) {
+func (s HouseholdState) CharacterIndexByID(id string) (int, error) {
 	for i := range s.Characters {
-		if s.Characters[i].Name == name {
+		if s.Characters[i].ID == id {
 			return i, nil
 		}
 	}
-	return -1, fmt.Errorf("unknown character %q", name)
+	return -1, fmt.Errorf("unknown character ID %q", id)
 }
 
-func (s HouseholdState) SupplyDays(cfg BalanceConfig) float64 {
-	if cfg.DailyConsumptionMilli <= 0 {
+func (s HouseholdState) SupplyTicks(cfg BalanceConfig) int64 {
+	if cfg.ConsumptionPerTickMilli <= 0 || s.ProvisionsMilli <= 0 {
 		return 0
 	}
-	return float64(s.ProvisionsMilli) / float64(cfg.DailyConsumptionMilli)
+	return s.ProvisionsMilli / cfg.ConsumptionPerTickMilli
+}
+
+// SupplyGameDays converts the remaining provisions directly through the
+// world's deterministic pacing ratio, flooring only the final game-day value.
+// Wall-clock tick duration is deliberately absent.
+func (s HouseholdState) SupplyGameDays(cfg BalanceConfig, gameDaysPerTickNum, gameDaysPerTickDen int64) int64 {
+	if s.ProvisionsMilli <= 0 || cfg.ConsumptionPerTickMilli <= 0 || gameDaysPerTickNum <= 0 || gameDaysPerTickDen <= 0 {
+		return 0
+	}
+	value := new(big.Int).Mul(big.NewInt(s.ProvisionsMilli), big.NewInt(gameDaysPerTickNum))
+	divisor := new(big.Int).Mul(big.NewInt(cfg.ConsumptionPerTickMilli), big.NewInt(gameDaysPerTickDen))
+	value.Quo(value, divisor)
+	if !value.IsInt64() {
+		return math.MaxInt64
+	}
+	return value.Int64()
+}
+
+func SupplyStatus(gameDays int64, cfg BalanceConfig) string {
+	switch {
+	case gameDays < cfg.EmergencySupplyDays:
+		return "emergency"
+	case gameDays < cfg.CriticalSupplyDays:
+		return "critical"
+	case gameDays <= cfg.StrainedSupplyDays:
+		return "strained"
+	default:
+		return "safe"
+	}
+}
+
+func (s HouseholdState) SupplyBelowGameDays(cfg BalanceConfig, threshold, gameDaysPerTickNum, gameDaysPerTickDen int64) bool {
+	if cfg.ConsumptionPerTickMilli <= 0 || gameDaysPerTickNum <= 0 || gameDaysPerTickDen <= 0 {
+		return true
+	}
+	left := new(big.Int).Mul(big.NewInt(s.ProvisionsMilli), big.NewInt(gameDaysPerTickNum))
+	right := new(big.Int).Mul(big.NewInt(threshold), big.NewInt(cfg.ConsumptionPerTickMilli))
+	right.Mul(right, big.NewInt(gameDaysPerTickDen))
+	return left.Cmp(right) < 0
+}
+
+func (s HouseholdState) SupplyAtMostGameDays(cfg BalanceConfig, threshold, gameDaysPerTickNum, gameDaysPerTickDen int64) bool {
+	if cfg.ConsumptionPerTickMilli <= 0 || gameDaysPerTickNum <= 0 || gameDaysPerTickDen <= 0 {
+		return true
+	}
+	left := new(big.Int).Mul(big.NewInt(s.ProvisionsMilli), big.NewInt(gameDaysPerTickNum))
+	right := new(big.Int).Mul(big.NewInt(threshold), big.NewInt(cfg.ConsumptionPerTickMilli))
+	right.Mul(right, big.NewInt(gameDaysPerTickDen))
+	return left.Cmp(right) <= 0
 }

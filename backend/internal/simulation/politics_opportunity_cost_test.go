@@ -10,21 +10,21 @@ import (
 func TestRulerServiceCreatesProductionOpportunityCost(t *testing.T) {
 	cfg := balance.V03()
 	state := simulation.HouseholdState{FarmSpecialization: simulation.Agriculture, ProvisionsMilli: 1_000_000, Tick: 0, Characters: []simulation.Character{
-		{Name: "Einar", LaborPermille: 1000, Specialization: simulation.Agriculture},
-		{Name: "Astrid", LaborPermille: 1000, Specialization: simulation.Fishing},
+		{ID: "einar", Name: "Einar", LaborPermille: 1000, Specialization: simulation.Agriculture},
+		{ID: "astrid", Name: "Astrid", LaborPermille: 1000, Specialization: simulation.Fishing},
 	}}
 	ctx := simulation.NeutralTickContext(simulation.Spring)
 	productiveState := state
 	productiveState.Characters = append([]simulation.Character(nil), state.Characters...)
-	productive, err := simulation.ProcessTick(productiveState, 1, []simulation.Assignment{{Character: "Einar", Activity: simulation.Agriculture, Intensity: simulation.Normal}, {Character: "Astrid", Activity: simulation.Fishing, Intensity: simulation.Normal}}, ctx, cfg)
+	productive, err := simulation.ProcessTick(productiveState, 1, []simulation.Assignment{{CharacterID: "einar", Activity: simulation.Agriculture, Intensity: simulation.Normal}, {CharacterID: "astrid", Activity: simulation.Fishing, Intensity: simulation.Normal}}, ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	serviceState := state
 	for tick := int64(1); tick <= 4; tick++ {
-		service := simulation.Assignment{Character: "Einar", Activity: simulation.RulerService, Intensity: simulation.Normal}
-		astridWork := simulation.Assignment{Character: "Astrid", Activity: simulation.Fishing, Intensity: simulation.Normal}
+		service := simulation.Assignment{CharacterID: "einar", Activity: simulation.RulerService, Intensity: simulation.Normal}
+		astridWork := simulation.Assignment{CharacterID: "astrid", Activity: simulation.Fishing, Intensity: simulation.Normal}
 		if production := simulation.EstimateProduction(serviceState.Characters[0], service, serviceState.FarmSpecialization, ctx, cfg); production != 0 {
 			t.Fatalf("ruler service produced %d; it must produce no resources", production)
 		}
@@ -47,7 +47,7 @@ func TestRulerServiceCreatesProductionOpportunityCost(t *testing.T) {
 	if serviceState.Characters[1].Fatigue != 16 {
 		t.Fatalf("Astrid should continue normal work, fatigue = %d", serviceState.Characters[1].Fatigue)
 	}
-	returned, err := simulation.ProcessTick(serviceState, 5, []simulation.Assignment{{Character: "Einar", Activity: simulation.Agriculture, Intensity: simulation.Normal}, {Character: "Astrid", Activity: simulation.Fishing, Intensity: simulation.Normal}}, ctx, cfg)
+	returned, err := simulation.ProcessTick(serviceState, 5, []simulation.Assignment{{CharacterID: "einar", Activity: simulation.Agriculture, Intensity: simulation.Normal}, {CharacterID: "astrid", Activity: simulation.Fishing, Intensity: simulation.Normal}}, ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

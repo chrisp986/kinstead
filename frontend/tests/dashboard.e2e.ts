@@ -33,8 +33,8 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expectMobileNavContent(page);
 
 	const provisions = page.getByLabel('Household status').getByRole('link').first();
-	await expect(provisions).toContainText('30 periods');
-	await expect(provisions).not.toContainText(/\d+ days/);
+	await expect(provisions).toContainText('30 days');
+	await expect(provisions).not.toContainText(/\d+\.\d+ days/);
 	await expect(page.getByRole('heading', { name: 'Recent changes' })).toBeVisible();
 
 	// Flow A: report → work → schedule → report.

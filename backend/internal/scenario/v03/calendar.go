@@ -20,7 +20,7 @@ func SeasonForTick(tick int64) Season {
 }
 
 func contextForTick(tick int64) TickContext {
-	ctx := TickContext{Season: SeasonForTick(tick), AgricultureModifierPermille: 1000, FishingModifierPermille: 1000}
+	ctx := TickContext{Season: SeasonForTick(tick), AgricultureModifierPermille: 1000, FishingModifierPermille: 1000, GameDaysPerTickNum: 1, GameDaysPerTickDen: 1}
 	// Frozen deterministic v0.3 event calendar.
 	if tick >= 7 && tick <= 9 {
 		ctx.FishingModifierPermille = 1100

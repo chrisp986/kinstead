@@ -35,24 +35,12 @@
 		);
 		return matters.size;
 	});
-	let supplyDays = $derived(Math.max(0, Math.floor(report.supply_days)));
-	let supplyTone = $derived(
-		supplyDays < 7
-			? 'emergency'
-			: supplyDays < 15
-				? 'critical'
-				: supplyDays <= 30
-					? 'warning'
-					: 'safe'
-	);
+	let supplyDays = $derived(Math.max(0, Math.floor(report.supply_game_days)));
+	let supplyTone = $derived(report.supply_status === 'strained' ? 'warning' : report.supply_status);
 	let supplyState = $derived(
-		supplyDays < 7
-			? 'Emergency'
-			: supplyDays < 15
-				? 'Critical'
-				: supplyDays <= 30
-					? 'Strained'
-					: 'Secure'
+		report.supply_status === 'safe'
+			? 'Secure'
+			: report.supply_status.charAt(0).toUpperCase() + report.supply_status.slice(1)
 	);
 
 	function householdPath(suffix = ''): `/households/${string}` {
@@ -81,7 +69,7 @@
 	<div class="status-strip" aria-label="Household status">
 		<a class={`status ${supplyTone}`} href={resolve(householdPath('/farm'))}>
 			<span>Food coverage</span>
-			<strong>{supplyDays} periods</strong>
+			<strong>{supplyDays} days</strong>
 			<small>{supplyState}</small>
 		</a>
 		<a class="status" href={resolve(householdPath('/work'))}>

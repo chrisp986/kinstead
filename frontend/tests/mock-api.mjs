@@ -256,7 +256,8 @@ createServer(async (request, response) => {
 			calendar: responseCalendar,
 			historical_date: '0980-01-01',
 			season: 'winter',
-			supply_days: 30.6,
+			supply_game_days: 30,
+			supply_status: 'strained',
 			resources: { provisions: 150, wood: 20, trade_goods: 4, silver: 30 },
 			characters,
 			assignments,
@@ -294,7 +295,7 @@ createServer(async (request, response) => {
 					code: 'secure_provisions',
 					severity: 'critical',
 					target: 'trade',
-					data: { supply_days: 6.5 }
+					data: { supply_game_days: 6.5 }
 				}
 			]
 		});

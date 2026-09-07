@@ -23,9 +23,9 @@ func allStrategies() []StrategyName {
 }
 
 func bestFoodActivity(c Character, farmSpecialization Activity, season Season, cfg BalanceConfig) Activity {
-	ctx := TickContext{Season: season, AgricultureModifierPermille: 1000, FishingModifierPermille: 1000}
-	fa := EstimateProduction(c, Assignment{Character: c.Name, Activity: Agriculture, Intensity: Normal}, farmSpecialization, ctx, cfg)
-	ff := EstimateProduction(c, Assignment{Character: c.Name, Activity: Fishing, Intensity: Normal}, farmSpecialization, ctx, cfg)
+	ctx := TickContext{Season: season, AgricultureModifierPermille: 1000, FishingModifierPermille: 1000, GameDaysPerTickNum: 1, GameDaysPerTickDen: 1}
+	fa := EstimateProduction(c, Assignment{CharacterID: c.ID, Activity: Agriculture, Intensity: Normal}, farmSpecialization, ctx, cfg)
+	ff := EstimateProduction(c, Assignment{CharacterID: c.ID, Activity: Fishing, Intensity: Normal}, farmSpecialization, ctx, cfg)
 	if ff >= fa {
 		return Fishing
 	}
@@ -33,7 +33,7 @@ func bestFoodActivity(c Character, farmSpecialization Activity, season Season, c
 }
 
 func assignFood(assignments *[]Assignment, c Character, farmSpecialization Activity, season Season, intensity Intensity, cfg BalanceConfig) {
-	*assignments = append(*assignments, Assignment{Character: c.Name, Activity: bestFoodActivity(c, farmSpecialization, season, cfg), Intensity: intensity})
+	*assignments = append(*assignments, Assignment{CharacterID: c.ID, Activity: bestFoodActivity(c, farmSpecialization, season, cfg), Intensity: intensity})
 }
 
 func chooseAssignments(state HouseholdState, ss StrategyState, cfg BalanceConfig) []Assignment {
@@ -45,15 +45,15 @@ func chooseAssignments(state HouseholdState, ss StrategyState, cfg BalanceConfig
 	out := []Assignment{}
 
 	if ss.ServiceRemaining > 0 {
-		name := ss.ServiceCharacter
-		if name == "" {
-			name = "Einar"
+		id := ss.ServiceCharacter
+		if id == "" {
+			id = "einar"
 		}
-		out = append(out, Assignment{Character: name, Activity: RulerService, Intensity: Normal})
-		used[name] = true
+		out = append(out, Assignment{CharacterID: id, Activity: RulerService, Intensity: Normal})
+		used[id] = true
 	}
 
-	supply := state.SupplyDays(cfg)
+	supply := syntheticSupplyDays(state, cfg)
 	foodWorkers := 1
 	switch ss.Name {
 	case StrategyAutark:
@@ -87,29 +87,29 @@ func chooseAssignments(state HouseholdState, ss StrategyState, cfg BalanceConfig
 	}
 
 	for _, c := range chars {
-		if c.LaborPermille == 0 || used[c.Name] || foodWorkers <= 0 {
+		if c.LaborPermille == 0 || used[c.ID] || foodWorkers <= 0 {
 			continue
 		}
 		assignFood(&out, c, state.FarmSpecialization, season, Normal, cfg)
-		used[c.Name] = true
+		used[c.ID] = true
 		foodWorkers--
 	}
 
 	// If a building can be worked on, reserve one worker for construction.
 	if b := nextIncompleteBuilding(&state); b != nil && maxBuildings(ss.Name) > completedBuildingCount(state) && (b.Started || state.WoodMilli >= b.WoodCostMilli) {
 		for _, c := range chars {
-			if c.LaborPermille == 0 || used[c.Name] {
+			if c.LaborPermille == 0 || used[c.ID] {
 				continue
 			}
-			out = append(out, Assignment{Character: c.Name, Activity: Building, Intensity: Normal})
-			used[c.Name] = true
+			out = append(out, Assignment{CharacterID: c.ID, Activity: Building, Intensity: Normal})
+			used[c.ID] = true
 			break
 		}
 	}
 
 	// Strategic use of remaining labor.
 	for _, c := range chars {
-		if c.LaborPermille == 0 || used[c.Name] {
+		if c.LaborPermille == 0 || used[c.ID] {
 			continue
 		}
 		activity := Woodcutting
@@ -134,8 +134,8 @@ func chooseAssignments(state HouseholdState, ss StrategyState, cfg BalanceConfig
 				activity = bestFoodActivity(c, state.FarmSpecialization, season, cfg)
 			}
 		}
-		out = append(out, Assignment{Character: c.Name, Activity: activity, Intensity: Normal})
-		used[c.Name] = true
+		out = append(out, Assignment{CharacterID: c.ID, Activity: activity, Intensity: Normal})
+		used[c.ID] = true
 	}
 	return out
 }

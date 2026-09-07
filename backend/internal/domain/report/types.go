@@ -38,7 +38,8 @@ type ContractObligation struct {
 type Input struct {
 	CurrentTick         int64
 	CurrentGameDay      int64
-	SupplyDays          float64
+	SupplyGameDays      int64
+	FoodShortageMilli   int64
 	Characters          []Character
 	PoliticalDemands    []PoliticalDemand
 	ContractObligations []ContractObligation

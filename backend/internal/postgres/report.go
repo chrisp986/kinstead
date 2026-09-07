@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -51,7 +52,9 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 			&e.RelatedContractID, &e.RelatedObligationID, &e.RelatedHouseholdDecisionID, &e.RelatedPoliticalActorID, &data); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(data, &e.Data); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+		if err := decoder.Decode(&e.Data); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)

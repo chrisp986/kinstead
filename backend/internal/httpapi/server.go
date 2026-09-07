@@ -465,6 +465,10 @@ func validIntensity(v string) bool { return v == "light" || v == "normal" || v =
 func validDuration(v int64) bool   { return v == 1 || v == 3 || v == 6 || v == 12 }
 
 func (s *Server) writeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, postgres.ErrAssignmentConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "assignment_conflict"})
+		return
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		return

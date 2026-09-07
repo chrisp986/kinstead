@@ -12,7 +12,8 @@ type ReportItem = {
 
 export function describeReportItem(item: ReportItem, currentGameDay?: number): string {
 	const data = item.data ?? {};
-	const days = typeof data.supply_days === 'number' ? data.supply_days.toFixed(1) : undefined;
+	const days =
+		typeof data.supply_game_days === 'number' ? String(data.supply_game_days) : undefined;
 	const name = typeof data.character_name === 'string' ? data.character_name : 'A household member';
 	const actor = typeof data.actor_name === 'string' ? data.actor_name : 'the Jarl';
 	const due =
@@ -26,6 +27,8 @@ export function describeReportItem(item: ReportItem, currentGameDay?: number): s
 	const quantity =
 		typeof data.quantity_milli === 'number' ? `${formatMilli(data.quantity_milli)} ` : '';
 	switch (item.code) {
+		case 'food_shortage':
+			return `The household suffered a food shortage of ${formatMilli(typeof data.food_shortage_milli === 'number' ? data.food_shortage_milli : 0)} provisions.`;
 		case 'supply_emergency':
 			return `Provisions will last less than 7 days${days ? ` (about ${days})` : ''}.`;
 		case 'supply_critical':
