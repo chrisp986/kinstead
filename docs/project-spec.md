@@ -41,9 +41,10 @@ Target pacing: `1 game year ≈ 8 real days`; a generation ≈ 18--25 game
 years.
 
 The authoritative simulated calendar is based on an absolute integer
-`game_day`. A gameplay year has **364 days / 52 weeks**, divided into
-**four seasons of 13 weeks / 91 days**. Year, season, week, day labels,
-and relative durations are derived from `game_day`; they are not
+`game_day`. Legacy worlds use **364 days / 52 weeks** and four 91-day
+seasons. Daily-labor worlds use **365 days** with season boundaries
+`[0,91)`, `[91,183)`, `[183,274)`, and `[274,365)`. Year, season, week,
+day, and relative-duration labels are derived from `game_day`; they are not
 independent sources of truth.
 
 Normal player-facing time should use seasons, weeks, days, relative
@@ -58,6 +59,15 @@ concepts. Production pacing deterministically advances the world clock;
 ticks are execution cadence and must not become calendar semantics. The
 v0.3 balancing model's `48 ticks/year, 12/season` remains synthetic
 balancing data and must not define the production calendar.
+
+Daily-labor worlds use one game day per 24 ticks, with the worker polling
+interval kept separate from game speed; the development seed's 1,894-second
+interval is approximately eight real days per game year. Characters have
+persistent occupations rather than renewed daily assignments. They work in
+`[08:00,17:00)`, recover outside those hours, and occupation changes become
+effective at the next 08:00 boundary. Hourly output remains pending until the
+17:00 settlement, so pending output cannot be consumed, traded, dispatched, or
+levied.
 
 At the default `91 / 12` pacing, production on ticks 1--12 uses spring,
 13--24 summer, 25--36 autumn, and 37--48 winter. Tick 12 commits day 91, so

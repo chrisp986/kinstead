@@ -68,10 +68,12 @@
 		const groups = new SvelteMap<CalendarGroup, CalendarEvent[]>();
 		for (const event of filteredEvents) {
 			const group = calendarGroupForEvent(
-				data.calendar.current_game_day,
+				 data.calendar.current_game_day,
 				event.game_day,
 				event.action_required,
-				event.importance
+				event.importance,
+				undefined,
+				data.report.simulation_model
 			);
 			const events = groups.get(group) ?? [];
 			events.push(event);

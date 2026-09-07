@@ -28,4 +28,9 @@ const (
 	EmergencyFoodPolicyNoAction = "emergency_food_policy_no_action"
 	EmergencyWorkOverridden     = "emergency_work_overridden"
 	FoodShortage                = "food_shortage"
+	OccupationChanged           = "occupation_changed"
+	DailyProductionSettled      = "daily_production_settled"
+	TemporaryDutyStarted        = "temporary_duty_started"
+	TemporaryDutyEnded          = "temporary_duty_ended"
+	HouseholdProtectionChanged  = "household_protection_changed"
 )

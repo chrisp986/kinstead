@@ -18,6 +18,10 @@
 			attention: ReportItem[];
 			decisions: ReportItem[];
 			game_day: number;
+			chronicle_cursor: number;
+			pending_output_milli?: Record<string, number>;
+			forecast_net_milli?: Record<string, number>;
+			minimum_expected_food_milli?: number;
 		};
 		householdId?: string;
 		calendar?: { events: CalendarEvent[] };
@@ -148,12 +152,23 @@
 		</section>
 	</div>
 
+	{#if report.pending_output_milli || report.forecast_net_milli}
+		<section class="plan-outcome" aria-label="Household plan outcome">
+			<strong>Plan outcome</strong>
+			<span>Earned output settles automatically at 17:00.</span>
+			{#if report.pending_output_milli}<small>Awaiting settlement: {(report.pending_output_milli.provisions ?? 0) / 1000} food · {(report.pending_output_milli.wood ?? 0) / 1000} wood</small>{/if}
+			{#if report.forecast_net_milli}<small>Seven-day forecast: {(report.forecast_net_milli.provisions ?? 0) / 1000} food · {(report.forecast_net_milli.wood ?? 0) / 1000} wood</small>{/if}
+			{#if report.minimum_expected_food_milli !== undefined}<small>Minimum expected food stock: {report.minimum_expected_food_milli / 1000}</small>{/if}
+		</section>
+	{/if}
+
 	<section class="recent" aria-labelledby="recent-heading">
 		{#if report.since_you_were_away.length > 0}
 			<div class="support-heading">
 				<h3>Since you were away</h3>
 				<form method="POST" action="?/acknowledge">
-					<input type="hidden" name="game_day" value={report.game_day} /><button
+					<input type="hidden" name="game_day" value={report.game_day} />
+					<input type="hidden" name="chronicle_cursor" value={report.chronicle_cursor} /><button
 						class="calendar-link"
 						type="submit">Mark reviewed</button
 					>

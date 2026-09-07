@@ -19,11 +19,14 @@ export const load: PageServerLoad = async ({ fetch, params, parent }) => {
 
 export const actions = {
 	acknowledge: async ({ fetch, params, request }) => {
-		const gameDay = Number((await request.formData()).get('game_day'));
+		const form = await request.formData();
+		const gameDay = Number(form.get('game_day'));
+		const cursorValue = form.get('chronicle_cursor');
+		const chronicleCursor = cursorValue === null ? undefined : Number(cursorValue);
 		const result = await acknowledgeHouseholdReport({
 			client: createServerApi(fetch),
 			path: { householdId: params.householdId },
-			body: { game_day: gameDay }
+			body: { game_day: gameDay, chronicle_cursor: chronicleCursor }
 		});
 		if (result.response?.status !== 204)
 			return fail(result.response?.status ?? 502, {

@@ -18,6 +18,7 @@ import (
 	marketdomain "game/backend/internal/domain/market"
 	politicsdomain "game/backend/internal/domain/politics"
 	shipmentdomain "game/backend/internal/domain/shipment"
+	workdomain "game/backend/internal/domain/work"
 	"game/backend/internal/port"
 	"game/backend/internal/postgres"
 	"game/backend/internal/simulation"
@@ -34,6 +35,7 @@ type Server struct {
 	politics      *application.PoliticsService
 	calendar      *application.CalendarService
 	workPreview   *application.WorkPreviewService
+	occupations   *application.OccupationService
 	log           *slog.Logger
 }
 
@@ -48,6 +50,7 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 		politics:      application.NewPoliticsService(store, store),
 		calendar:      application.NewCalendarService(store),
 		workPreview:   application.NewWorkPreviewService(store),
+		occupations:   application.NewOccupationService(store),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -58,6 +61,9 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
 	mux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
 	mux.HandleFunc("POST /api/households/{id}/work-preview", s.previewWork)
+	mux.HandleFunc("GET /api/households/{id}/work-plan", s.workPlan)
+	mux.HandleFunc("PUT /api/households/{id}/characters/{characterId}/occupation", s.changeOccupation)
+	mux.HandleFunc("POST /api/households/{id}/work-plan/preview", s.previewOccupation)
 	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
 	mux.HandleFunc("POST /api/shipments/{id}/cancel", s.cancelShipment)
 	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
@@ -492,17 +498,24 @@ func (s *Server) farmReport(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) acknowledgeFarmReport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		GameDay int64 `json:"game_day"`
+		GameDay         int64  `json:"game_day"`
+		ChronicleCursor *int64 `json:"chronicle_cursor,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	if req.GameDay < 0 {
+	if req.GameDay < 0 || (req.ChronicleCursor != nil && *req.ChronicleCursor < 0) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_game_day"})
 		return
 	}
-	if err := s.reports.Acknowledge(r.Context(), r.PathValue("id"), req.GameDay); err != nil {
+	var err error
+	if req.ChronicleCursor != nil {
+		err = s.reports.AcknowledgeCursor(r.Context(), r.PathValue("id"), *req.ChronicleCursor)
+	} else {
+		err = s.reports.Acknowledge(r.Context(), r.PathValue("id"), req.GameDay)
+	}
+	if err != nil {
 		s.writeError(w, err)
 		return
 	}
@@ -516,6 +529,58 @@ func (s *Server) assignments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tick": snap.CurrentTick, "assignments": snap.Assignments})
+}
+
+func (s *Server) workPlan(w http.ResponseWriter, r *http.Request) {
+	plan, err := s.occupations.WorkPlan(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
+type changeOccupationRequest struct {
+	Activity         string `json:"activity"`
+	ExpectedRevision int64  `json:"expected_revision"`
+}
+
+func (s *Server) changeOccupation(w http.ResponseWriter, r *http.Request) {
+	var req changeOccupationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	result, err := s.occupations.Change(r.Context(), application.ChangeOccupationCommand{HouseholdID: r.PathValue("id"), CharacterID: r.PathValue("characterId"), Activity: workdomain.Activity(req.Activity), ExpectedRevision: req.ExpectedRevision})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+type occupationPreviewRequest struct {
+	CharacterID string `json:"character_id"`
+	Activity    string `json:"activity"`
+}
+
+func (s *Server) previewOccupation(w http.ResponseWriter, r *http.Request) {
+	var req occupationPreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	snapshot, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	preview, err := application.ForecastHousehold(snapshot, &application.OccupationChange{CharacterID: req.CharacterID, Activity: workdomain.Activity(req.Activity)}, 7)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 type createAssignmentRequest struct {
@@ -534,6 +599,15 @@ func (s *Server) previewWork(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validActivity(req.Activity) || !validIntensity(req.Intensity) || !validDuration(req.DurationTicks) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_work_preview"})
+		return
+	}
+	snap, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if snap.SimulationModel == port.ModelDailyLabor {
+		s.writeError(w, application.ErrUnsupportedSimulationModel)
 		return
 	}
 	preview, err := s.workPreview.Preview(r.Context(), application.WorkPreviewCommand{
@@ -560,6 +634,10 @@ func (s *Server) createAssignment(w http.ResponseWriter, r *http.Request) {
 	snap, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeError(w, err)
+		return
+	}
+	if snap.SimulationModel == port.ModelDailyLabor {
+		s.writeError(w, application.ErrUnsupportedSimulationModel)
 		return
 	}
 	starts := snap.CurrentTick + 1
@@ -620,6 +698,18 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, application.ErrInvalidWorkPreview) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_work_preview", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, application.ErrUnsupportedSimulationModel) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "unsupported_simulation_model", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, application.ErrOccupationRevisionConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "occupation_revision_conflict", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, application.ErrOccupationIneligible) || errors.Is(err, workdomain.ErrInvalidOccupation) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_occupation", "message": err.Error()})
 		return
 	}
 	if errors.Is(err, contractdomain.ErrInvalidContract) || errors.Is(err, contractdomain.ErrInvalidObligation) {
@@ -685,7 +775,7 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

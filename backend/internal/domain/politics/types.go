@@ -57,6 +57,7 @@ type Resolution struct {
 // later balance change.
 type DemandTerms struct {
 	ServiceTicks         int64 `json:"service_ticks"`
+	ServiceHours         int64 `json:"service_hours,omitempty"`
 	WoodCostMilli        int64 `json:"wood_cost_milli"`
 	SilverCostMilli      int64 `json:"silver_cost_milli"`
 	HonoredStandingDelta int   `json:"honor_standing_delta"`
@@ -66,7 +67,7 @@ type DemandTerms struct {
 func DefaultTerms(d DemandType) DemandTerms {
 	t := DemandTerms{HonoredStandingDelta: StandingHonoredDelta, RefusedStandingDelta: StandingRefusedDelta}
 	if d == DemandLaborService {
-		t.ServiceTicks = LaborServiceTicks
+		t.ServiceTicks, t.ServiceHours = LaborServiceTicks, LaborServiceTicks
 	}
 	if d == DemandLevy {
 		t.WoodCostMilli, t.SilverCostMilli = LevyWoodMilli, LevySilverMilli
@@ -83,7 +84,7 @@ func (t DemandTerms) Validate(d DemandType) error {
 	}
 	switch d {
 	case DemandLaborService:
-		if t.ServiceTicks <= 0 {
+		if t.ServiceTicks <= 0 && t.ServiceHours <= 0 {
 			return fmt.Errorf("invalid political service duration")
 		}
 	case DemandLevy:

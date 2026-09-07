@@ -36,6 +36,7 @@ type Querier interface {
 	ListContractTerms(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractTermsRow, error)
 	ListContractsForHousehold(ctx context.Context, dollar_1 pgtype.UUID) ([]ListContractsForHouseholdRow, error)
 	ListEligiblePoliticalCharacters(ctx context.Context, decisionID pgtype.UUID) ([]ListEligiblePoliticalCharactersRow, error)
+	ListHouseholdOccupations(ctx context.Context, householdID pgtype.UUID) ([]ListHouseholdOccupationsRow, error)
 	ListHouseholdsForPoliticalEvent(ctx context.Context, worldEventID pgtype.UUID) ([]ListHouseholdsForPoliticalEventRow, error)
 	ListPoliticalDecisionsForHousehold(ctx context.Context, householdID pgtype.UUID) ([]ListPoliticalDecisionsForHouseholdRow, error)
 	ListPoliticalRelationshipsForHousehold(ctx context.Context, householdID pgtype.UUID) ([]ListPoliticalRelationshipsForHouseholdRow, error)
@@ -57,6 +58,7 @@ type Querier interface {
 	MarkShipmentArrived(ctx context.Context, arg MarkShipmentArrivedParams) (string, error)
 	MarkWorldTickProcessed(ctx context.Context, arg MarkWorldTickProcessedParams) error
 	ResolvePoliticalDecision(ctx context.Context, arg ResolvePoliticalDecisionParams) (int64, error)
+	SaveOccupation(ctx context.Context, arg SaveOccupationParams) error
 	UpdateContractObligationAssessment(ctx context.Context, arg UpdateContractObligationAssessmentParams) (int64, error)
 	UpdateContractStatus(ctx context.Context, arg UpdateContractStatusParams) (int64, error)
 	UpdateMarketOfferAfterPurchase(ctx context.Context, arg UpdateMarketOfferAfterPurchaseParams) (UpdateMarketOfferAfterPurchaseRow, error)

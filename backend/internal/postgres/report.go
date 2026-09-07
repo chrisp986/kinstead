@@ -41,7 +41,7 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 		return nil, pgx.ErrNoRows
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT e.id::text, e.occurred_tick, e.occurred_game_day, e.entry_type,
+		SELECT e.event_sequence, e.id::text, e.occurred_tick, e.occurred_game_day, e.entry_type,
 		       e.subject_character_id::text, subject.name,
 		       e.related_household_id::text, related.name,
 		       e.related_shipment_id::text, e.related_assignment_id::text,
@@ -62,7 +62,7 @@ func (s *Store) ListRecentChronicleForReport(ctx context.Context, householdID st
 	for rows.Next() {
 		var e port.ChronicleEntryRecord
 		var data []byte
-		if err := rows.Scan(&e.ID, &e.OccurredTick, &e.OccurredGameDay, &e.EntryType, &e.SubjectCharacterID, &e.SubjectCharacterName,
+		if err := rows.Scan(&e.Sequence, &e.ID, &e.OccurredTick, &e.OccurredGameDay, &e.EntryType, &e.SubjectCharacterID, &e.SubjectCharacterName,
 			&e.RelatedHouseholdID, &e.RelatedHouseholdName, &e.RelatedShipmentID, &e.RelatedAssignmentID,
 			&e.RelatedContractID, &e.RelatedObligationID, &e.RelatedHouseholdDecisionID, &e.RelatedPoliticalActorID, &data); err != nil {
 			return nil, err
@@ -82,7 +82,7 @@ func (s *Store) ListChronicleSinceGameDayForReport(ctx context.Context, househol
 		limit = 100
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT e.id::text,e.occurred_tick,e.occurred_game_day,e.entry_type,
+		SELECT e.event_sequence,e.id::text,e.occurred_tick,e.occurred_game_day,e.entry_type,
 		 e.subject_character_id::text,subject.name,e.related_household_id::text,related.name,
 		 e.related_shipment_id::text,e.related_assignment_id::text,e.related_contract_id::text,
 		 e.related_obligation_id::text,e.related_household_decision_id::text,e.related_political_actor_id::text,e.data
@@ -106,7 +106,55 @@ func (s *Store) ListChronicleSinceGameDayForReport(ctx context.Context, househol
 	for rows.Next() {
 		var e port.ChronicleEntryRecord
 		var data []byte
-		if err := rows.Scan(&e.ID, &e.OccurredTick, &e.OccurredGameDay, &e.EntryType, &e.SubjectCharacterID, &e.SubjectCharacterName, &e.RelatedHouseholdID, &e.RelatedHouseholdName, &e.RelatedShipmentID, &e.RelatedAssignmentID, &e.RelatedContractID, &e.RelatedObligationID, &e.RelatedHouseholdDecisionID, &e.RelatedPoliticalActorID, &data); err != nil {
+		if err := rows.Scan(&e.Sequence, &e.ID, &e.OccurredTick, &e.OccurredGameDay, &e.EntryType, &e.SubjectCharacterID, &e.SubjectCharacterName, &e.RelatedHouseholdID, &e.RelatedHouseholdName, &e.RelatedShipmentID, &e.RelatedAssignmentID, &e.RelatedContractID, &e.RelatedObligationID, &e.RelatedHouseholdDecisionID, &e.RelatedPoliticalActorID, &data); err != nil {
+			return nil, err
+		}
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+		if err := decoder.Decode(&e.Data); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+func (s *Store) CurrentChronicleCursor(ctx context.Context, householdID string) (int64, error) {
+	var cursor int64
+	err := s.Pool.QueryRow(ctx, `SELECT COALESCE(MAX(event_sequence), 0) FROM chronicle_entries WHERE household_id=$1::uuid`, householdID).Scan(&cursor)
+	return cursor, err
+}
+
+func (s *Store) ListChronicleSinceCursor(ctx context.Context, householdID string, afterCursor, throughCursor int64, limit int) ([]port.ChronicleEntryRecord, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT e.event_sequence,e.id::text,e.occurred_tick,e.occurred_game_day,e.entry_type,
+		 e.subject_character_id::text,subject.name,e.related_household_id::text,related.name,
+		 e.related_shipment_id::text,e.related_assignment_id::text,e.related_contract_id::text,
+		 e.related_obligation_id::text,e.related_household_decision_id::text,e.related_political_actor_id::text,e.data
+		FROM chronicle_entries e
+		LEFT JOIN characters subject ON subject.id=e.subject_character_id
+		LEFT JOIN households related ON related.id=e.related_household_id
+		WHERE e.household_id=$1::uuid AND e.event_sequence>$2 AND e.event_sequence<=$3
+		  AND e.id IN (
+			SELECT id FROM (
+				SELECT id, row_number() OVER (PARTITION BY entry_type ORDER BY event_sequence DESC) AS position
+				FROM chronicle_entries
+				WHERE household_id=$1::uuid AND event_sequence>$2 AND event_sequence<=$3
+			) ranked WHERE position <= $4
+		  )
+		ORDER BY e.event_sequence`, householdID, afterCursor, throughCursor, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := make([]port.ChronicleEntryRecord, 0)
+	for rows.Next() {
+		var e port.ChronicleEntryRecord
+		var data []byte
+		if err := rows.Scan(&e.Sequence, &e.ID, &e.OccurredTick, &e.OccurredGameDay, &e.EntryType, &e.SubjectCharacterID, &e.SubjectCharacterName, &e.RelatedHouseholdID, &e.RelatedHouseholdName, &e.RelatedShipmentID, &e.RelatedAssignmentID, &e.RelatedContractID, &e.RelatedObligationID, &e.RelatedHouseholdDecisionID, &e.RelatedPoliticalActorID, &data); err != nil {
 			return nil, err
 		}
 		decoder := json.NewDecoder(bytes.NewReader(data))
@@ -120,8 +168,27 @@ func (s *Store) ListChronicleSinceGameDayForReport(ctx context.Context, househol
 }
 
 func (s *Store) AcknowledgeHouseholdReport(ctx context.Context, householdID string, gameDay int64) error {
-	tag, err := s.Pool.Exec(ctx, `UPDATE households h SET last_seen_game_day=$2,updated_at=now()
+	tag, err := s.Pool.Exec(ctx, `UPDATE households h SET last_seen_game_day=$2,
+		last_seen_chronicle_sequence=GREATEST(h.last_seen_chronicle_sequence,
+			COALESCE((SELECT MAX(event_sequence) FROM chronicle_entries e WHERE e.household_id=h.id AND e.occurred_game_day <= $2),0)),
+		updated_at=now()
 		FROM worlds w WHERE h.id=$1::uuid AND w.id=h.world_id AND $2 >= h.last_seen_game_day AND $2 <= w.current_game_day`, householdID, gameDay)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) AcknowledgeHouseholdReportCursor(ctx context.Context, householdID string, cursor int64) error {
+	if cursor < 0 {
+		return pgx.ErrNoRows
+	}
+	tag, err := s.Pool.Exec(ctx, `UPDATE households h
+		SET last_seen_chronicle_sequence=GREATEST(h.last_seen_chronicle_sequence,$2), updated_at=now()
+		WHERE h.id=$1::uuid AND $2 <= COALESCE((SELECT MAX(event_sequence) FROM chronicle_entries WHERE household_id=h.id),0)`, householdID, cursor)
 	if err != nil {
 		return err
 	}

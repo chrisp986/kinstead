@@ -79,6 +79,23 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("load household %s: %w", householdID, err)
 		}
+		if world.SimulationModel == port.ModelDailyLabor {
+			if snap.DailyLabor == nil {
+				return false, fmt.Errorf("daily-labor household %s has no daily state", householdID)
+			}
+			start, err := calendar.MomentAtClock(calendar.ClockState{Day: startGameDay, Remainder: world.CalendarRemainder, GameDaysPerTickNum: world.GameDaysPerTickNum, GameDaysPerTickDen: world.GameDaysPerTickDen})
+			if err != nil {
+				return false, fmt.Errorf("resolve daily clock: %w", err)
+			}
+			hour, err := simulation.ProcessHour(*snap.DailyLabor, simulation.HourInterval{Start: start, End: calendar.AdvanceMoment(start, 1)}, balance.DailyLaborV1())
+			if err != nil {
+				return false, fmt.Errorf("simulate daily household %s: %w", householdID, err)
+			}
+			if err := tx.SaveHouseholdDailyTick(ctx, householdID, hour); err != nil {
+				return false, fmt.Errorf("save daily household %s: %w", householdID, err)
+			}
+			continue
+		}
 		tickContext := simulation.NeutralTickContext(simulation.Season(productionSeason))
 		tickContext.GameDaysPerTickNum = world.GameDaysPerTickNum
 		tickContext.GameDaysPerTickDen = world.GameDaysPerTickDen
@@ -98,6 +115,9 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	// Canonical tick step 8: conservative emergency supply protection after
 	// all events and political consequences have been applied.
 	for _, householdID := range householdIDs {
+		if world.SimulationModel == port.ModelDailyLabor {
+			continue
+		}
 		if err := p.processEmergencyFoodWork(ctx, tx, householdID, results[householdID], tick, int64(nextGameDay), world.GameDaysPerTickNum, world.GameDaysPerTickDen); err != nil {
 			return false, err
 		}
@@ -263,7 +283,11 @@ func politicalTerms(data []byte, demand politicsdomain.DemandType) (politicsdoma
 		}
 		required := []string{"honor_standing_delta", "refuse_standing_delta"}
 		if demand == politicsdomain.DemandLaborService {
-			required = append(required, "service_ticks")
+			if _, ticks := raw["service_ticks"]; !ticks {
+				if _, hours := raw["service_hours"]; !hours {
+					return politicsdomain.DemandTerms{}, fmt.Errorf("missing political demand term %q", "service_hours")
+				}
+			}
 		} else if demand == politicsdomain.DemandLevy {
 			required = append(required, "wood_cost_milli", "silver_cost_milli")
 		}
@@ -274,6 +298,11 @@ func politicalTerms(data []byte, demand politicsdomain.DemandType) (politicsdoma
 		}
 		if err := json.Unmarshal(data, &terms); err != nil {
 			return politicsdomain.DemandTerms{}, fmt.Errorf("decode political demand terms: %w", err)
+		}
+		if demand == politicsdomain.DemandLaborService {
+			if _, ok := raw["service_hours"]; !ok {
+				terms.ServiceHours = 0 // legacy terms retain their tick duration
+			}
 		}
 	}
 	if err := terms.Validate(demand); err != nil {

@@ -9,7 +9,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
 DB_USER="${DB_USER:-game}"
 DB_NAME="${DB_NAME:-game}"
 DATABASE_URL="${DATABASE_URL:-postgres://game:game@localhost:5432/game?sslmode=disable}"
-DEV_TICK_DURATION_SECONDS="${DEV_TICK_DURATION_SECONDS:-14400}"
+DEV_TICK_DURATION_SECONDS="${DEV_TICK_DURATION_SECONDS:-1894}"
 
 if ! [[ "$DEV_TICK_DURATION_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   echo "DEV_TICK_DURATION_SECONDS must be a positive integer" >&2

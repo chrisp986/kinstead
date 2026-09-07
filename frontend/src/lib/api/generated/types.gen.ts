@@ -38,7 +38,9 @@ export type Character = {
 	age: number;
 	labor_permille: number;
 	fatigue: number;
+	status: string;
 	specialization?: string;
+	occupation?: Occupation;
 };
 
 export type Assignment = {
@@ -56,6 +58,7 @@ export type HouseholdReport = {
 	household_id: string;
 	household_name: string;
 	world_id: string;
+	simulation_model: 'legacy' | 'daily_labor_v1';
 	setting_start_year: number;
 	tick: number;
 	game_day: number;
@@ -74,6 +77,14 @@ export type HouseholdReport = {
 	since_you_were_away: Array<ChronicleEntry>;
 	attention: Array<ReportItem>;
 	decisions: Array<ReportItem>;
+	chronicle_cursor: number;
+	pending_output_milli?: {
+		[key: string]: number;
+	};
+	forecast_net_milli?: {
+		[key: string]: number;
+	};
+	minimum_expected_food_milli?: number;
 };
 
 export type CalendarBreakdown = {
@@ -370,8 +381,79 @@ export type WorkPreview = {
 	warnings: Array<string>;
 };
 
+export type Occupation = {
+	character_id: string;
+	activity: 'agriculture' | 'fishing' | 'woodcutting';
+	pending_activity?: 'agriculture' | 'fishing' | 'woodcutting';
+	effective_day?: number;
+	revision: number;
+};
+
+export type TemporaryDuty = {
+	id: string;
+	activity: string;
+	starts: Moment;
+	ends: Moment;
+	description?: string;
+};
+
+export type Moment = {
+	day: number;
+	hour: number;
+};
+
+export type WorkPlan = {
+	household_id: string;
+	current_game_day: number;
+	current_tick: number;
+	current_moment: Moment;
+	occupations: Array<Occupation>;
+	temporary_duties: Array<TemporaryDuty>;
+};
+
+export type ChangeOccupationIntent = {
+	activity: 'agriculture' | 'fishing' | 'woodcutting';
+	expected_revision: number;
+};
+
+export type OccupationChangeResult = {
+	occupation: Occupation;
+	effective: Moment;
+	changed: boolean;
+};
+
+export type OccupationPreviewIntent = {
+	character_id: string;
+	activity: 'agriculture' | 'fishing' | 'woodcutting';
+};
+
+export type StockProjection = {
+	provisions_milli: number;
+	wood_milli: number;
+	pending_provisions_milli: number;
+	pending_wood_milli: number;
+};
+
+export type ForecastWarning = {
+	code: string;
+	message: string;
+};
+
+export type HouseholdForecast = {
+	based_on_revision: number;
+	horizon_game_days: number;
+	baseline_ending_stocks: StockProjection;
+	proposed_ending_stocks: StockProjection;
+	minimum_provisions_milli: number;
+	proposed_minimum_provisions_milli: number;
+	first_shortage_at?: Moment;
+	proposed_first_shortage_at?: Moment;
+	warnings: Array<ForecastWarning>;
+};
+
 export type AcknowledgeReportIntent = {
 	game_day: number;
+	chronicle_cursor?: number;
 };
 
 export type PurchaseOfferIntent = {
@@ -643,6 +725,102 @@ export type PreviewHouseholdWorkResponses = {
 
 export type PreviewHouseholdWorkResponse =
 	PreviewHouseholdWorkResponses[keyof PreviewHouseholdWorkResponses];
+
+export type GetHouseholdWorkPlanData = {
+	body?: never;
+	path: {
+		householdId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/work-plan';
+};
+
+export type GetHouseholdWorkPlanErrors = {
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type GetHouseholdWorkPlanError =
+	GetHouseholdWorkPlanErrors[keyof GetHouseholdWorkPlanErrors];
+
+export type GetHouseholdWorkPlanResponses = {
+	/**
+	 * Persistent occupations and temporary commitments
+	 */
+	200: WorkPlan;
+};
+
+export type GetHouseholdWorkPlanResponse =
+	GetHouseholdWorkPlanResponses[keyof GetHouseholdWorkPlanResponses];
+
+export type ChangeHouseholdOccupationData = {
+	body: ChangeOccupationIntent;
+	path: {
+		householdId: string;
+		characterId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/characters/{characterId}/occupation';
+};
+
+export type ChangeHouseholdOccupationErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Intent conflicts with current state
+	 */
+	409: ApiError;
+};
+
+export type ChangeHouseholdOccupationError =
+	ChangeHouseholdOccupationErrors[keyof ChangeHouseholdOccupationErrors];
+
+export type ChangeHouseholdOccupationResponses = {
+	/**
+	 * Occupation changed or pending change cancelled
+	 */
+	200: OccupationChangeResult;
+};
+
+export type ChangeHouseholdOccupationResponse =
+	ChangeHouseholdOccupationResponses[keyof ChangeHouseholdOccupationResponses];
+
+export type PreviewHouseholdWorkPlanData = {
+	body: OccupationPreviewIntent;
+	path: {
+		householdId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/work-plan/preview';
+};
+
+export type PreviewHouseholdWorkPlanErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type PreviewHouseholdWorkPlanError =
+	PreviewHouseholdWorkPlanErrors[keyof PreviewHouseholdWorkPlanErrors];
+
+export type PreviewHouseholdWorkPlanResponses = {
+	/**
+	 * Seven-game-day baseline and proposed household forecast
+	 */
+	200: HouseholdForecast;
+};
+
+export type PreviewHouseholdWorkPlanResponse =
+	PreviewHouseholdWorkPlanResponses[keyof PreviewHouseholdWorkPlanResponses];
 
 export type ListHouseholdShipmentsData = {
 	body?: never;

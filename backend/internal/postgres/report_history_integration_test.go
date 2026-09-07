@@ -60,4 +60,14 @@ func TestReturnHistoryPrioritizesOldShortageAndRequiresAcknowledgement(t *testin
 	if len(report.SinceYouWereAway) != 0 {
 		t.Fatalf("acknowledged history returned: %+v", report.SinceYouWereAway)
 	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO chronicle_entries(household_id,occurred_tick,occurred_game_day,entry_type,data) VALUES($1::uuid,200,200,'food_shortage','{"food_shortage_milli":1200}')`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	report, err = service.FarmReport(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.SinceYouWereAway) != 1 || report.SinceYouWereAway[0].OccurredGameDay != 200 {
+		t.Fatalf("same-day event was not returned after acknowledgement: %+v", report.SinceYouWereAway)
+	}
 }

@@ -1,4 +1,4 @@
-import { assign, workPreview } from '$lib/server/household-actions';
+import { changeOccupation, occupationPreview } from '$lib/server/household-actions';
 import type { Actions } from './$types';
 
-export const actions = { assign, workPreview } satisfies Actions;
+export const actions = { changeOccupation, occupationPreview } satisfies Actions;

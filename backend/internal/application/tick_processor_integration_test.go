@@ -80,6 +80,81 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 	}
 }
 
+func TestDailyLaborTickSettlesOnlyAtSeventeenAndIsIdempotent(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	store, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	tx, err := store.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	var worldID, locationID, householdID, characterID string
+	if err := tx.QueryRow(ctx, `INSERT INTO worlds(name,historical_start_date,current_tick,current_game_day,calendar_remainder,tick_duration_seconds,next_tick_at,simulation_model,game_days_per_tick_num,game_days_per_tick_den) VALUES('daily labor integration',DATE '0980-01-01',0,0,0,1894,now()-interval '1 day','daily_labor_v1',1,24) RETURNING id::text`).Scan(&worldID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO locations(world_id,name,location_type) VALUES($1::uuid,'daily labor farm','farm') RETURNING id::text`, worldID).Scan(&locationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO households(world_id,location_id,name,created_tick,specialization) VALUES($1::uuid,$2::uuid,'daily labor household',0,'fishing') RETURNING id::text`, worldID, locationID).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO characters(household_id,name,birth_date,birth_game_day,labor_capacity_milli) VALUES($1::uuid,'Daily worker',DATE '0960-01-01',-7300,1000) RETURNING id::text`, householdID).Scan(&characterID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO character_occupations(character_id,activity) VALUES($1::uuid,'fishing')`, characterID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO household_daily_labor_state(household_id) VALUES($1::uuid)`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO resource_stocks(household_id,resource_code,quantity_milli) VALUES($1::uuid,'provisions',17000),($1::uuid,'wood',100000)`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = store.Pool.Exec(ctx, `DELETE FROM worlds WHERE id=$1::uuid`, worldID) })
+	processor := NewTickProcessor(store)
+	for tick := 1; tick <= 17; tick++ {
+		if tick > 1 {
+			if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at=now()-interval '1 day' WHERE id=$1::uuid`, worldID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		processed, err := processDueWorldWithRetry(ctx, processor)
+		if err != nil || !processed {
+			t.Fatalf("daily tick %d processed=%v err=%v", tick, processed, err)
+		}
+	}
+	var pending, settlements, provisions int64
+	if err := store.Pool.QueryRow(ctx, `SELECT s.pending_provisions_milli,COUNT(d.game_day),r.quantity_milli FROM household_daily_labor_state s JOIN household_daily_settlements d ON d.household_id=s.household_id JOIN resource_stocks r ON r.household_id=s.household_id AND r.resource_code='provisions' WHERE s.household_id=$1::uuid GROUP BY s.pending_provisions_milli,r.quantity_milli`, householdID).Scan(&pending, &settlements, &provisions); err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 || settlements != 1 || provisions <= 17000 {
+		t.Fatalf("settlement pending/count/provisions=%d/%d/%d", pending, settlements, provisions)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE worlds SET next_tick_at=now()-interval '1 day' WHERE id=$1::uuid`, worldID); err != nil {
+		t.Fatal(err)
+	}
+	if processed, err := processDueWorldWithRetry(ctx, processor); err != nil || !processed {
+		t.Fatalf("post-settlement tick processed=%v err=%v", processed, err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM household_daily_settlements WHERE household_id=$1::uuid`, householdID).Scan(&settlements); err != nil {
+		t.Fatal(err)
+	}
+	if settlements != 1 {
+		t.Fatalf("settlement count after next hour=%d", settlements)
+	}
+}
+
 func TestTickProcessorRollsBackAtomicallyOnDuplicateCharacterAssignment(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

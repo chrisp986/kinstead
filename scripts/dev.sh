@@ -14,9 +14,12 @@ DB_NAME="${DB_NAME:-game}"
 DATABASE_URL="${DATABASE_URL:-postgres://game:game@localhost:5432/game?sslmode=disable}"
 BACKEND_URL="${BACKEND_URL:-http://localhost:8080}"
 API_ADDR="${API_ADDR:-:8080}"
-FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 WORLD_ID="00000000-0000-0000-0000-000000000001"
+DEV_HOUSEHOLD_ID="${DEV_HOUSEHOLD_ID:-00000000-0000-0000-0000-000000000020}"
+DEV_PLAYER_SUBJECT="${DEV_PLAYER_SUBJECT:-local-playtest}"
+DEV_SESSION_LIFETIME="${DEV_SESSION_LIFETIME:-720h}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -169,6 +172,47 @@ WHERE id = '$WORLD_ID';
 SQL
 }
 
+provision_development_session() {
+  local player_id
+
+  echo "Provisioning local development session"
+  player_id="$(psql_exec \
+    -v dev_player_subject="$DEV_PLAYER_SUBJECT" \
+    -qAt <<SQL
+INSERT INTO players (external_auth_subject)
+VALUES (:'dev_player_subject')
+ON CONFLICT (external_auth_subject) DO UPDATE
+  SET updated_at = now()
+RETURNING id;
+SQL
+  )"
+
+  if [[ -z "$player_id" ]]; then
+    echo "Unable to provision the local development player" >&2
+    return 1
+  fi
+
+  psql_exec \
+    -v dev_player_id="$player_id" \
+    -v dev_household_id="$DEV_HOUSEHOLD_ID" <<SQL >/dev/null
+UPDATE households
+SET owner_player_id = :'dev_player_id'::uuid
+WHERE id = :'dev_household_id'::uuid;
+SQL
+
+  DEV_SESSION_KEY="$(
+    cd "$BACKEND_DIR"
+    DATABASE_URL="$DATABASE_URL" go run -tags postgres ./cmd/session \
+      --player-id "$player_id" \
+      --lifetime "$DEV_SESSION_LIFETIME"
+  )"
+
+  if [[ ! "$DEV_SESSION_KEY" =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+    echo "The development session command returned an invalid session key" >&2
+    return 1
+  fi
+}
+
 API_PID=""
 WORKER_PID=""
 FRONTEND_PID=""
@@ -177,6 +221,7 @@ WORKER_WRAPPER_PID=""
 FRONTEND_WRAPPER_PID=""
 LAST_WRAPPER_PID=""
 LAST_PROCESS_GROUP_PID=""
+DEV_SESSION_KEY=""
 
 launch_service() {
   local workdir="$1"
@@ -293,6 +338,7 @@ wait_for_postgres
 apply_database_migrations
 ensure_development_world
 update_tick_schedule
+provision_development_session
 
 echo
 echo "Kinstead development environment"
@@ -345,6 +391,10 @@ fi
 
 printf 'Worker:     running\n'
 echo "Development environment ready"
+echo
+echo "Sign in at:  http://localhost:$FRONTEND_PORT/sign-in"
+echo "Session key: $DEV_SESSION_KEY"
+echo
 echo "Press Ctrl+C to stop. PostgreSQL will remain running."
 
 set +e

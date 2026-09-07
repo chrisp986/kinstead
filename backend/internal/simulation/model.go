@@ -5,6 +5,9 @@ import (
 	"math"
 	"math/big"
 	"time"
+
+	"game/backend/internal/calendar"
+	workdomain "game/backend/internal/domain/work"
 )
 
 type Season string
@@ -41,6 +44,53 @@ type Character struct {
 	LaborPermille  int64
 	Fatigue        int
 	Specialization Activity
+	BirthGameDay   int64
+	Status         string
+}
+
+// DailyLaborState is the authoritative household state for the hourly model.
+// Spendable stocks are deliberately separate from earned pending output so
+// production cannot be consumed, sold, dispatched, or levied before 17:00.
+type DailyLaborState struct {
+	Tick                   int64
+	CurrentGameDay         calendar.GameDay
+	CalendarRemainder      int64
+	FarmSpecialization     Activity
+	ProvisionsMilli        int64
+	WoodMilli              int64
+	TradeGoodsMilli        int64
+	SilverMilli            int64
+	PendingProvisionsMilli int64
+	PendingWoodMilli       int64
+	ProductionRemainders   map[string]int64
+	ConsumptionRemainder   int64
+	WoodUpkeepRemainder    int64
+	FatigueRemainders      map[string]int64
+	LastSettlementDay      *calendar.GameDay
+	PolicyReason           string
+	Characters             []DailyCharacter
+}
+
+type DailyCharacter struct {
+	ID              string
+	Name            string
+	BirthGameDay    int64
+	LaborPermille   int64
+	Fatigue         int
+	Health          int
+	Status          string
+	Specialization  Activity
+	Occupation      workdomain.Occupation
+	TemporaryDuties []workdomain.TemporaryDuty
+}
+
+func (s DailyLaborState) CharacterIndexByID(id string) (int, error) {
+	for i := range s.Characters {
+		if s.Characters[i].ID == id {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("unknown character ID %q", id)
 }
 
 type Assignment struct {

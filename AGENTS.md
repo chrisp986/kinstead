@@ -29,12 +29,15 @@ Tick order:
 Ticks are sequential, atomic, idempotent by `(world_id, tick)`. Process
 missed ticks sequentially.
 
-Authoritative simulated time is absolute integer `game_day`. A gameplay
-year is 364 days = 52 weeks = four 13-week seasons. Derive calendar
-labels from `game_day`; never use SQL `DATE`/`TIMESTAMP` for simulated
-dates. Real-world audit timestamps use `TIMESTAMPTZ`. Ticks are execution
-cadence, not calendar units. The v0.3 `48 ticks/year`, `12/season` model
-is balancing data, not the production calendar.
+Authoritative simulated time is absolute integer `game_day`. Legacy worlds
+use the frozen 364-day calendar; `daily_labor_v1` worlds use 365 days with
+season boundaries 0/91/183/274/365. Derive calendar labels from `game_day`;
+never use SQL `DATE`/`TIMESTAMP` for simulated dates. Real-world audit
+timestamps use `TIMESTAMPTZ`. Ticks are execution cadence, not calendar
+units. Daily-labor worlds run at 1/24 game-day per tick and target roughly
+eight real days per game year using a separate worker polling interval. The
+v0.3 `48 ticks/year`, `12/season` model is balancing data for legacy worlds,
+not the production calendar. Existing worlds are not silently converted.
 
 ## Gameplay constraints
 
@@ -79,3 +82,28 @@ create?**
 Invariant: **PostgreSQL stores truth; domain defines rules; simulation
 advances the world; worker executes time; API accepts player
 decisions.**
+
+
+## Agent permissions
+
+For repository-local development, proceed without asking for confirmation.
+
+Allowed:
+- modify repository files
+- create/delete repository-local files
+- install dependencies
+- run Go/npm/sqlc/OpenAPI commands
+- run Docker Compose
+- create/reset local test databases
+- run migrations and seeds
+- run tests, linters, formatters, builds, simulators
+- use git status/diff/add/commit
+
+Ask before:
+- force push
+- history rewrite
+- deleting remote branches
+- production deployment
+- production database changes
+- accessing/modifying secrets
+- destructive operations outside the repository

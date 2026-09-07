@@ -84,7 +84,23 @@ func (s *PoliticsService) respondOnce(ctx context.Context, cmd RespondPoliticalD
 		if c.Status != "active" || c.LaborCapacityMilli != 1000 {
 			return politics.ErrIneligibleCharacter
 		}
-		start, end := d.ExpiresTick, d.ExpiresTick+r.ServiceTicks-1
+		serviceTicks := r.ServiceTicks
+		if d.SimulationModel == port.ModelDailyLabor {
+			hours := terms.ServiceHours
+			if hours <= 0 {
+				hours = terms.ServiceTicks // compatibility for a pre-versioned term
+			}
+			if d.GameDaysPerTickNum <= 0 || d.GameDaysPerTickDen <= 0 {
+				return fmt.Errorf("invalid daily-labor clock for political service")
+			}
+			// Convert game-time hours to execution ticks, rounding up so a
+			// service term cannot be shorter than the promised duration.
+			serviceTicks = (hours*d.GameDaysPerTickDen + 24*d.GameDaysPerTickNum - 1) / (24 * d.GameDaysPerTickNum)
+			if serviceTicks < 1 {
+				serviceTicks = 1
+			}
+		}
+		start, end := d.ExpiresTick, d.ExpiresTick+serviceTicks-1
 		overlap, e := tx.AssignmentOverlaps(ctx, cmd.CharacterID, start, end)
 		if e != nil {
 			return e

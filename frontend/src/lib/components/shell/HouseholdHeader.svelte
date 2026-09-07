@@ -12,7 +12,7 @@
 	let workerCount = $derived(
 		report.characters.filter((character) => character.labor_permille > 0).length
 	);
-	let assignedCount = $derived.by(() => {
+	let finiteAssignedCount = $derived.by(() => {
 		const workerIds = new Set(
 			report.characters
 				.filter((character) => character.labor_permille > 0)
@@ -23,6 +23,23 @@
 				.filter((assignment) => workerIds.has(assignment.character_id))
 				.map((assignment) => assignment.character_id)
 		).size;
+	});
+	let assignedCount = $derived.by(() => {
+		if (report.simulation_model === 'daily_labor_v1') {
+			const serviceIds = new Set(
+				report.assignments
+					.filter((assignment) => assignment.activity === 'ruler_service')
+					.map((assignment) => assignment.character_id)
+			);
+			return report.characters.filter(
+				(character) =>
+					character.labor_permille > 0 &&
+					character.status === 'active' &&
+					character.occupation &&
+					!serviceIds.has(character.id)
+			).length;
+		}
+		return finiteAssignedCount;
 	});
 	let tiredCount = $derived(
 		report.characters.filter((character) => character.fatigue >= 50).length
@@ -61,7 +78,7 @@
 			)}
 		</p>
 		<p class="next-half">
-			{formatRelativeGameDay(report.calendar.game_day, nextHalfYearStart(report.calendar.game_day))} until
+			{formatRelativeGameDay(report.calendar.game_day, nextHalfYearStart(report.calendar.game_day, report.simulation_model))} until
 			{report.calendar.half_year === 'summer' ? 'winter' : 'summer'} begins
 		</p>
 	</div>
@@ -75,7 +92,7 @@
 		<a class="status" href={resolve(householdPath('/work'))}>
 			<span>Labor</span>
 			<strong>{assignedCount}/{workerCount}</strong>
-			<small>workers planned</small>
+			<small>{report.simulation_model === 'daily_labor_v1' ? 'home labor available' : 'workers planned'}</small>
 		</a>
 		<a class:tired={tiredCount > 0} class="status" href={resolve(householdPath('/work'))}>
 			<span>Fatigue</span>

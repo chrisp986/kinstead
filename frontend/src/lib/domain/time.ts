@@ -18,24 +18,27 @@ export function settingYear(startYear: number, calendar: Pick<CalendarView, 'yea
 	return startYear + calendar.year_index;
 }
 
-export function calendarForGameDay(gameDay: number): CalendarView {
-	const yearIndex = Math.floor(gameDay / 364);
-	const dayOfYear = ((gameDay % 364) + 364) % 364;
-	const halfYear = dayOfYear < 182 ? 'summer' : 'winter';
+export function calendarForGameDay(gameDay: number, model: 'legacy' | 'daily_labor_v1' = 'legacy'): CalendarView {
+	const daysPerYear = model === 'daily_labor_v1' ? 365 : 364;
+	const summerEnd = model === 'daily_labor_v1' ? 183 : 182;
+	const autumnEnd = model === 'daily_labor_v1' ? 274 : 273;
+	const yearIndex = Math.floor(gameDay / daysPerYear);
+	const dayOfYear = ((gameDay % daysPerYear) + daysPerYear) % daysPerYear;
+	const halfYear = dayOfYear < summerEnd ? 'summer' : 'winter';
 	const productionSeason =
-		dayOfYear < 91 ? 'spring' : dayOfYear < 182 ? 'summer' : dayOfYear < 273 ? 'autumn' : 'winter';
+		dayOfYear < 91 ? 'spring' : dayOfYear < summerEnd ? 'summer' : dayOfYear < autumnEnd ? 'autumn' : 'winter';
 	const phase =
 		dayOfYear >= 91 && dayOfYear < 121
 			? 'early_summer'
 			: dayOfYear >= 121 && dayOfYear < 152
 				? 'high_summer'
-				: dayOfYear >= 152 && dayOfYear < 182
+				: dayOfYear >= 152 && dayOfYear < summerEnd
 					? 'late_summer'
-					: dayOfYear >= 273 && dayOfYear < 304
+				: dayOfYear >= autumnEnd && dayOfYear < autumnEnd + 30
 						? 'early_winter'
 						: dayOfYear >= 304 && dayOfYear < 334
 							? 'midwinter'
-							: dayOfYear >= 334
+						: dayOfYear >= autumnEnd + 60
 								? 'late_winter'
 								: '';
 	return {
@@ -43,12 +46,12 @@ export function calendarForGameDay(gameDay: number): CalendarView {
 		year_index: yearIndex,
 		day_of_year: dayOfYear,
 		week_of_year: Math.floor(dayOfYear / 7) + 1,
-		day_of_week: (dayOfYear % 7) + 1,
+		day_of_week: ((gameDay % 7) + 7) % 7 + 1,
 		production_season: productionSeason,
 		half_year: halfYear,
 		seasonal_phase: phase,
 		phase,
-		week_of_half: Math.floor((dayOfYear < 182 ? dayOfYear : dayOfYear - 182) / 7) + 1
+		week_of_half: Math.floor((dayOfYear < summerEnd ? dayOfYear : dayOfYear - summerEnd) / 7) + 1
 	};
 }
 
@@ -85,10 +88,12 @@ export function formatCalendarPosition(phase: string, weekOfHalf: number): strin
 	return `${formatPhaseName(phase)} · ${ordinal(weekOfHalf)} week`;
 }
 
-export function nextHalfYearStart(gameDay: number): number {
-	const year = Math.floor(gameDay / 364);
-	const dayOfYear = ((gameDay % 364) + 364) % 364;
-	return dayOfYear < 182 ? year * 364 + 182 : (year + 1) * 364;
+export function nextHalfYearStart(gameDay: number, model: 'legacy' | 'daily_labor_v1' = 'legacy'): number {
+	const daysPerYear = model === 'daily_labor_v1' ? 365 : 364;
+	const half = model === 'daily_labor_v1' ? 183 : 182;
+	const year = Math.floor(gameDay / daysPerYear);
+	const dayOfYear = ((gameDay % daysPerYear) + daysPerYear) % daysPerYear;
+	return dayOfYear < half ? year * daysPerYear + half : (year + 1) * daysPerYear;
 }
 
 export function calendarGroupForEvent(
@@ -96,7 +101,8 @@ export function calendarGroupForEvent(
 	targetGameDay: number,
 	actionRequired: boolean,
 	importance: string,
-	nextHalfStart = nextHalfYearStart(currentGameDay)
+	nextHalfStart = nextHalfYearStart(currentGameDay),
+	model: 'legacy' | 'daily_labor_v1' = 'legacy'
 ): CalendarGroup {
 	const days = targetGameDay - currentGameDay;
 	if (days === 0) return 'today';
@@ -104,7 +110,8 @@ export function calendarGroupForEvent(
 	if (days > 0 && days <= 7) return 'this_week';
 	if (days > 7 && days <= 14) return 'next_week';
 	if (targetGameDay < nextHalfStart) return 'later_current_half';
-	if (targetGameDay < nextHalfStart + 182) return 'next_half';
+	const halfLength = model === 'daily_labor_v1' ? 365 - 183 : 364 - 182;
+	if (targetGameDay < nextHalfStart + halfLength) return 'next_half';
 	return 'later';
 }
 

@@ -8,7 +8,15 @@ import (
 	marketdomain "game/backend/internal/domain/market"
 	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
+	workdomain "game/backend/internal/domain/work"
 	"game/backend/internal/simulation"
+)
+
+type SimulationModel string
+
+const (
+	ModelLegacy     SimulationModel = "legacy"
+	ModelDailyLabor SimulationModel = "daily_labor_v1"
 )
 
 type CharacterRecord struct {
@@ -17,11 +25,13 @@ type CharacterRecord struct {
 	BirthGameDay int64  `json:"birth_game_day"`
 	// BirthDate is retained only as a decoding compatibility field for older
 	// fixtures. PostgreSQL-backed projections no longer populate it.
-	BirthDate      string `json:"-"`
-	Age            int    `json:"age"`
-	LaborPermille  int64  `json:"labor_permille"`
-	Fatigue        int    `json:"fatigue"`
-	Specialization string `json:"specialization,omitempty"`
+	BirthDate      string                 `json:"-"`
+	Age            int                    `json:"age"`
+	LaborPermille  int64                  `json:"labor_permille"`
+	Fatigue        int                    `json:"fatigue"`
+	Status         string                 `json:"status"`
+	Specialization string                 `json:"specialization,omitempty"`
+	Occupation     *workdomain.Occupation `json:"occupation,omitempty"`
 }
 
 type AssignmentRecord struct {
@@ -73,6 +83,7 @@ type MarketOfferRecord struct {
 }
 
 type ChronicleEntryRecord struct {
+	Sequence                   int64          `json:"-"`
 	ID                         string         `json:"id"`
 	OccurredTick               int64          `json:"occurred_tick"`
 	OccurredGameDay            int64          `json:"occurred_game_day"`
@@ -91,25 +102,28 @@ type ChronicleEntryRecord struct {
 }
 
 type HouseholdSnapshot struct {
-	HouseholdID              string
-	HouseholdName            string
-	WorldID                  string
-	WorldName                string
-	CurrentTick              int64
-	CurrentGameDay           int64
-	CalendarRemainder        int64
-	GameDaysPerTickNum       int64
-	GameDaysPerTickDen       int64
-	SettingStartYear         int32
-	HistoricalStart          time.Time
-	HistoricalDaysPerTickNum int32
-	HistoricalDaysPerTickDen int32
-	TickDurationSeconds      int32
-	Specialization           string
-	LastSeenGameDay          int64
-	State                    simulation.HouseholdState
-	Characters               []CharacterRecord
-	Assignments              []AssignmentRecord
+	HouseholdID               string
+	HouseholdName             string
+	WorldID                   string
+	WorldName                 string
+	SimulationModel           SimulationModel
+	CurrentTick               int64
+	CurrentGameDay            int64
+	CalendarRemainder         int64
+	GameDaysPerTickNum        int64
+	GameDaysPerTickDen        int64
+	SettingStartYear          int32
+	HistoricalStart           time.Time
+	HistoricalDaysPerTickNum  int32
+	HistoricalDaysPerTickDen  int32
+	TickDurationSeconds       int32
+	Specialization            string
+	LastSeenGameDay           int64
+	LastSeenChronicleSequence int64
+	State                     simulation.HouseholdState
+	Characters                []CharacterRecord
+	Assignments               []AssignmentRecord
+	DailyLabor                *simulation.DailyLaborState
 }
 
 // These deliberately small ports keep application services independent from
@@ -149,8 +163,20 @@ type FarmReportReader interface {
 	ListChronicleSinceGameDayForReport(context.Context, string, int64, int) ([]ChronicleEntryRecord, error)
 }
 
+// PreciseFarmReportReader uses the database's monotonic chronicle sequence so
+// events created on the same game day, including concurrent events, are not
+// lost between report loads.
+type PreciseFarmReportReader interface {
+	ListChronicleSinceCursor(context.Context, string, int64, int64, int) ([]ChronicleEntryRecord, error)
+	CurrentChronicleCursor(context.Context, string) (int64, error)
+}
+
 type ReportAcknowledgementWriter interface {
 	AcknowledgeHouseholdReport(context.Context, string, int64) error
+}
+
+type PreciseReportAcknowledgementWriter interface {
+	AcknowledgeHouseholdReportCursor(context.Context, string, int64) error
 }
 
 type ShipmentRepository interface {
@@ -198,6 +224,7 @@ type WorldClaim struct {
 	GameDaysPerTickDen  int64
 	TickDurationSeconds int32
 	NextTickAt          time.Time
+	SimulationModel     SimulationModel
 }
 
 type EmergencyFoodContext struct {
@@ -233,6 +260,7 @@ type WorldTickTransaction interface {
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult, int64) error
+	SaveHouseholdDailyTick(context.Context, string, simulation.HourResult) error
 	LoadEmergencyFoodContext(context.Context, string, int64) (EmergencyFoodContext, error)
 	ScheduleEmergencyFoodWork(context.Context, string, EmergencyFoodDecisionRecord) (bool, error)
 	RecordEmergencyFoodDecision(context.Context, string, EmergencyFoodDecisionRecord) error

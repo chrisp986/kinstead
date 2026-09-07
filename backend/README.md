@@ -48,7 +48,9 @@ dates/seasons.
 - Production season comes from the resulting 364-day game calendar, not `tick % 48`.
 - The isolated v0.3 simulator still uses 12 balancing ticks per synthetic season.
 - Target pace: one game year in about 8 real days.
-- Therefore the development seed uses one tick every **4 real hours** (`14400` seconds)
+- Therefore the daily-labor development seed uses one hourly tick about every
+  **1,894 real seconds**, or approximately eight real days per game year.
+  Override `DEV_TICK_DURATION_SECONDS` when a faster local test loop is useful.
   by default. Local playtest resets can override only the wall-clock duration with
   `DEV_TICK_DURATION_SECONDS`.
 

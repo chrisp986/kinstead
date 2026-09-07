@@ -36,6 +36,14 @@ type Character struct {
 	BirthGameDay       int64
 }
 
+type CharacterOccupation struct {
+	CharacterID      pgtype.UUID
+	Activity         string
+	PendingActivity  pgtype.Text
+	EffectiveGameDay pgtype.Int8
+	Revision         int64
+}
+
 type CharacterSkill struct {
 	CharacterID      pgtype.UUID
 	SkillCode        string
@@ -59,6 +67,7 @@ type ChronicleEntry struct {
 	RelatedPoliticalActorID    pgtype.UUID
 	RelatedObligationID        pgtype.UUID
 	OccurredGameDay            int64
+	EventSequence              pgtype.Int8
 }
 
 type Contract struct {
@@ -103,16 +112,17 @@ type ContractTerm struct {
 }
 
 type Household struct {
-	ID              pgtype.UUID
-	WorldID         pgtype.UUID
-	OwnerPlayerID   pgtype.UUID
-	LocationID      pgtype.UUID
-	Name            string
-	Specialization  pgtype.Text
-	CreatedTick     int64
-	CreatedAt       pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
-	LastSeenGameDay int64
+	ID                        pgtype.UUID
+	WorldID                   pgtype.UUID
+	OwnerPlayerID             pgtype.UUID
+	LocationID                pgtype.UUID
+	Name                      string
+	Specialization            pgtype.Text
+	CreatedTick               int64
+	CreatedAt                 pgtype.Timestamptz
+	UpdatedAt                 pgtype.Timestamptz
+	LastSeenGameDay           int64
+	LastSeenChronicleSequence int64
 }
 
 type HouseholdBuilding struct {
@@ -121,6 +131,28 @@ type HouseholdBuilding struct {
 	BuildingType  string
 	Level         int32
 	CompletedTick int64
+}
+
+type HouseholdDailyLaborState struct {
+	HouseholdID            pgtype.UUID
+	PendingProvisionsMilli int64
+	PendingWoodMilli       int64
+	ProductionRemainders   []byte
+	ConsumptionRemainder   int64
+	WoodUpkeepRemainder    int64
+	FatigueRemainders      []byte
+	LastSettlementGameDay  pgtype.Int8
+	PolicyReason           pgtype.Text
+	UpdatedAt              pgtype.Timestamptz
+}
+
+type HouseholdDailySettlement struct {
+	HouseholdID     pgtype.UUID
+	GameDay         int64
+	ProvisionsMilli int64
+	WoodMilli       int64
+	Summary         []byte
+	CreatedAt       pgtype.Timestamptz
 }
 
 type HouseholdDecision struct {
@@ -297,6 +329,7 @@ type World struct {
 	GameDaysPerTickNum       int64
 	GameDaysPerTickDen       int64
 	SettingStartYear         int32
+	SimulationModel          string
 }
 
 type WorldEvent struct {

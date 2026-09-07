@@ -18,8 +18,10 @@ type PoliticalEventRecord struct {
 type PoliticalDecisionRecord struct {
 	ID, HouseholdID, WorldID, WorldEventID, DecisionType, Status string
 	PoliticalActorID, EventType                                  string
+	SimulationModel                                              SimulationModel
 	AvailableFromTick, ExpiresTick, CurrentTick                  int64
 	AvailableFromGameDay, ExpiresGameDay, CurrentGameDay         int64
+	GameDaysPerTickNum, GameDaysPerTickDen                       int64
 	SelectedOption                                               *string
 	StandingDelta                                                *int
 	Parameters                                                   []byte

@@ -176,6 +176,22 @@ controlled playtest session flow is not a self-service public account system;
 identity-provider login, registration, recovery, and session-management UI
 remain intentionally deferred.
 
+### 11. Persistent household occupations and daily routine --- current milestone
+
+New development and test worlds use `daily_labor_v1`: characters keep an
+agriculture, fishing, or woodcutting occupation; work runs from 08:00 through
+17:00 exclusive; output is earned hourly and settled atomically at 17:00; and
+fatigue recovers outside working hours. Occupation changes take effect at the
+next 08:00 boundary. Existing worlds remain on `legacy` until an explicit,
+reviewed conversion path preserves their history, stocks, service terms,
+ages, deadlines, and shipments.
+
+### 12. Seasonal agriculture and field management --- deferred
+
+After daily-routine playtesting, add fields, seeds, sowing, crop growth,
+tending, harvesting, and seasonal food-gap planning. This milestone is
+explicitly deferred; crop mechanics are not part of the daily-labor model.
+
 ## First end-to-end economic scenario
 
 Björnvik is low on provisions → player buys nearby provisions → silver

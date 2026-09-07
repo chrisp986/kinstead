@@ -24,10 +24,13 @@ would silently change the meaning of contracts, ages, seasons, and deadlines.
 
 ## Decision
 
-The authoritative simulated calendar uses an absolute integer `game_day`.
+The authoritative simulated calendar uses an absolute integer `game_day` and
+a versioned calendar definition. Legacy worlds retain the original 364-day
+interpretation. Daily-labor worlds use 365 days without leap years, with
+season boundaries at 0, 91, 183, 274, and 365.
 
 - `game_day = 0` is the initial world snapshot.
-- One gameplay year is 364 days / 52 weeks.
+- Legacy gameplay years are 364 days / 52 weeks.
 - One year contains four seasons.
 - Each season is 91 days / 13 weeks.
 - Year, season, week, and day labels are derived from `game_day`.
@@ -36,6 +39,13 @@ The authoritative simulated calendar uses an absolute integer `game_day`.
 - Simulation ticks are execution cadence and are separate from calendar time.
 - The v0.3 `48 ticks/year, 12 ticks/season` model remains synthetic balancing
   data and does not define the production calendar.
+
+Daily-labor worlds configure `game_days_per_tick_num=1` and
+`game_days_per_tick_den=24`. Work intervals are hourly `[start,end)`
+intervals from 08:00 inclusive through 17:00 exclusive. Production accrues
+to pending output and settles at 17:00 in the same transaction as the
+simulation tick. Worker polling is separately configured; the development
+seed's 1,894-second interval approximates eight real days per game year.
 
 The committed clock has an explicit interval rule. `current_tick` counts fully
 committed execution steps and `current_game_day` is the calendar position
@@ -77,9 +87,11 @@ Recurring contracts schedule obligations against the authoritative game clock.
 The initial implementation should support recurring intervals expressed in game
 days. Each generated obligation receives an absolute game-day arrival deadline.
 Calendar contracts classify lateness as 1--7 days, 8--14 days, and 15+ days;
-legacy v0.3 tick-backed contracts retain their frozen tick outcomes. Political
-demand service duration remains tick-based, while the response deadline is
-snapshotted in game days when the demand is issued.
+legacy v0.3 tick-backed contracts retain their frozen tick outcomes. Legacy
+political demand service duration remains tick-based. Daily-labor political
+service is expressed in game-time hours and converted to execution ticks;
+response deadlines are still snapshotted in game days when the demand is
+issued.
 
 For calendar contracts, `due_game_day` is the business deadline and any
 `due_arrival_tick` is a derived worker/execution projection. Arrival lateness

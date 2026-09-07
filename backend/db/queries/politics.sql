@@ -39,9 +39,11 @@ SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text 
        d.world_event_id::text AS world_event_id, d.decision_type, d.available_from_tick,
        d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
        d.selected_option, d.default_option, d.standing_delta, d.parameters,
-       e.political_actor_id::text AS political_actor_id, e.event_type
+       e.political_actor_id::text AS political_actor_id, e.event_type,
+       w.simulation_model
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
+JOIN worlds w ON w.id = d.world_id
 WHERE d.world_id = sqlc.arg(world_id)::uuid AND d.expires_tick = sqlc.arg(tick)
   AND d.status = 'pending'
 ORDER BY d.id
@@ -53,7 +55,8 @@ SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text 
        d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
        d.selected_option, d.default_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, e.event_type,
-       w.current_tick, w.current_game_day
+       w.current_tick, w.current_game_day, w.simulation_model,
+       w.game_days_per_tick_num, w.game_days_per_tick_den
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
 JOIN worlds w ON w.id = d.world_id

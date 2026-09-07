@@ -9,6 +9,9 @@ import type {
 	CancelShipmentData,
 	CancelShipmentErrors,
 	CancelShipmentResponses,
+	ChangeHouseholdOccupationData,
+	ChangeHouseholdOccupationErrors,
+	ChangeHouseholdOccupationResponses,
 	CreateHouseholdAssignmentData,
 	CreateHouseholdAssignmentErrors,
 	CreateHouseholdAssignmentResponses,
@@ -26,6 +29,9 @@ import type {
 	GetHouseholdReportData,
 	GetHouseholdReportErrors,
 	GetHouseholdReportResponses,
+	GetHouseholdWorkPlanData,
+	GetHouseholdWorkPlanErrors,
+	GetHouseholdWorkPlanResponses,
 	GetSessionData,
 	GetSessionErrors,
 	GetSessionResponses,
@@ -50,6 +56,9 @@ import type {
 	PreviewContractResponses,
 	PreviewHouseholdWorkData,
 	PreviewHouseholdWorkErrors,
+	PreviewHouseholdWorkPlanData,
+	PreviewHouseholdWorkPlanErrors,
+	PreviewHouseholdWorkPlanResponses,
 	PreviewHouseholdWorkResponses,
 	ProposeContractData,
 	ProposeContractErrors,
@@ -190,6 +199,57 @@ export const previewHouseholdWork = <ThrowOnError extends boolean = false>(
 	>({
 		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/households/{householdId}/work-preview',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const getHouseholdWorkPlan = <ThrowOnError extends boolean = false>(
+	options: Options<GetHouseholdWorkPlanData, ThrowOnError>
+): RequestResult<GetHouseholdWorkPlanResponses, GetHouseholdWorkPlanErrors, ThrowOnError> =>
+	(options.client ?? client).get<
+		GetHouseholdWorkPlanResponses,
+		GetHouseholdWorkPlanErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/work-plan',
+		...options
+	});
+
+export const changeHouseholdOccupation = <ThrowOnError extends boolean = false>(
+	options: Options<ChangeHouseholdOccupationData, ThrowOnError>
+): RequestResult<
+	ChangeHouseholdOccupationResponses,
+	ChangeHouseholdOccupationErrors,
+	ThrowOnError
+> =>
+	(options.client ?? client).put<
+		ChangeHouseholdOccupationResponses,
+		ChangeHouseholdOccupationErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/characters/{characterId}/occupation',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const previewHouseholdWorkPlan = <ThrowOnError extends boolean = false>(
+	options: Options<PreviewHouseholdWorkPlanData, ThrowOnError>
+): RequestResult<PreviewHouseholdWorkPlanResponses, PreviewHouseholdWorkPlanErrors, ThrowOnError> =>
+	(options.client ?? client).post<
+		PreviewHouseholdWorkPlanResponses,
+		PreviewHouseholdWorkPlanErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/work-plan/preview',
 		...options,
 		headers: {
 			'Content-Type': 'application/json',

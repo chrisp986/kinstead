@@ -104,6 +104,7 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	if err != nil {
 		return CalendarProjection{}, err
 	}
+	definition := calendar.DefinitionForModel(string(snap.SimulationModel))
 	if !validCalendarCategory(category) {
 		return CalendarProjection{}, ErrInvalidCalendarCategory
 	}
@@ -112,14 +113,14 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	case useDefault:
 		from = snap.CurrentGameDay
 		var ok bool
-		to, ok = addCalendarDays(from, 182)
+		to, ok = addCalendarDays(from, definition.HalfYearStart)
 		if !ok {
 			return CalendarProjection{}, fmt.Errorf("%w: range is too large", ErrInvalidCalendarRange)
 		}
 	case fromValue != nil && toValue == nil:
 		from = *fromValue
 		var ok bool
-		to, ok = addCalendarDays(from, 182)
+		to, ok = addCalendarDays(from, definition.HalfYearStart)
 		if !ok {
 			return CalendarProjection{}, fmt.Errorf("%w: range is too large", ErrInvalidCalendarRange)
 		}
@@ -128,7 +129,7 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	default:
 		return CalendarProjection{}, ErrCalendarFromRequired
 	}
-	if from < 0 || to < from || to-from > 364 {
+	if from < 0 || to < from || to-from > definition.DaysPerYear {
 		return CalendarProjection{}, fmt.Errorf("%w: range must be ordered and no longer than one year", ErrInvalidCalendarRange)
 	}
 	contextValue := port.CalendarContext{Snapshot: snap}
@@ -140,8 +141,8 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 		snap = contextValue.Snapshot
 	}
 	current := calendar.GameDay(snap.CurrentGameDay)
-	events := seasonalEvents(from, to)
-	events = append(events, anchorEvents(from, to)...)
+	events := seasonalEvents(from, to, definition)
+	events = append(events, anchorEvents(from, to, definition)...)
 	if s.Reader != nil {
 		sourcedEvents, err := sourceEvents(contextValue, from, to)
 		if err != nil {
@@ -162,32 +163,32 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 		}
 		return events[i].ID < events[j].ID
 	})
-	next, ok := nextHalfYearGameDay(current)
+	next, ok := nextHalfYearGameDay(current, definition)
 	if !ok {
 		return CalendarProjection{}, fmt.Errorf("%w: next half-year is outside the supported range", ErrInvalidCalendarRange)
 	}
 	return CalendarProjection{
 		HouseholdID: householdID, WorldID: snap.WorldID, StartYear: snap.SettingStartYear,
-		CurrentGameDay: snap.CurrentGameDay, Current: calendar.Breakdown(current),
-		NextHalfYear: NextHalfYear{Type: calendar.HalfYearAt(next), GameDay: int64(next), DaysUntil: calendar.DaysUntil(current, next)},
+		CurrentGameDay: snap.CurrentGameDay, Current: definition.Breakdown(current),
+		NextHalfYear: NextHalfYear{Type: definition.HalfYearAt(next), GameDay: int64(next), DaysUntil: calendar.DaysUntil(current, next)},
 		FromGameDay:  from, ToGameDay: to, Events: events,
 	}, nil
 }
 
-func seasonalEvents(from, to int64) []CalendarEvent {
+func seasonalEvents(from, to int64, definition calendar.CalendarDefinition) []CalendarEvent {
 	var events []CalendarEvent
-	firstYear := calendar.YearIndex(calendar.GameDay(from))
-	lastYear := calendar.YearIndex(calendar.GameDay(to))
+	firstYear := definition.YearIndex(calendar.GameDay(from))
+	lastYear := definition.YearIndex(calendar.GameDay(to))
 	starts := []struct {
 		season calendar.ProductionSeason
 		day    int64
 	}{
-		{calendar.Spring, 0}, {calendar.Summer, 91},
-		{calendar.Autumn, 182}, {calendar.Winter, 273},
+		{calendar.Spring, 0}, {calendar.Summer, definition.SpringEnd},
+		{calendar.Autumn, definition.SummerEnd}, {calendar.Winter, definition.AutumnEnd},
 	}
 	for year := firstYear; year <= lastYear; year++ {
 		for _, start := range starts {
-			day, ok := recurringGameDay(year, start.day)
+			day, ok := recurringGameDay(year, start.day, definition)
 			if !ok || day < from || day > to {
 				continue
 			}
@@ -197,13 +198,13 @@ func seasonalEvents(from, to int64) []CalendarEvent {
 	return events
 }
 
-func anchorEvents(from, to int64) []CalendarEvent {
+func anchorEvents(from, to int64, definition calendar.CalendarDefinition) []CalendarEvent {
 	var events []CalendarEvent
-	firstYear := calendar.YearIndex(calendar.GameDay(from))
-	lastYear := calendar.YearIndex(calendar.GameDay(to))
-	for _, rule := range calendar.DefaultAnchors() {
+	firstYear := definition.YearIndex(calendar.GameDay(from))
+	lastYear := definition.YearIndex(calendar.GameDay(to))
+	for _, rule := range calendar.DefaultAnchorsFor(definition) {
 		for year := firstYear; year <= lastYear; year++ {
-			day, ok := recurringGameDay(year, rule.DayOfYear)
+			day, ok := recurringGameDay(year, rule.DayOfYear, definition)
 			if !ok || day < from || day > to {
 				continue
 			}
@@ -346,24 +347,24 @@ func addCalendarDays(value, days int64) (int64, bool) {
 	return value + days, true
 }
 
-func recurringGameDay(year, dayOfYear int64) (int64, bool) {
-	if year < 0 || dayOfYear < 0 || dayOfYear >= calendar.DaysPerYear {
+func recurringGameDay(year, dayOfYear int64, definition calendar.CalendarDefinition) (int64, bool) {
+	if year < 0 || dayOfYear < 0 || dayOfYear >= definition.DaysPerYear {
 		return 0, false
 	}
-	if year > (math.MaxInt64-dayOfYear)/calendar.DaysPerYear {
+	if year > (math.MaxInt64-dayOfYear)/definition.DaysPerYear {
 		return 0, false
 	}
-	return year*calendar.DaysPerYear + dayOfYear, true
+	return year*definition.DaysPerYear + dayOfYear, true
 }
 
-func nextHalfYearGameDay(day calendar.GameDay) (calendar.GameDay, bool) {
-	base, ok := recurringGameDay(calendar.YearIndex(day), 0)
+func nextHalfYearGameDay(day calendar.GameDay, definition calendar.CalendarDefinition) (calendar.GameDay, bool) {
+	base, ok := recurringGameDay(definition.YearIndex(day), 0, definition)
 	if !ok {
 		return 0, false
 	}
-	offset := int64(182)
-	if calendar.DayOfYear(day) >= 182 {
-		offset = calendar.DaysPerYear
+	offset := definition.HalfYearStart
+	if definition.DayOfYear(day) >= definition.HalfYearStart {
+		offset = definition.DaysPerYear
 	}
 	next, ok := addCalendarDays(base, offset)
 	return calendar.GameDay(next), ok

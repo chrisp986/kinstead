@@ -17,6 +17,200 @@ var ErrArithmeticOverflow = errors.New("calendar arithmetic overflow")
 
 type GameDay int64
 
+// CalendarDefinition contains the rules that turn the absolute game-day
+// clock into presentation and seasonal boundaries. Legacy worlds retain the
+// 364-day definition; daily-labor worlds use the 365-day definition.
+type CalendarDefinition struct {
+	DaysPerYear   int64
+	DaysPerWeek   int64
+	DaysPerSeason int64
+	SpringEnd     int64
+	SummerEnd     int64
+	AutumnEnd     int64
+	HalfYearStart int64
+}
+
+var LegacyDefinition = CalendarDefinition{
+	DaysPerYear: 364, DaysPerWeek: 7, DaysPerSeason: 91,
+	SpringEnd: 91, SummerEnd: 182, AutumnEnd: 273, HalfYearStart: 182,
+}
+
+var DailyLaborDefinition = CalendarDefinition{
+	DaysPerYear: 365, DaysPerWeek: 7, DaysPerSeason: 0,
+	SpringEnd: 91, SummerEnd: 183, AutumnEnd: 274, HalfYearStart: 183,
+}
+
+// DefinitionForModel returns the calendar definition for a persisted model
+// identifier. Unknown models deliberately use legacy rules so old callers do
+// not accidentally reinterpret existing worlds.
+func DefinitionForModel(model string) CalendarDefinition {
+	if model == "daily_labor_v1" {
+		return DailyLaborDefinition
+	}
+	return LegacyDefinition
+}
+
+func (d CalendarDefinition) DayOfYear(day GameDay) int64 {
+	return floorDivModValue(int64(day), d.DaysPerYear)
+}
+
+func (d CalendarDefinition) YearIndex(day GameDay) int64 {
+	return floorDiv(int64(day), d.DaysPerYear)
+}
+
+func (d CalendarDefinition) ProductionSeasonAt(day GameDay) ProductionSeason {
+	doy := d.DayOfYear(day)
+	switch {
+	case doy < d.SpringEnd:
+		return Spring
+	case doy < d.SummerEnd:
+		return Summer
+	case doy < d.AutumnEnd:
+		return Autumn
+	default:
+		return Winter
+	}
+}
+
+func (d CalendarDefinition) HalfYearAt(day GameDay) HalfYear {
+	if d.DayOfYear(day) < d.HalfYearStart {
+		return SummerHalf
+	}
+	return WinterHalf
+}
+
+func (d CalendarDefinition) SeasonalPhaseAt(day GameDay) SeasonalPhase {
+	doy := d.DayOfYear(day)
+	// Phases intentionally remain cultural markers rather than equal-sized
+	// seasons. The daily calendar shifts the autumn/winter boundary by one day.
+	switch {
+	case doy >= d.SpringEnd && doy < d.SpringEnd+30:
+		return EarlySummer
+	case doy >= d.SpringEnd+30 && doy < d.SpringEnd+61:
+		return HighSummer
+	case doy >= d.SpringEnd+61 && doy < d.SummerEnd:
+		return LateSummer
+	case doy >= d.AutumnEnd && doy < d.AutumnEnd+30:
+		return EarlyWinter
+	case doy >= d.AutumnEnd+30 && doy < d.AutumnEnd+60:
+		return MidWinter
+	case doy >= d.AutumnEnd+60:
+		return LateWinter
+	default:
+		return SeasonalPhase("")
+	}
+}
+
+func (d CalendarDefinition) Breakdown(day GameDay) Date {
+	doy := d.DayOfYear(day)
+	halfDay := d.HalfYearStart
+	weekOfHalf := doy / d.DaysPerWeek
+	if doy >= halfDay {
+		weekOfHalf = (doy - halfDay) / d.DaysPerWeek
+	}
+	phase := d.SeasonalPhaseAt(day)
+	_, dayOfWeek := floorDivMod(int64(day), d.DaysPerWeek)
+	return Date{
+		GameDay: day, YearIndex: d.YearIndex(day), DayOfYear: doy,
+		WeekOfYear: doy/d.DaysPerWeek + 1, WeekOfHalf: weekOfHalf + 1,
+		DayOfWeek:        dayOfWeek + 1,
+		ProductionSeason: d.ProductionSeasonAt(day), HalfYear: d.HalfYearAt(day),
+		SeasonalPhase: phase, Phase: phase,
+	}
+}
+
+func (d CalendarDefinition) Age(birth, on GameDay) (int, error) {
+	if on < birth {
+		return 0, ErrInvalidClock
+	}
+	years := d.YearIndex(on) - d.YearIndex(birth)
+	if d.DayOfYear(on) < d.DayOfYear(birth) {
+		years--
+	}
+	return int(years), nil
+}
+
+func (d CalendarDefinition) StartOfNextHalfYear(day GameDay) GameDay {
+	start := GameDay(d.YearIndex(day) * d.DaysPerYear)
+	if d.DayOfYear(day) < d.HalfYearStart {
+		return start + GameDay(d.HalfYearStart)
+	}
+	return start + GameDay(d.DaysPerYear)
+}
+
+func (d CalendarDefinition) StartOfNextProductionSeason(day GameDay) GameDay {
+	start := GameDay(d.YearIndex(day) * d.DaysPerYear)
+	doy := d.DayOfYear(day)
+	for _, boundary := range []int64{0, d.SpringEnd, d.SummerEnd, d.AutumnEnd, d.DaysPerYear} {
+		if boundary > doy {
+			return start + GameDay(boundary)
+		}
+	}
+	return start + GameDay(d.DaysPerYear)
+}
+
+// ClockState is the persisted rational game-time clock. For daily-labor
+// worlds one remainder unit is one hour (1/24 game days).
+type ClockState struct {
+	Day                GameDay
+	Remainder          int64
+	GameDaysPerTickNum int64
+	GameDaysPerTickDen int64
+}
+
+type Moment struct {
+	Day  GameDay `json:"day"`
+	Hour int     `json:"hour"`
+}
+
+func HourOfDay(clock ClockState) (int, error) {
+	if clock.GameDaysPerTickNum <= 0 || clock.GameDaysPerTickDen <= 0 ||
+		clock.Remainder < 0 || clock.Remainder >= clock.GameDaysPerTickDen {
+		return 0, ErrInvalidClock
+	}
+	// The daily model is exactly one hour per remainder unit. The generic
+	// conversion keeps this helper useful for projections of other rational
+	// clocks without making the hour depend on tick modulo arithmetic.
+	hour := clock.Remainder * 24 / clock.GameDaysPerTickDen
+	if hour < 0 || hour > 23 {
+		return 0, ErrInvalidClock
+	}
+	return int(hour), nil
+}
+
+func MomentAtClock(clock ClockState) (Moment, error) {
+	hour, err := HourOfDay(clock)
+	if err != nil {
+		return Moment{}, err
+	}
+	return Moment{Day: clock.Day, Hour: hour}, nil
+}
+
+func IsWorkingHour(hour int) bool { return hour >= 8 && hour < 17 }
+
+func NextWorkStart(clock ClockState) (Moment, error) {
+	now, err := MomentAtClock(clock)
+	if err != nil {
+		return Moment{}, err
+	}
+	if now.Hour < 8 {
+		return Moment{Day: now.Day, Hour: 8}, nil
+	}
+	return Moment{Day: now.Day + 1, Hour: 8}, nil
+}
+
+func CrossesSettlement(start, end Moment) bool {
+	return start.Day == end.Day && start.Hour < 17 && end.Hour >= 17
+}
+
+func AdvanceMoment(moment Moment, hours int) Moment {
+	if hours < 0 {
+		return moment
+	}
+	total := moment.Hour + hours
+	return Moment{Day: moment.Day + GameDay(total/24), Hour: total % 24}
+}
+
 type Date struct {
 	GameDay          GameDay          `json:"game_day"`
 	YearIndex        int64            `json:"year_index"`

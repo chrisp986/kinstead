@@ -145,6 +145,58 @@ paths:
               schema: { $ref: '#/components/schemas/WorkPreview' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/households/{householdId}/work-plan:
+    get:
+      operationId: getHouseholdWorkPlan
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+      responses:
+        '200':
+          description: Persistent occupations and temporary commitments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkPlan' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/households/{householdId}/characters/{characterId}/occupation:
+    put:
+      operationId: changeHouseholdOccupation
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+        - name: characterId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeOccupationIntent' }
+      responses:
+        '200':
+          description: Occupation changed or pending change cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OccupationChangeResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/households/{householdId}/work-plan/preview:
+    post:
+      operationId: previewHouseholdWorkPlan
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OccupationPreviewIntent' }
+      responses:
+        '200':
+          description: Seven-game-day baseline and proposed household forecast
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HouseholdForecast' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/households/{householdId}/shipments:
     get:
       operationId: listHouseholdShipments
@@ -484,7 +536,7 @@ components:
         to_tick: { type: integer, format: int64 }
     Character:
       type: object
-      required: [id, name, birth_game_day, age, labor_permille, fatigue]
+      required: [id, name, birth_game_day, age, labor_permille, fatigue, status]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -492,7 +544,9 @@ components:
         age: { type: integer, minimum: 0 }
         labor_permille: { type: integer, format: int64 }
         fatigue: { type: integer }
+        status: { type: string }
         specialization: { type: string }
+        occupation: { $ref: '#/components/schemas/Occupation' }
     Assignment:
       type: object
       required: [id, character_id, character, activity, intensity, status]
@@ -508,11 +562,12 @@ components:
     HouseholdReport:
       type: object
       required:
-        [household_id, household_name, world_id, setting_start_year, tick, game_day, calendar, supply_game_days, supply_status, resources, characters, assignments, alerts, change_window, recent_changes, since_you_were_away, attention, decisions]
+        [household_id, household_name, world_id, simulation_model, setting_start_year, tick, game_day, calendar, supply_game_days, supply_status, resources, characters, assignments, alerts, change_window, recent_changes, since_you_were_away, attention, decisions, chronicle_cursor]
       properties:
         household_id: { type: string, format: uuid }
         household_name: { type: string }
         world_id: { type: string, format: uuid }
+        simulation_model: { type: string, enum: [legacy, daily_labor_v1] }
         setting_start_year: { type: integer }
         tick: { type: integer, format: int64 }
         game_day: { type: integer, format: int64 }
@@ -545,6 +600,14 @@ components:
         decisions:
           type: array
           items: { $ref: '#/components/schemas/ReportItem' }
+        chronicle_cursor: { type: integer, format: int64 }
+        pending_output_milli:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        forecast_net_milli:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        minimum_expected_food_milli: { type: integer, format: int64 }
     CalendarBreakdown:
       type: object
       required: [game_day, year_index, day_of_year, week_of_year, week_of_half, day_of_week, production_season, half_year, seasonal_phase, phase]
@@ -869,11 +932,98 @@ components:
         duration_game_days: { type: integer, format: int64 }
         assignment_conflicts: { type: array, items: { type: string, format: uuid } }
         warnings: { type: array, items: { type: string } }
+    Occupation:
+      type: object
+      required: [character_id, activity, revision]
+      properties:
+        character_id: { type: string, format: uuid }
+        activity: { type: string, enum: [agriculture, fishing, woodcutting] }
+        pending_activity: { type: string, enum: [agriculture, fishing, woodcutting] }
+        effective_day: { type: integer, format: int64 }
+        revision: { type: integer, format: int64 }
+    TemporaryDuty:
+      type: object
+      required: [id, activity, starts, ends]
+      properties:
+        id: { type: string, format: uuid }
+        activity: { type: string }
+        starts: { $ref: '#/components/schemas/Moment' }
+        ends: { $ref: '#/components/schemas/Moment' }
+        description: { type: string }
+    Moment:
+      type: object
+      required: [day, hour]
+      properties:
+        day: { type: integer, format: int64 }
+        hour: { type: integer, minimum: 0, maximum: 23 }
+    WorkPlan:
+      type: object
+      required: [household_id, current_game_day, current_tick, current_moment, occupations, temporary_duties]
+      properties:
+        household_id: { type: string, format: uuid }
+        current_game_day: { type: integer, format: int64 }
+        current_tick: { type: integer, format: int64 }
+        current_moment: { $ref: '#/components/schemas/Moment' }
+        occupations:
+          type: array
+          items: { $ref: '#/components/schemas/Occupation' }
+        temporary_duties:
+          type: array
+          items: { $ref: '#/components/schemas/TemporaryDuty' }
+    ChangeOccupationIntent:
+      type: object
+      required: [activity, expected_revision]
+      properties:
+        activity: { type: string, enum: [agriculture, fishing, woodcutting] }
+        expected_revision: { type: integer, format: int64, minimum: 1 }
+    OccupationChangeResult:
+      type: object
+      required: [occupation, effective, changed]
+      properties:
+        occupation: { $ref: '#/components/schemas/Occupation' }
+        effective: { $ref: '#/components/schemas/Moment' }
+        changed: { type: boolean }
+    OccupationPreviewIntent:
+      type: object
+      required: [character_id, activity]
+      properties:
+        character_id: { type: string, format: uuid }
+        activity: { type: string, enum: [agriculture, fishing, woodcutting] }
+    StockProjection:
+      type: object
+      required: [provisions_milli, wood_milli, pending_provisions_milli, pending_wood_milli]
+      properties:
+        provisions_milli: { type: integer, format: int64 }
+        wood_milli: { type: integer, format: int64 }
+        pending_provisions_milli: { type: integer, format: int64 }
+        pending_wood_milli: { type: integer, format: int64 }
+    ForecastWarning:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+    HouseholdForecast:
+      type: object
+      required: [based_on_revision, horizon_game_days, baseline_ending_stocks, proposed_ending_stocks, minimum_provisions_milli, proposed_minimum_provisions_milli, warnings]
+      properties:
+        based_on_revision: { type: integer, format: int64 }
+        horizon_game_days: { type: integer, minimum: 1, maximum: 7 }
+        baseline_ending_stocks: { $ref: '#/components/schemas/StockProjection' }
+        proposed_ending_stocks: { $ref: '#/components/schemas/StockProjection' }
+        minimum_provisions_milli: { type: integer, format: int64 }
+        proposed_minimum_provisions_milli: { type: integer, format: int64 }
+        first_shortage_at: { $ref: '#/components/schemas/Moment' }
+        proposed_first_shortage_at: { $ref: '#/components/schemas/Moment' }
+        warnings:
+          type: array
+          items: { $ref: '#/components/schemas/ForecastWarning' }
     AcknowledgeReportIntent:
       type: object
       required: [game_day]
       properties:
         game_day: { type: integer, format: int64, minimum: 0 }
+        chronicle_cursor: { type: integer, format: int64, minimum: 0 }
     PurchaseOfferIntent:
       type: object
       required: [buyer_household_id, quantity_milli]

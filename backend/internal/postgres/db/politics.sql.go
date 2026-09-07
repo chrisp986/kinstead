@@ -439,9 +439,11 @@ SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text 
        d.world_event_id::text AS world_event_id, d.decision_type, d.available_from_tick,
        d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
        d.selected_option, d.default_option, d.standing_delta, d.parameters,
-       e.political_actor_id::text AS political_actor_id, e.event_type
+       e.political_actor_id::text AS political_actor_id, e.event_type,
+       w.simulation_model
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
+JOIN worlds w ON w.id = d.world_id
 WHERE d.world_id = $1::uuid AND d.expires_tick = $2
   AND d.status = 'pending'
 ORDER BY d.id
@@ -470,6 +472,7 @@ type LoadExpiringPoliticalDecisionsRow struct {
 	Parameters           []byte
 	PoliticalActorID     string
 	EventType            string
+	SimulationModel      string
 }
 
 func (q *Queries) LoadExpiringPoliticalDecisions(ctx context.Context, arg LoadExpiringPoliticalDecisionsParams) ([]LoadExpiringPoliticalDecisionsRow, error) {
@@ -498,6 +501,7 @@ func (q *Queries) LoadExpiringPoliticalDecisions(ctx context.Context, arg LoadEx
 			&i.Parameters,
 			&i.PoliticalActorID,
 			&i.EventType,
+			&i.SimulationModel,
 		); err != nil {
 			return nil, err
 		}
@@ -622,7 +626,8 @@ SELECT d.id::text AS id, d.household_id::text AS household_id, d.world_id::text 
        d.expires_tick, d.available_from_game_day, d.expires_game_day, d.status,
        d.selected_option, d.default_option, d.standing_delta, d.parameters,
        e.political_actor_id::text AS political_actor_id, e.event_type,
-       w.current_tick, w.current_game_day
+       w.current_tick, w.current_game_day, w.simulation_model,
+       w.game_days_per_tick_num, w.game_days_per_tick_den
 FROM household_decisions d
 JOIN world_events e ON e.id = d.world_event_id
 JOIN worlds w ON w.id = d.world_id
@@ -654,6 +659,9 @@ type LockPoliticalDecisionRow struct {
 	EventType            string
 	CurrentTick          int64
 	CurrentGameDay       int64
+	SimulationModel      string
+	GameDaysPerTickNum   int64
+	GameDaysPerTickDen   int64
 }
 
 func (q *Queries) LockPoliticalDecision(ctx context.Context, arg LockPoliticalDecisionParams) (LockPoliticalDecisionRow, error) {
@@ -678,6 +686,9 @@ func (q *Queries) LockPoliticalDecision(ctx context.Context, arg LockPoliticalDe
 		&i.EventType,
 		&i.CurrentTick,
 		&i.CurrentGameDay,
+		&i.SimulationModel,
+		&i.GameDaysPerTickNum,
+		&i.GameDaysPerTickDen,
 	)
 	return i, err
 }

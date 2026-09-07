@@ -1,8 +1,10 @@
 -- Development-only Bjornvik seed. Run after all migrations.
 BEGIN;
 
-INSERT INTO worlds (id, name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at)
-VALUES ('00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0, :tick_duration_seconds, now());
+INSERT INTO worlds (id, name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at,
+                    simulation_model, game_days_per_tick_num, game_days_per_tick_den)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0,
+        COALESCE(:tick_duration_seconds, 1894), now(), 'daily_labor_v1', 1, 24);
 
 INSERT INTO locations (id, world_id, name, location_type) VALUES
 ('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000001','Bjornvik','farm'),
@@ -36,6 +38,17 @@ INSERT INTO characters (id, household_id, name, birth_date, birth_game_day, labo
 INSERT INTO character_skills (character_id, skill_code, level) VALUES
 ('00000000-0000-0000-0000-000000000101','agriculture',1),
 ('00000000-0000-0000-0000-000000000102','fishing',1);
+
+INSERT INTO character_occupations (character_id, activity) VALUES
+('00000000-0000-0000-0000-000000000101','agriculture'),
+('00000000-0000-0000-0000-000000000102','fishing'),
+('00000000-0000-0000-0000-000000000103','woodcutting'),
+('00000000-0000-0000-0000-000000000104','fishing'),
+('00000000-0000-0000-0000-000000000105','agriculture');
+
+INSERT INTO household_daily_labor_state (household_id)
+VALUES ('00000000-0000-0000-0000-000000000020'),
+       ('00000000-0000-0000-0000-000000000021');
 
 INSERT INTO resource_stocks (household_id, resource_code, quantity_milli) VALUES
 ('00000000-0000-0000-0000-000000000020','provisions',150000),

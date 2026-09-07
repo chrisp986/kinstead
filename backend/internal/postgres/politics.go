@@ -56,7 +56,7 @@ func politicalDecision(row sqlcdb.LoadExpiringPoliticalDecisionsRow) port.Politi
 		v := int(row.StandingDelta.Int32)
 		delta = &v
 	}
-	return port.PoliticalDecisionRecord{ID: row.ID, HouseholdID: row.HouseholdID, WorldID: row.WorldID, WorldEventID: row.WorldEventID, DecisionType: row.DecisionType, AvailableFromTick: row.AvailableFromTick, ExpiresTick: row.ExpiresTick, AvailableFromGameDay: row.AvailableFromGameDay, ExpiresGameDay: row.ExpiresGameDay, Status: row.Status, SelectedOption: selected, StandingDelta: delta, Parameters: row.Parameters, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType}
+	return port.PoliticalDecisionRecord{ID: row.ID, HouseholdID: row.HouseholdID, WorldID: row.WorldID, WorldEventID: row.WorldEventID, DecisionType: row.DecisionType, AvailableFromTick: row.AvailableFromTick, ExpiresTick: row.ExpiresTick, AvailableFromGameDay: row.AvailableFromGameDay, ExpiresGameDay: row.ExpiresGameDay, Status: row.Status, SelectedOption: selected, StandingDelta: delta, Parameters: row.Parameters, PoliticalActorID: row.PoliticalActorID, EventType: row.EventType, SimulationModel: port.SimulationModel(row.SimulationModel)}
 }
 
 func (t *worldTickTx) LoadPoliticalEventsStartingTick(ctx context.Context, worldID string, tick int64) ([]port.PoliticalEventRecord, error) {
@@ -174,7 +174,7 @@ func (t *politicsTx) LoadPoliticalDecision(ctx context.Context, decision, househ
 	if e != nil {
 		return port.PoliticalDecisionRecord{}, normalizeTransactionError(e)
 	}
-	out := port.PoliticalDecisionRecord{ID: r.ID, HouseholdID: r.HouseholdID, WorldID: r.WorldID, WorldEventID: r.WorldEventID, DecisionType: r.DecisionType, AvailableFromTick: r.AvailableFromTick, ExpiresTick: r.ExpiresTick, AvailableFromGameDay: r.AvailableFromGameDay, ExpiresGameDay: r.ExpiresGameDay, Status: r.Status, Parameters: r.Parameters, PoliticalActorID: r.PoliticalActorID, EventType: r.EventType, CurrentTick: r.CurrentTick, CurrentGameDay: r.CurrentGameDay}
+	out := port.PoliticalDecisionRecord{ID: r.ID, HouseholdID: r.HouseholdID, WorldID: r.WorldID, WorldEventID: r.WorldEventID, DecisionType: r.DecisionType, AvailableFromTick: r.AvailableFromTick, ExpiresTick: r.ExpiresTick, AvailableFromGameDay: r.AvailableFromGameDay, ExpiresGameDay: r.ExpiresGameDay, Status: r.Status, Parameters: r.Parameters, PoliticalActorID: r.PoliticalActorID, EventType: r.EventType, CurrentTick: r.CurrentTick, CurrentGameDay: r.CurrentGameDay, SimulationModel: port.SimulationModel(r.SimulationModel), GameDaysPerTickNum: r.GameDaysPerTickNum, GameDaysPerTickDen: r.GameDaysPerTickDen}
 	if r.SelectedOption.Valid {
 		v := r.SelectedOption.String
 		out.SelectedOption = &v

@@ -1,5 +1,10 @@
 package simulation
 
+import (
+	"game/backend/internal/calendar"
+	workdomain "game/backend/internal/domain/work"
+)
+
 func fatigueProductionPermille(fatigue int) int64 {
 	switch {
 	case fatigue >= 85:
@@ -45,4 +50,43 @@ func EstimateProduction(c Character, a Assignment, farmSpecialization Activity, 
 		result = result * cfg.SkillModifierPermille / 1000
 	}
 	return result
+}
+
+// EstimateHourlyProduction derives an hourly amount from a complete nine-hour
+// workday rate. It intentionally does not copy legacy per-tick coefficients.
+func EstimateHourlyProduction(c DailyCharacter, activity workdomain.Activity, season Season, farmSpecialization Activity, cfg DailyLaborConfig) int64 {
+	if c.LaborPermille <= 0 || c.Status == "dead" {
+		return 0
+	}
+	base := cfg.ProductionPerWorkday[season][activity]
+	if base <= 0 {
+		return 0
+	}
+	result := base * c.LaborPermille / 1000
+	result = result * dailyFatigueProductionPermille(c.Fatigue) / 1000
+	if cfg.SkillModifierPermille > 0 && string(c.Specialization) == string(activity) {
+		result = result * cfg.SkillModifierPermille / 1000
+	}
+	if modifiers, ok := cfg.FarmModifiers[workdomain.Activity(farmSpecialization)]; ok {
+		if modifier, ok := modifiers[activity]; ok {
+			result = result * modifier / 1000
+		}
+	}
+	return result
+}
+
+func dailyFatigueProductionPermille(fatigue int) int64 {
+	switch {
+	case fatigue >= 85:
+		return 750
+	case fatigue >= 70:
+		return 900
+	default:
+		return 1000
+	}
+}
+
+// HourlyProductionForMoment is a small convenience for previews and tests.
+func HourlyProductionForMoment(c DailyCharacter, activity workdomain.Activity, day calendar.GameDay, cfg DailyLaborConfig) int64 {
+	return EstimateHourlyProduction(c, activity, Season(calendar.DailyLaborDefinition.ProductionSeasonAt(day)), c.Specialization, cfg)
 }

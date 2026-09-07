@@ -35,6 +35,30 @@ func DefaultAnchors() []AnchorRule {
 	return append([]AnchorRule(nil), defaultAnchorRules...)
 }
 
+// DefaultAnchorsFor returns anchors under an explicit calendar definition.
+// The one-day autumn/winter shift in the daily model is reflected here so
+// calendar projections and simulation agree at season boundaries.
+func DefaultAnchorsFor(def CalendarDefinition) []AnchorRule {
+	anchors := DefaultAnchors()
+	if def.DaysPerYear == DailyLaborDefinition.DaysPerYear {
+		for i := range anchors {
+			switch anchors[i].Code {
+			case "harvest_start":
+				anchors[i].DayOfYear = 152
+			case "thing":
+				anchors[i].DayOfYear = 288
+			case "winter_start":
+				anchors[i].DayOfYear = 274
+			case "midwinter":
+				anchors[i].DayOfYear = 305
+			case "jol":
+				anchors[i].DayOfYear = 321
+			}
+		}
+	}
+	return anchors
+}
+
 func AnchorGameDay(rule AnchorRule, year int64) GameDay {
 	return GameDay(year*DaysPerYear + rule.DayOfYear)
 }

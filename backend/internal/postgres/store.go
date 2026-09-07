@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -16,6 +17,7 @@ import (
 	contractdomain "game/backend/internal/domain/contract"
 	relationshipdomain "game/backend/internal/domain/relationship"
 	shipmentdomain "game/backend/internal/domain/shipment"
+	workdomain "game/backend/internal/domain/work"
 	"game/backend/internal/port"
 	sqlcdb "game/backend/internal/postgres/db"
 	"game/backend/internal/simulation"
@@ -95,6 +97,9 @@ func (t *worldTickTx) LoadHouseholdForTick(ctx context.Context, householdID stri
 func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string, result simulation.TickResult, effectiveGameDay int64) error {
 	return t.store.SaveHouseholdTick(ctx, t.tx, householdID, result, effectiveGameDay)
 }
+func (t *worldTickTx) SaveHouseholdDailyTick(ctx context.Context, householdID string, result simulation.HourResult) error {
+	return t.store.SaveHouseholdDailyTick(ctx, t.tx, householdID, result)
+}
 func (t *worldTickTx) LoadEmergencyFoodContext(ctx context.Context, householdID string, nextTick int64) (port.EmergencyFoodContext, error) {
 	return t.store.LoadEmergencyFoodContext(ctx, t.tx, householdID, nextTick)
 }
@@ -129,7 +134,7 @@ func (s *Store) ClaimDueWorld(ctx context.Context, tx pgx.Tx) (WorldClaim, bool,
 		ID: row.ID, CurrentTick: row.CurrentTick, CurrentGameDay: row.CurrentGameDay,
 		CalendarRemainder: row.CalendarRemainder, GameDaysPerTickNum: row.GameDaysPerTickNum,
 		GameDaysPerTickDen: row.GameDaysPerTickDen, TickDurationSeconds: row.TickDurationSeconds,
-		NextTickAt: row.NextTickAt.Time,
+		NextTickAt: row.NextTickAt.Time, SimulationModel: port.SimulationModel(row.SimulationModel),
 	}
 	return w, true, nil
 }
@@ -581,20 +586,22 @@ type HouseholdSnapshot = port.HouseholdSnapshot
 func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID string, tick int64) (HouseholdSnapshot, []simulation.Assignment, error) {
 	var snap HouseholdSnapshot
 	err := tx.QueryRow(ctx, `
-		SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
+		SELECT h.id::text, h.name, h.world_id::text, w.name, w.simulation_model, w.current_tick,
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day
+		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day,
+		       h.last_seen_chronicle_sequence
         FROM households h
         JOIN worlds w ON w.id = h.world_id
         WHERE h.id = $1::uuid
         FOR UPDATE OF h, w
     `, householdID).Scan(
-		&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName,
+		&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.SimulationModel,
 		&snap.CurrentTick, &snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum,
 		&snap.GameDaysPerTickDen, &snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum,
 		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay,
+		&snap.LastSeenChronicleSequence,
 	)
 	if err != nil {
 		return snap, nil, err
@@ -625,15 +632,18 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 	}
 
 	charRows, err := tx.Query(ctx, `
-		SELECT c.id::text, c.name, c.birth_game_day, c.labor_capacity_milli, c.fatigue,
+		SELECT c.id::text, c.name, c.birth_game_day, c.labor_capacity_milli, c.fatigue, c.status,
                COALESCE((
                    SELECT cs.skill_code FROM character_skills cs
                    WHERE cs.character_id = c.id AND cs.level > 0
                    ORDER BY cs.level DESC, cs.skill_code
                    LIMIT 1
                ), '') AS specialization
-        FROM characters c
-        WHERE c.household_id = $1::uuid AND c.status = 'active'
+		FROM characters c
+		JOIN households h ON h.id = c.household_id
+		JOIN worlds w ON w.id = h.world_id
+		WHERE c.household_id = $1::uuid
+		  AND (c.status = 'active' OR (w.simulation_model = 'daily_labor_v1' AND c.status <> 'dead'))
         ORDER BY c.created_at, c.id
         FOR UPDATE OF c
     `, householdID)
@@ -643,14 +653,14 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 	var chars []simulation.Character
 	for charRows.Next() {
 		var cr CharacterRecord
-		if err := charRows.Scan(&cr.ID, &cr.Name, &cr.BirthGameDay, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
+		if err := charRows.Scan(&cr.ID, &cr.Name, &cr.BirthGameDay, &cr.LaborPermille, &cr.Fatigue, &cr.Status, &cr.Specialization); err != nil {
 			charRows.Close()
 			return snap, nil, err
 		}
 		snap.Characters = append(snap.Characters, cr)
 		chars = append(chars, simulation.Character{
 			ID: cr.ID, Name: cr.Name, LaborPermille: cr.LaborPermille,
-			Fatigue: cr.Fatigue, Specialization: simulation.Activity(cr.Specialization),
+			Fatigue: cr.Fatigue, Specialization: simulation.Activity(cr.Specialization), BirthGameDay: cr.BirthGameDay, Status: cr.Status,
 		})
 	}
 	charRows.Close()
@@ -703,6 +713,11 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		SilverMilli:        stocks["silver"],
 		Characters:         chars,
 	}
+	if snap.SimulationModel == port.ModelDailyLabor {
+		if err := s.loadDailyLaborState(ctx, tx, &snap, stocks); err != nil {
+			return snap, nil, err
+		}
+	}
 	return snap, assignments, nil
 }
 
@@ -717,6 +732,98 @@ func dbFarmSpecialization(v string) simulation.Activity {
 	default:
 		return ""
 	}
+}
+
+func (s *Store) loadDailyLaborState(ctx context.Context, tx pgx.Tx, snap *HouseholdSnapshot, stocks map[string]int64) error {
+	state := simulation.DailyLaborState{
+		Tick: snap.CurrentTick, CurrentGameDay: calendar.GameDay(snap.CurrentGameDay), CalendarRemainder: snap.CalendarRemainder,
+		FarmSpecialization: dbFarmSpecialization(snap.Specialization), ProvisionsMilli: stocks["provisions"], WoodMilli: stocks["wood"],
+		TradeGoodsMilli: stocks["trade_goods"], SilverMilli: stocks["silver"], ProductionRemainders: map[string]int64{}, FatigueRemainders: map[string]int64{},
+	}
+	rows, err := tx.Query(ctx, `SELECT o.character_id::text, o.activity, o.pending_activity, o.effective_game_day, o.revision
+		FROM character_occupations o JOIN characters c ON c.id=o.character_id WHERE c.household_id=$1::uuid`, snap.HouseholdID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, activity string
+			var pending pgtype.Text
+			var effective pgtype.Int8
+			var revision int64
+			if err := rows.Scan(&id, &activity, &pending, &effective, &revision); err != nil {
+				return err
+			}
+			for i := range snap.Characters {
+				if snap.Characters[i].ID != id {
+					continue
+				}
+				o := workdomain.Occupation{CharacterID: id, Activity: workdomain.Activity(activity), Revision: revision}
+				if pending.Valid {
+					v := workdomain.Activity(pending.String)
+					o.PendingActivity = &v
+				}
+				if effective.Valid {
+					v := calendar.GameDay(effective.Int64)
+					o.EffectiveDay = &v
+				}
+				snap.Characters[i].Occupation = &o
+				break
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
+	var pendingFood, pendingWood, consumptionRemainder, woodRemainder int64
+	var remainders, fatigueRemainders []byte
+	var policyReason pgtype.Text
+	var lastSettlement pgtype.Int8
+	err = tx.QueryRow(ctx, `SELECT pending_provisions_milli,pending_wood_milli,production_remainders,consumption_remainder,wood_upkeep_remainder,fatigue_remainders,last_settlement_game_day,policy_reason FROM household_daily_labor_state WHERE household_id=$1::uuid`, snap.HouseholdID).Scan(&pendingFood, &pendingWood, &remainders, &consumptionRemainder, &woodRemainder, &fatigueRemainders, &lastSettlement, &policyReason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A daily world created before the state row was seeded starts with clean
+		// remainder state; no historical resources are altered.
+		remainders, fatigueRemainders = []byte(`{}`), []byte(`{}`)
+	} else if err != nil {
+		return err
+	}
+	_ = json.Unmarshal(remainders, &state.ProductionRemainders)
+	_ = json.Unmarshal(fatigueRemainders, &state.FatigueRemainders)
+	state.PendingProvisionsMilli, state.PendingWoodMilli = pendingFood, pendingWood
+	state.ConsumptionRemainder, state.WoodUpkeepRemainder = consumptionRemainder, woodRemainder
+	if policyReason.Valid {
+		state.PolicyReason = policyReason.String
+	}
+	if lastSettlement.Valid {
+		v := calendar.GameDay(lastSettlement.Int64)
+		state.LastSettlementDay = &v
+	}
+	for _, c := range snap.Characters {
+		o := workdomain.Occupation{CharacterID: c.ID, Activity: workdomain.Agriculture, Revision: 1}
+		if c.Occupation != nil {
+			o = *c.Occupation
+		}
+		state.Characters = append(state.Characters, simulation.DailyCharacter{ID: c.ID, Name: c.Name, BirthGameDay: c.BirthGameDay, LaborPermille: c.LaborPermille, Fatigue: c.Fatigue, Status: c.Status, Specialization: simulation.Activity(c.Specialization), Occupation: o})
+	}
+	clock := calendar.ClockState{Day: calendar.GameDay(snap.CurrentGameDay), Remainder: snap.CalendarRemainder, GameDaysPerTickNum: snap.GameDaysPerTickNum, GameDaysPerTickDen: snap.GameDaysPerTickDen}
+	currentMoment, err := calendar.MomentAtClock(clock)
+	if err != nil {
+		return err
+	}
+	for _, assignment := range snap.Assignments {
+		if assignment.Activity != string(workdomain.RulerService) {
+			continue
+		}
+		start := calendar.AdvanceMoment(currentMoment, int(assignment.StartsTick-snap.CurrentTick))
+		end := calendar.AdvanceMoment(start, int(assignment.EndsTick-assignment.StartsTick+1))
+		for i := range state.Characters {
+			if state.Characters[i].ID == assignment.CharacterID {
+				state.Characters[i].TemporaryDuties = append(state.Characters[i].TemporaryDuties, workdomain.TemporaryDuty{ID: assignment.ID, Activity: workdomain.RulerService, Starts: start, Ends: end, Description: "temporary Jarl service"})
+			}
+		}
+	}
+	snap.DailyLabor = &state
+	return nil
 }
 
 func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID string, result simulation.TickResult, effectiveGameDay int64) error {
@@ -955,17 +1062,18 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	// Read-only twin of LoadHouseholdForTick. It intentionally avoids row locks for API projections.
 	var snap HouseholdSnapshot
 	err := tx.QueryRow(ctx, `
-		SELECT h.id::text, h.name, h.world_id::text, w.name, w.current_tick,
+		SELECT h.id::text, h.name, h.world_id::text, w.name, w.simulation_model, w.current_tick,
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day
+		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day,
+		       h.last_seen_chronicle_sequence
         FROM households h JOIN worlds w ON w.id=h.world_id
         WHERE h.id=$1::uuid
-	`, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.CurrentTick,
+	`, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.SimulationModel, &snap.CurrentTick,
 		&snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum, &snap.GameDaysPerTickDen,
 		&snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen,
-		&snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay)
+		&snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay, &snap.LastSeenChronicleSequence)
 	if err != nil {
 		return snap, nil, err
 	}
@@ -990,9 +1098,10 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	}
 
 	rows, err = tx.Query(ctx, `
-		SELECT c.id::text,c.name,c.birth_game_day,c.labor_capacity_milli,c.fatigue,
+		SELECT c.id::text,c.name,c.birth_game_day,c.labor_capacity_milli,c.fatigue,c.status,
         COALESCE((SELECT cs.skill_code FROM character_skills cs WHERE cs.character_id=c.id AND cs.level>0 ORDER BY cs.level DESC,cs.skill_code LIMIT 1),'')
-        FROM characters c WHERE c.household_id=$1::uuid AND c.status='active' ORDER BY c.created_at,c.id
+        FROM characters c JOIN households h ON h.id=c.household_id JOIN worlds w ON w.id=h.world_id
+        WHERE c.household_id=$1::uuid AND (c.status='active' OR (w.simulation_model='daily_labor_v1' AND c.status <> 'dead')) ORDER BY c.created_at,c.id
     `, householdID)
 	if err != nil {
 		return snap, nil, err
@@ -1000,12 +1109,12 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	var chars []simulation.Character
 	for rows.Next() {
 		var cr CharacterRecord
-		if err := rows.Scan(&cr.ID, &cr.Name, &cr.BirthGameDay, &cr.LaborPermille, &cr.Fatigue, &cr.Specialization); err != nil {
+		if err := rows.Scan(&cr.ID, &cr.Name, &cr.BirthGameDay, &cr.LaborPermille, &cr.Fatigue, &cr.Status, &cr.Specialization); err != nil {
 			rows.Close()
 			return snap, nil, err
 		}
 		snap.Characters = append(snap.Characters, cr)
-		chars = append(chars, simulation.Character{ID: cr.ID, Name: cr.Name, LaborPermille: cr.LaborPermille, Fatigue: cr.Fatigue, Specialization: simulation.Activity(cr.Specialization)})
+		chars = append(chars, simulation.Character{ID: cr.ID, Name: cr.Name, LaborPermille: cr.LaborPermille, Fatigue: cr.Fatigue, Specialization: simulation.Activity(cr.Specialization), BirthGameDay: cr.BirthGameDay, Status: cr.Status})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -1041,6 +1150,11 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	}
 
 	snap.State = simulation.HouseholdState{Tick: snap.CurrentTick, FarmSpecialization: dbFarmSpecialization(snap.Specialization), ProvisionsMilli: stocks["provisions"], WoodMilli: stocks["wood"], TradeGoodsMilli: stocks["trade_goods"], SilverMilli: stocks["silver"], Characters: chars}
+	if snap.SimulationModel == port.ModelDailyLabor {
+		if err := s.loadDailyLaborState(ctx, tx, &snap, stocks); err != nil {
+			return snap, nil, err
+		}
+	}
 	return snap, assignments, nil
 }
 
