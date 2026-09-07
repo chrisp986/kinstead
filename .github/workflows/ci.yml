@@ -104,19 +104,24 @@ jobs:
         run: |
           bash -n scripts/dev.sh
           bash -n scripts/test_dev.sh
+          bash -n scripts/dev_session.sh
+          bash -n scripts/test_dev_session.sh
           bash -n backend/scripts/bootstrap_db.sh
           bash -n backend/scripts/migrate_db.sh
           bash -n backend/scripts/reset_db.sh
           bash -n backend/scripts/reset_playtest_db.sh
           bash -n backend/scripts/test_game_time_migration.sh
           bash -n backend/scripts/test_calendar_migration_rollback.sh
-          shellcheck scripts/dev.sh scripts/test_dev.sh \
+          shellcheck scripts/dev.sh scripts/test_dev.sh scripts/dev_session.sh \
+            scripts/test_dev_session.sh \
             backend/scripts/bootstrap_db.sh backend/scripts/migrate_db.sh \
             backend/scripts/reset_db.sh backend/scripts/reset_playtest_db.sh \
             backend/scripts/test_game_time_migration.sh \
             backend/scripts/test_calendar_migration_rollback.sh
       - name: Test launcher argument parsing
         run: ./scripts/test_dev.sh
+      - name: Test development session provisioning
+        run: bash ./scripts/test_dev_session.sh
 
   frontend:
     runs-on: ubuntu-latest
