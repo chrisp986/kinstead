@@ -24,6 +24,37 @@ lifetime is 30 days. Revoke a session by setting its `revoked_at` in PostgreSQL;
 deleting a player also deletes their sessions. No HTTP endpoint can issue a
 session, create a player, or claim or transfer a household.
 
+## Local development launcher
+
+On a trusted, disposable local development database, the root launcher also
+provisions a playtest session after the API, worker, and frontend become ready:
+
+```sh
+./scripts/dev.sh playtest
+```
+
+The terminal prints the player ID, Bjornvik household, and a fresh session key.
+Copy the key into the frontend's `/sign-in` page. The default lifetime is 24
+hours; override it with `DEV_SESSION_LIFETIME`, for example:
+
+```sh
+DEV_SESSION_LIFETIME=2h ./scripts/dev.sh playtest
+```
+
+The existing session CLI enforces the 30-day maximum. The launcher uses the
+existing Bjornvik owner if one is assigned. On a fresh, unowned development
+seed, it creates a dedicated local player and assigns Bjornvik only while the
+household remains unowned. It never replaces an existing owner, resets the world
+for authentication, or bypasses authorization. Each startup issues a new
+credential; previously issued sessions remain valid until expiry or revocation.
+The helper can also be run manually with `bash ./scripts/dev_session.sh` after
+the local database has been migrated and seeded.
+
+Keep terminal output private and do not redirect session keys into shared logs.
+This convenience is intended only for the local operator workflow, not for
+production startup or a shared server. Production accounts continue to use
+explicit trusted provisioning.
+
 The browser's `/sign-in` page validates the secret server-side and stores it in
 an HttpOnly, SameSite=Lax cookie, Secure outside development. SvelteKit forwards
 it as a bearer header only to the configured backend origin. Its form origin
