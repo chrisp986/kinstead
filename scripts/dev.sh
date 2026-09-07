@@ -31,6 +31,9 @@ Profiles:
 Options:
   --reset   recreate the disposable local database before starting services
   --print-config  print the parsed configuration without touching Docker
+
+After startup, a fresh 24-hour session key for Bjornvik is printed.
+Set DEV_SESSION_LIFETIME to change the lifetime (maximum 720h).
 EOF
 }
 
@@ -344,6 +347,7 @@ if ! kill -0 -- "-$WORKER_PID" 2>/dev/null; then
 fi
 
 printf 'Worker:     running\n'
+"$ROOT_DIR/scripts/dev_session.sh"
 echo "Development environment ready"
 echo "Press Ctrl+C to stop. PostgreSQL will remain running."
 
