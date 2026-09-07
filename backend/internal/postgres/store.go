@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -94,8 +95,14 @@ func (t *worldTickTx) LoadHouseholdForTick(ctx context.Context, householdID stri
 func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string, result simulation.TickResult, effectiveGameDay int64) error {
 	return t.store.SaveHouseholdTick(ctx, t.tx, householdID, result, effectiveGameDay)
 }
-func (t *worldTickTx) ScheduleEmergencyFoodWork(ctx context.Context, householdID, characterID, activity string, startsTick, endsTick, effectiveGameDay int64, supplyDays float64) (bool, error) {
-	return t.store.ScheduleEmergencyFoodWork(ctx, t.tx, householdID, characterID, activity, startsTick, endsTick, effectiveGameDay, supplyDays)
+func (t *worldTickTx) LoadEmergencyFoodContext(ctx context.Context, householdID string, nextTick int64) (port.EmergencyFoodContext, error) {
+	return t.store.LoadEmergencyFoodContext(ctx, t.tx, householdID, nextTick)
+}
+func (t *worldTickTx) ScheduleEmergencyFoodWork(ctx context.Context, householdID string, decision port.EmergencyFoodDecisionRecord) (bool, error) {
+	return t.store.ScheduleEmergencyFoodWork(ctx, t.tx, householdID, decision)
+}
+func (t *worldTickTx) RecordEmergencyFoodDecision(ctx context.Context, householdID string, decision port.EmergencyFoodDecisionRecord) error {
+	return t.store.RecordEmergencyFoodDecision(ctx, t.tx, householdID, decision)
 }
 func (t *worldTickTx) FinishWorldTick(ctx context.Context, world port.WorldClaim, tick, gameDay, remainder int64) error {
 	return t.store.FinishWorldTick(ctx, t.tx, world, tick, gameDay, remainder)
@@ -354,7 +361,10 @@ func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) 
 			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick,
 			row.DepartureGameDay, row.ExpectedArrivalGameDay, row.ActualArrivalGameDay,
 			row.TransportCostMilli, row.Status)
-		records = append(records, shipmentRecord(value))
+		record := shipmentRecord(value)
+		record.SenderHouseholdName = row.SenderHouseholdName
+		record.ReceiverHouseholdName = row.ReceiverHouseholdName
+		records = append(records, record)
 	}
 	return records, nil
 }
@@ -454,6 +464,8 @@ func (s *Store) CancelShipment(ctx context.Context, shipmentID shipmentdomain.ID
 type CharacterRecord = port.CharacterRecord
 type AssignmentRecord = port.AssignmentRecord
 type ShipmentRecord = port.ShipmentRecord
+
+var ErrAssignmentConflict = errors.New("assignment overlaps existing work plan")
 
 var (
 	ErrInvalidShipmentReferences = errors.New("invalid shipment references")
@@ -573,7 +585,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-               w.tick_duration_seconds, COALESCE(h.specialization, '')
+		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day
         FROM households h
         JOIN worlds w ON w.id = h.world_id
         WHERE h.id = $1::uuid
@@ -582,7 +594,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName,
 		&snap.CurrentTick, &snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum,
 		&snap.GameDaysPerTickDen, &snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum,
-		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization,
+		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay,
 	)
 	if err != nil {
 		return snap, nil, err
@@ -672,9 +684,9 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		ar.EndsGameDay = gameDayAtTick(snap, ar.EndsTick)
 		snap.Assignments = append(snap.Assignments, ar)
 		assignments = append(assignments, simulation.Assignment{
-			Character: ar.Character,
-			Activity:  simulation.Activity(ar.Activity),
-			Intensity: simulation.Intensity(ar.Intensity),
+			CharacterID: ar.CharacterID,
+			Activity:    simulation.Activity(ar.Activity),
+			Intensity:   simulation.Intensity(ar.Intensity),
 		})
 	}
 	aRows.Close()
@@ -733,6 +745,14 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
 			return err
 		}
 	}
+	if result.FoodShortageMilli > 0 {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO chronicle_entries(household_id,occurred_tick,occurred_game_day,entry_type,data)
+			VALUES ($1::uuid,$2,$3,'food_shortage',jsonb_build_object('food_shortage_milli',$4::bigint,'provisions_milli',0))
+		`, householdID, result.State.Tick, effectiveGameDay, result.FoodShortageMilli); err != nil {
+			return err
+		}
+	}
 
 	if _, err := tx.Exec(ctx, `
         INSERT INTO chronicle_entries(
@@ -768,8 +788,53 @@ func (s *Store) SaveHouseholdTick(ctx context.Context, tx pgx.Tx, householdID st
 	return err
 }
 
-func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, householdID, characterID, activity string, startsTick, endsTick, effectiveGameDay int64, supplyDays float64) (bool, error) {
-	if supplyDays >= 7 || (activity != string(simulation.Agriculture) && activity != string(simulation.Fishing)) || startsTick != endsTick {
+func (s *Store) LoadEmergencyFoodContext(ctx context.Context, tx pgx.Tx, householdID string, nextTick int64) (port.EmergencyFoodContext, error) {
+	result := port.EmergencyFoodContext{Assignments: []port.AssignmentRecord{}, IncomingShipments: []port.ShipmentRecord{}}
+	rows, err := tx.Query(ctx, `
+		SELECT a.id::text,a.character_id::text,c.name,a.activity_type,a.intensity,a.starts_tick,a.ends_tick,a.status
+		FROM assignments a JOIN characters c ON c.id=a.character_id
+		WHERE a.household_id=$1::uuid AND a.status IN ('planned','active') AND a.ends_tick >= $2
+		ORDER BY a.starts_tick,a.id`, householdID, nextTick)
+	if err != nil {
+		return result, err
+	}
+	for rows.Next() {
+		var a port.AssignmentRecord
+		if err := rows.Scan(&a.ID, &a.CharacterID, &a.Character, &a.Activity, &a.Intensity, &a.StartsTick, &a.EndsTick, &a.Status); err != nil {
+			rows.Close()
+			return result, err
+		}
+		result.Assignments = append(result.Assignments, a)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return result, err
+	}
+	rows, err = tx.Query(ctx, `
+		SELECT id::text,world_id::text,sender_household_id::text,receiver_household_id::text,
+		 origin_location_id::text,destination_location_id::text,resource_code,quantity_milli,
+		 departure_tick,expected_arrival_tick,actual_arrival_tick,departure_game_day,expected_arrival_game_day,
+		 actual_arrival_game_day,transport_cost_milli,status
+		FROM shipments WHERE receiver_household_id=$1::uuid AND status='in_transit' AND resource_code='provisions'
+		ORDER BY expected_arrival_game_day,id`, householdID)
+	if err != nil {
+		return result, err
+	}
+	for rows.Next() {
+		var shipment port.ShipmentRecord
+		if err := rows.Scan(&shipment.ID, &shipment.WorldID, &shipment.SenderHouseholdID, &shipment.ReceiverHouseholdID, &shipment.OriginLocationID, &shipment.DestinationLocationID, &shipment.ResourceType, &shipment.QuantityMilli, &shipment.DepartureTick, &shipment.ExpectedArrivalTick, &shipment.ActualArrivalTick, &shipment.DepartureGameDay, &shipment.ExpectedArrivalGameDay, &shipment.ActualArrivalGameDay, &shipment.TransportCostMilli, &shipment.Status); err != nil {
+			rows.Close()
+			return result, err
+		}
+		result.IncomingShipments = append(result.IncomingShipments, shipment)
+	}
+	rows.Close()
+	return result, rows.Err()
+}
+
+func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, householdID string, decision port.EmergencyFoodDecisionRecord) (bool, error) {
+	characterID, activity, startsTick, endsTick := decision.CharacterID, decision.Activity, decision.StartsTick, decision.EndsTick
+	if decision.SupplyGameDays >= 7 || (activity != string(simulation.Agriculture) && activity != string(simulation.Fishing)) || startsTick != endsTick {
 		return false, nil
 	}
 	var eligible bool
@@ -777,7 +842,7 @@ func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, househ
 		SELECT EXISTS(
 			SELECT 1 FROM characters c
 			WHERE c.id=$1::uuid AND c.household_id=$2::uuid
-			  AND c.status='active' AND c.labor_capacity_milli=1000
+			  AND c.status='active' AND c.labor_capacity_milli>0 AND c.fatigue<85
 		)`, characterID, householdID).Scan(&eligible); err != nil {
 		return false, err
 	}
@@ -814,11 +879,23 @@ func (s *Store) ScheduleEmergencyFoodWork(ctx context.Context, tx pgx.Tx, househ
 	_, err := tx.Exec(ctx, `
 		INSERT INTO chronicle_entries(household_id, occurred_tick, occurred_game_day, entry_type, subject_character_id, related_assignment_id, data)
 		VALUES ($1::uuid,$2,$5,'emergency_food_work_scheduled',$3::uuid,$4::uuid,
-			jsonb_build_object('character_id',$3::text,'activity',$6::text,'starts_tick',$7::bigint,'ends_tick',$8::bigint,'reason','supply_emergency','supply_days',$9::numeric))
+			jsonb_build_object('character_id',$3::text,'activity',$6::text,'starts_tick',$7::bigint,'ends_tick',$8::bigint,'reason',$9::text,'supply_game_days',$10::bigint,'expected_production_milli',$11::bigint,'remains_at_risk',$12::boolean))
 		ON CONFLICT (related_assignment_id, entry_type)
 		WHERE related_assignment_id IS NOT NULL
-		DO NOTHING`, householdID, startsTick-1, characterID, assignmentID, effectiveGameDay, activity, startsTick, endsTick, supplyDays)
+		DO NOTHING`, householdID, decision.OccurredTick, characterID, assignmentID, decision.OccurredGameDay, activity, startsTick, endsTick, decision.Reason, decision.SupplyGameDays, decision.ExpectedProductionMilli, decision.RemainsAtRisk)
 	return err == nil, err
+}
+
+func (s *Store) RecordEmergencyFoodDecision(ctx context.Context, tx pgx.Tx, householdID string, decision port.EmergencyFoodDecisionRecord) error {
+	if decision.Reason == "supply_adequate" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO chronicle_entries(household_id,occurred_tick,occurred_game_day,entry_type,data)
+		VALUES ($1::uuid,$2,$3,'emergency_food_policy_no_action',jsonb_build_object(
+		 'reason',$4::text,'supply_game_days',$5::bigint,'remains_at_risk',$6::boolean))
+	`, householdID, decision.OccurredTick, decision.OccurredGameDay, decision.Reason, decision.SupplyGameDays, decision.RemainsAtRisk)
+	return err
 }
 
 func (s *Store) FinishWorldTick(ctx context.Context, tx pgx.Tx, world WorldClaim, tick, gameDay, remainder int64) error {
@@ -882,13 +959,13 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-               w.tick_duration_seconds, COALESCE(h.specialization, '')
+		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day
         FROM households h JOIN worlds w ON w.id=h.world_id
         WHERE h.id=$1::uuid
 	`, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.CurrentTick,
 		&snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum, &snap.GameDaysPerTickDen,
 		&snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen,
-		&snap.TickDurationSeconds, &snap.Specialization)
+		&snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay)
 	if err != nil {
 		return snap, nil, err
 	}
@@ -955,7 +1032,7 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 		ar.EndsGameDay = gameDayAtTick(snap, ar.EndsTick)
 		snap.Assignments = append(snap.Assignments, ar)
 		if ar.StartsTick <= tick && ar.EndsTick >= tick {
-			assignments = append(assignments, simulation.Assignment{Character: ar.Character, Activity: simulation.Activity(ar.Activity), Intensity: simulation.Intensity(ar.Intensity)})
+			assignments = append(assignments, simulation.Assignment{CharacterID: ar.CharacterID, Activity: simulation.Activity(ar.Activity), Intensity: simulation.Intensity(ar.Intensity)})
 		}
 	}
 	rows.Close()
@@ -1009,7 +1086,7 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 	type emergencyOverlap struct{ id, activity string }
 	emergency := make([]emergencyOverlap, 0)
 	rows, err := tx.Query(ctx, `
-		SELECT id::text, activity_type, starts_tick, metadata->>'source'
+		SELECT id::text, activity_type, starts_tick, COALESCE(metadata->>'source', ''), status
 		FROM assignments
 		WHERE character_id=$1::uuid AND status IN ('planned','active')
 		  AND starts_tick <= $3 AND ends_tick >= $2`, characterID, startsTick, endsTick)
@@ -1018,13 +1095,13 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 	}
 	blocking := false
 	for rows.Next() {
-		var id, activity, source string
+		var id, activity, source, status string
 		var existingStart int64
-		if err := rows.Scan(&id, &activity, &existingStart, &source); err != nil {
+		if err := rows.Scan(&id, &activity, &existingStart, &source, &status); err != nil {
 			rows.Close()
 			return AssignmentRecord{}, err
 		}
-		if source == "emergency" && existingStart > snap.CurrentTick {
+		if source == "emergency" && status == "planned" && existingStart > snap.CurrentTick && activity != "ruler_service" {
 			emergency = append(emergency, emergencyOverlap{id: id, activity: activity})
 		} else {
 			blocking = true
@@ -1035,7 +1112,7 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 		return AssignmentRecord{}, err
 	}
 	if blocking {
-		return AssignmentRecord{}, fmt.Errorf("assignment overlaps existing work plan")
+		return AssignmentRecord{}, ErrAssignmentConflict
 	}
 	for _, value := range emergency {
 		if _, err := tx.Exec(ctx, `UPDATE assignments SET status='cancelled', updated_at=now() WHERE id=$1::uuid AND status='planned'`, value.id); err != nil {
@@ -1082,6 +1159,10 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && (pgErr.Code == "40001" || pgErr.Code == "23P01" || pgErr.Code == "23505") {
+			return AssignmentRecord{}, ErrAssignmentConflict
+		}
 		return AssignmentRecord{}, err
 	}
 	return out, nil

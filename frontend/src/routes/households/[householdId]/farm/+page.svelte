@@ -15,7 +15,11 @@
 		title="Farm"
 		description="Stores, household members, and the obligations that shape this place."
 	/>
-	<ResourceSummary resources={data.report.resources} supplyDays={data.report.supply_days} />
+	<ResourceSummary
+		resources={data.report.resources}
+		supplyGameDays={data.report.supply_game_days}
+		supplyStatus={data.report.supply_status}
+	/>
 	<HouseholdMembers
 		characters={data.report.characters}
 		assignments={data.report.assignments}

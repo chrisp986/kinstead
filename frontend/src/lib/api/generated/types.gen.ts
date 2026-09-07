@@ -61,7 +61,8 @@ export type HouseholdReport = {
 	game_day: number;
 	calendar: CalendarBreakdown;
 	season?: string;
-	supply_days: number;
+	supply_game_days: number;
+	supply_status: 'safe' | 'strained' | 'critical' | 'emergency';
 	resources: {
 		[key: string]: number;
 	};
@@ -70,6 +71,7 @@ export type HouseholdReport = {
 	alerts: Array<Alert>;
 	change_window: ReportChangeWindow;
 	recent_changes: Array<ChronicleEntry>;
+	since_you_were_away: Array<ChronicleEntry>;
 	attention: Array<ReportItem>;
 	decisions: Array<ReportItem>;
 };
@@ -133,7 +135,9 @@ export type Shipment = {
 	id: string;
 	world_id: string;
 	sender_household_id: string;
+	sender_household_name: string;
 	receiver_household_id: string;
+	receiver_household_name: string;
 	origin_location_id: string;
 	destination_location_id: string;
 	resource_type: string;
@@ -270,7 +274,9 @@ export type Contract = {
 	id: string;
 	world_id: string;
 	party_a_household_id: string;
+	party_a_household_name: string;
 	party_b_household_id: string;
+	party_b_household_name: string;
 	start_game_day: number;
 	end_game_day: number;
 	interval_days: 7 | 14 | 28;
@@ -331,6 +337,7 @@ export type MarketOffer = {
 	id: string;
 	world_id: string;
 	seller_household_id: string;
+	seller_household_name: string;
 	origin_location_id: string;
 	resource_type: string;
 	quantity_remaining_milli: number;
@@ -348,9 +355,47 @@ export type CreateAssignmentIntent = {
 	starts_tick?: number;
 };
 
+export type WorkPreview = {
+	conflict: boolean;
+	warning: string;
+	produced_provisions_milli: number;
+	produced_wood_milli: number;
+	fatigue_start: number;
+	fatigue_end: number;
+	season: 'spring' | 'summer' | 'autumn' | 'winter';
+	specialization_bonus_permille: number;
+	farm_bonus_permille: number;
+	duration_game_days: number;
+	assignment_conflicts: Array<string>;
+	warnings: Array<string>;
+};
+
+export type AcknowledgeReportIntent = {
+	game_day: number;
+};
+
 export type PurchaseOfferIntent = {
 	buyer_household_id: string;
 	quantity_milli: number;
+};
+
+export type MarketQuote = {
+	goods_cost_milli: number;
+	transport_cost_milli: number;
+	total_cost_milli: number;
+	remaining_silver_milli: number;
+	expected_arrival_game_day: number;
+	travel_ticks: number;
+};
+
+export type ContractPreview = {
+	first_due_game_day: number;
+	recurrence: string;
+	end_condition: string;
+	expected_delivery_count: number;
+	latest_safe_dispatch_game_day: number;
+	total_promised_quantity_milli: number;
+	first_delivery_stock_warning: boolean;
 };
 
 export type CancelShipmentIntent = {
@@ -366,6 +411,34 @@ export type PurchaseResult = {
 };
 
 export type HouseholdId = string;
+
+export type GetSessionData = {
+	body?: never;
+	path?: never;
+	query?: never;
+	url: '/api/session';
+};
+
+export type GetSessionErrors = {
+	/**
+	 * Missing, expired, or revoked session
+	 */
+	401: unknown;
+};
+
+export type GetSessionResponses = {
+	/**
+	 * Authenticated player's households
+	 */
+	200: {
+		households: Array<{
+			id: string;
+			name: string;
+		}>;
+	};
+};
+
+export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
 
 export type GetHealthData = {
 	body?: never;
@@ -412,6 +485,39 @@ export type GetHouseholdReportResponses = {
 
 export type GetHouseholdReportResponse =
 	GetHouseholdReportResponses[keyof GetHouseholdReportResponses];
+
+export type AcknowledgeHouseholdReportData = {
+	body: AcknowledgeReportIntent;
+	path: {
+		householdId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/report/acknowledge';
+};
+
+export type AcknowledgeHouseholdReportErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type AcknowledgeHouseholdReportError =
+	AcknowledgeHouseholdReportErrors[keyof AcknowledgeHouseholdReportErrors];
+
+export type AcknowledgeHouseholdReportResponses = {
+	/**
+	 * Report events acknowledged through the supplied game day
+	 */
+	204: void;
+};
+
+export type AcknowledgeHouseholdReportResponse =
+	AcknowledgeHouseholdReportResponses[keyof AcknowledgeHouseholdReportResponses];
 
 export type GetHouseholdCalendarData = {
 	body?: never;
@@ -504,6 +610,39 @@ export type CreateHouseholdAssignmentResponses = {
 
 export type CreateHouseholdAssignmentResponse =
 	CreateHouseholdAssignmentResponses[keyof CreateHouseholdAssignmentResponses];
+
+export type PreviewHouseholdWorkData = {
+	body: CreateAssignmentIntent;
+	path: {
+		householdId: string;
+	};
+	query?: never;
+	url: '/api/households/{householdId}/work-preview';
+};
+
+export type PreviewHouseholdWorkErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type PreviewHouseholdWorkError =
+	PreviewHouseholdWorkErrors[keyof PreviewHouseholdWorkErrors];
+
+export type PreviewHouseholdWorkResponses = {
+	/**
+	 * Authoritative production and fatigue preview
+	 */
+	200: WorkPreview;
+};
+
+export type PreviewHouseholdWorkResponse =
+	PreviewHouseholdWorkResponses[keyof PreviewHouseholdWorkResponses];
 
 export type ListHouseholdShipmentsData = {
 	body?: never;
@@ -720,6 +859,35 @@ export type ProposeContractResponses = {
 
 export type ProposeContractResponse = ProposeContractResponses[keyof ProposeContractResponses];
 
+export type PreviewContractData = {
+	body: ProposeContractIntent;
+	path?: never;
+	query?: never;
+	url: '/api/contracts/preview';
+};
+
+export type PreviewContractErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+};
+
+export type PreviewContractError = PreviewContractErrors[keyof PreviewContractErrors];
+
+export type PreviewContractResponses = {
+	/**
+	 * Authoritative recurring delivery preview
+	 */
+	200: ContractPreview;
+};
+
+export type PreviewContractResponse = PreviewContractResponses[keyof PreviewContractResponses];
+
 export type RespondToContractData = {
 	body: RespondContractIntent;
 	path: {
@@ -896,3 +1064,38 @@ export type PurchaseMarketOfferResponses = {
 
 export type PurchaseMarketOfferResponse =
 	PurchaseMarketOfferResponses[keyof PurchaseMarketOfferResponses];
+
+export type QuoteMarketOfferData = {
+	body: PurchaseOfferIntent;
+	path: {
+		offerId: string;
+	};
+	query?: never;
+	url: '/api/market/offers/{offerId}/quote';
+};
+
+export type QuoteMarketOfferErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Intent conflicts with current state
+	 */
+	409: ApiError;
+};
+
+export type QuoteMarketOfferError = QuoteMarketOfferErrors[keyof QuoteMarketOfferErrors];
+
+export type QuoteMarketOfferResponses = {
+	/**
+	 * Validated purchase costs and delivery estimate without reservation
+	 */
+	200: MarketQuote;
+};
+
+export type QuoteMarketOfferResponse = QuoteMarketOfferResponses[keyof QuoteMarketOfferResponses];

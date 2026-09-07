@@ -12,12 +12,15 @@ type scoredItem struct {
 // BuildAttention returns at most three deterministic awareness items.
 func BuildAttention(in Input) []Item {
 	items := make([]scoredItem, 0)
-	if in.SupplyDays < 7 {
-		items = append(items, scoredItem{100, Item{Code: "supply_emergency", Severity: "critical", Target: "trade", Data: map[string]any{"supply_days": in.SupplyDays}}})
-	} else if in.SupplyDays < 15 {
-		items = append(items, scoredItem{85, Item{Code: "supply_critical", Severity: "critical", Target: "trade", Data: map[string]any{"supply_days": in.SupplyDays}}})
-	} else if in.SupplyDays <= 30 {
-		items = append(items, scoredItem{60, Item{Code: "supply_strained", Severity: "warning", Target: "trade", Data: map[string]any{"supply_days": in.SupplyDays}}})
+	if in.FoodShortageMilli > 0 {
+		items = append(items, scoredItem{110, Item{Code: "food_shortage", Severity: "critical", Target: "trade", Data: map[string]any{"food_shortage_milli": in.FoodShortageMilli}}})
+	}
+	if in.SupplyGameDays < 7 {
+		items = append(items, scoredItem{100, Item{Code: "supply_emergency", Severity: "critical", Target: "trade", Data: map[string]any{"supply_game_days": in.SupplyGameDays}}})
+	} else if in.SupplyGameDays < 15 {
+		items = append(items, scoredItem{85, Item{Code: "supply_critical", Severity: "critical", Target: "trade", Data: map[string]any{"supply_game_days": in.SupplyGameDays}}})
+	} else if in.SupplyGameDays <= 30 {
+		items = append(items, scoredItem{60, Item{Code: "supply_strained", Severity: "warning", Target: "trade", Data: map[string]any{"supply_game_days": in.SupplyGameDays}}})
 	}
 	for _, c := range in.Characters {
 		switch {
@@ -63,12 +66,15 @@ func BuildAttention(in Input) []Item {
 // gameplay surfaces. It deliberately does not execute any command.
 func BuildDecisions(in Input) []Item {
 	items := make([]scoredItem, 0)
-	if in.SupplyDays < 7 {
-		items = append(items, scoredItem{100, Item{Code: "secure_provisions", Severity: "critical", Target: "trade", Data: map[string]any{"supply_days": in.SupplyDays}}})
-	} else if in.SupplyDays < 15 {
-		items = append(items, scoredItem{85, Item{Code: "secure_provisions", Severity: "critical", Target: "trade", Data: map[string]any{"supply_days": in.SupplyDays}}})
-	} else if in.SupplyDays <= 30 {
-		items = append(items, scoredItem{60, Item{Code: "secure_provisions", Severity: "warning", Target: "trade", Data: map[string]any{"supply_days": in.SupplyDays}}})
+	if in.FoodShortageMilli > 0 {
+		items = append(items, scoredItem{110, Item{Code: "secure_provisions", Severity: "critical", Target: "trade", Data: map[string]any{"food_shortage_milli": in.FoodShortageMilli, "supply_game_days": in.SupplyGameDays}}})
+	}
+	if in.SupplyGameDays < 7 {
+		items = append(items, scoredItem{100, Item{Code: "secure_provisions", Severity: "critical", Target: "trade", Data: map[string]any{"supply_game_days": in.SupplyGameDays}}})
+	} else if in.SupplyGameDays < 15 {
+		items = append(items, scoredItem{85, Item{Code: "secure_provisions", Severity: "critical", Target: "trade", Data: map[string]any{"supply_game_days": in.SupplyGameDays}}})
+	} else if in.SupplyGameDays <= 30 {
+		items = append(items, scoredItem{60, Item{Code: "secure_provisions", Severity: "warning", Target: "trade", Data: map[string]any{"supply_game_days": in.SupplyGameDays}}})
 	}
 	for _, d := range in.PoliticalDemands {
 		due := d.ExpiresGameDay - in.CurrentGameDay

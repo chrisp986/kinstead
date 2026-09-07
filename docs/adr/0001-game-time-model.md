@@ -66,6 +66,13 @@ they must remain reproducible from the source clock.
 
 ## Contract scheduling
 
+Supply coverage uses the same deterministic pacing ratio as the calendar:
+`floor(provisions_milli * game_days_per_tick_num /
+(consumption_per_tick_milli * game_days_per_tick_den))`. Consumption remains per
+tick; coverage is projected into integer historical days with conservative
+rounding. Neither floating-point values nor wall-clock duration influence this
+projection. API and Chronicle fields use `supply_game_days` explicitly.
+
 Recurring contracts schedule obligations against the authoritative game clock.
 The initial implementation should support recurring intervals expressed in game
 days. Each generated obligation receives an absolute game-day arrival deadline.

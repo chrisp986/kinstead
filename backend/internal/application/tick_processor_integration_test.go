@@ -80,6 +80,59 @@ func TestTickProcessorDeliversShipmentInCanonicalOrder(t *testing.T) {
 	}
 }
 
+func TestTickProcessorRollsBackAtomicallyOnDuplicateCharacterAssignment(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	store, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	var worldID, locationID, householdID, characterID string
+	tx, err := store.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err := tx.QueryRow(ctx, `INSERT INTO worlds(name,historical_start_date,current_tick,tick_duration_seconds,next_tick_at) VALUES('rollback duplicate assignment',DATE '0980-01-01',0,3600,now()-interval '1 day') RETURNING id::text`).Scan(&worldID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO locations(world_id,name,location_type) VALUES($1::uuid,'rollback farm','farm') RETURNING id::text`, worldID).Scan(&locationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO households(world_id,location_id,name,created_tick) VALUES($1::uuid,$2::uuid,'rollback household',0) RETURNING id::text`, worldID, locationID).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO characters(household_id,name,birth_date,labor_capacity_milli,fatigue) VALUES($1::uuid,'Duplicate name',DATE '0960-01-01',1000,0) RETURNING id::text`, householdID).Scan(&characterID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO resource_stocks(household_id,resource_code,quantity_milli) VALUES($1::uuid,'provisions',10000),($1::uuid,'wood',10000)`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO assignments(household_id,character_id,activity_type,intensity,starts_tick,ends_tick,status) VALUES($1::uuid,$2::uuid,'fishing','normal',1,1,'planned'),($1::uuid,$2::uuid,'agriculture','normal',1,1,'planned')`, householdID, characterID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Pool.Exec(ctx, `DELETE FROM worlds WHERE id=$1::uuid`, worldID) })
+	processed, err := NewTickProcessor(store).ProcessOneDueWorld(ctx)
+	if err == nil || processed {
+		t.Fatalf("processed/error=%v/%v", processed, err)
+	}
+	var tick, provisions int64
+	var fatigue int
+	if err := store.Pool.QueryRow(ctx, `SELECT w.current_tick,r.quantity_milli,c.fatigue FROM worlds w JOIN households h ON h.world_id=w.id JOIN resource_stocks r ON r.household_id=h.id AND r.resource_code='provisions' JOIN characters c ON c.household_id=h.id WHERE w.id=$1::uuid`, worldID).Scan(&tick, &provisions, &fatigue); err != nil {
+		t.Fatal(err)
+	}
+	if tick != 0 || provisions != 10000 || fatigue != 0 {
+		t.Fatalf("rollback state tick/provisions/fatigue=%d/%d/%d", tick, provisions, fatigue)
+	}
+}
+
 func TestTickProcessorAppliesContractTrustByFinalOutcome(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

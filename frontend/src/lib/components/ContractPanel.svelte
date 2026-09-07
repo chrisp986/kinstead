@@ -1,8 +1,13 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { Contract, MarketOffer, Relationship } from '$lib/api/generated';
-	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
-	import { calendarForGameDay, formatInterval, formatRelativeGameDay } from '$lib/domain/time';
+	import { formatMilli, labelResource } from '$lib/domain/format';
+	import {
+		calendarForGameDay,
+		formatGameDay,
+		formatInterval,
+		formatRelativeGameDay
+	} from '$lib/domain/time';
 	import StatusBadge from './StatusBadge.svelte';
 	import ActionFeedback from './shell/ActionFeedback.svelte';
 
@@ -19,11 +24,33 @@
 		offers: MarketOffer[];
 		householdId: string;
 		currentGameDay: number;
-		feedback?: { success?: boolean; action?: string; message?: string } | null;
+		feedback?: {
+			success?: boolean;
+			action?: string;
+			message?: string;
+			contractPreview?: {
+				first_due_game_day: number;
+				recurrence: string;
+				end_condition: string;
+				expected_delivery_count: number;
+				latest_safe_dispatch_game_day: number;
+				total_promised_quantity_milli: number;
+				first_delivery_stock_warning: boolean;
+			};
+		} | null;
 	} = $props();
 
 	let submitting = $state<string | null>(null);
 	let showProposal = $state(false);
+	let proposalCounterparty = $state('');
+	let proposalResource = $state('provisions');
+	let proposalQuantity = $state(10);
+	let previewTimer: ReturnType<typeof setTimeout>;
+	function queueContractPreview(event: Event) {
+		const form = event.currentTarget as HTMLFormElement;
+		clearTimeout(previewTimer);
+		previewTimer = setTimeout(() => form.requestSubmit(), 250);
+	}
 	let orderedContracts = $derived(
 		[...contracts].sort((a, b) => {
 			const aUrgent = a.obligations.some(
@@ -48,16 +75,21 @@
 		}
 		for (const offer of offers) {
 			if (offer.seller_household_id !== householdId && !values[offer.seller_household_id]) {
-				values[offer.seller_household_id] = `Household …${shortId(offer.seller_household_id)}`;
+				values[offer.seller_household_id] = offer.seller_household_name || 'Nearby household';
 			}
 		}
 		return Object.entries(values).map(([id, name]) => ({ id, name }));
 	});
+	$effect(() => {
+		if (!contacts.some((contact) => contact.id === proposalCounterparty)) {
+			proposalCounterparty = contacts[0]?.id ?? '';
+		}
+	});
 
-	function counterpart(contract: Contract): string {
+	function counterpartName(contract: Contract): string {
 		return contract.party_a_household_id === householdId
-			? contract.party_b_household_id
-			: contract.party_a_household_id;
+			? contract.party_b_household_name || 'Nearby household'
+			: contract.party_a_household_name || 'Nearby household';
 	}
 
 	function agreementEnd(contract: Contract): string {
@@ -65,6 +97,23 @@
 		if (date.day_of_year === 91) return 'until summer begins';
 		if (date.day_of_year === 273) return 'until winter begins';
 		return `ends ${formatRelativeGameDay(currentGameDay, contract.end_game_day)}`;
+	}
+
+	function nextUnresolvedID(contract: Contract): string | undefined {
+		return contract.obligations
+			.filter((obligation) => ['pending', 'dispatched', 'late'].includes(obligation.status))
+			.sort((a, b) => a.due_game_day - b.due_game_day)[0]?.id;
+	}
+
+	function obligationHeading(
+		contract: Contract,
+		obligation: Contract['obligations'][number]
+	): string {
+		if (obligation.status === 'fulfilled') return 'Delivered';
+		if (obligation.status === 'broken') return 'Broken promise';
+		if (obligation.status === 'late') return 'Late delivery';
+		if (obligation.id === nextUnresolvedID(contract)) return 'Next delivery';
+		return 'Later delivery';
 	}
 </script>
 
@@ -89,7 +138,7 @@
 				<article class="contract">
 					<div class="contract-heading">
 						<div>
-							<span class="contract-label">With household …{shortId(counterpart(contract))}</span>
+							<span class="contract-label">With {counterpartName(contract)}</span>
 							<h3>{formatInterval(contract.interval_days)} · recurring delivery</h3>
 						</div>
 						<StatusBadge status={contract.status} />
@@ -127,11 +176,12 @@
 							{#each contract.obligations as obligation (obligation.id)}
 								<div class="obligation">
 									<div>
-										<strong
-											>Next delivery {formatRelativeGameDay(
+										<strong>{obligationHeading(contract, obligation)}</strong>
+										<small
+											>{formatGameDay(calendarForGameDay(obligation.due_game_day))} · {formatRelativeGameDay(
 												currentGameDay,
 												obligation.due_game_day
-											)}</strong
+											)}</small
 										>
 										<span
 											>{formatMilli(obligation.quantity_milli)}
@@ -190,10 +240,23 @@
 					A known market or relationship contact is needed before proposing a delivery.
 				</p>
 			{:else}
-				<form method="POST" action="?/proposeContract" use:enhance>
+				<form
+					method="POST"
+					action="?/contractPreview"
+					oninput={queueContractPreview}
+					use:enhance={() =>
+						async ({ update }) =>
+							update({ reset: false })}
+				>
+					<p class="decision-note">
+						This creates a one-way delivery obligation: You deliver {proposalQuantity}
+						{labelResource(proposalResource)} to {contacts.find(
+							(contact) => contact.id === proposalCounterparty
+						)?.name || 'the selected household'}.
+					</p>
 					<label>
 						<span>Counterparty</span>
-						<select name="counterparty_household_id" required>
+						<select name="counterparty_household_id" required bind:value={proposalCounterparty}>
 							{#each contacts as contact (contact.id)}
 								<option value={contact.id}>{contact.name}</option>
 							{/each}
@@ -201,46 +264,44 @@
 					</label>
 					<label>
 						<span>You deliver</span>
-						<select name="resource_type">
+						<select name="resource_type" bind:value={proposalResource}>
 							<option value="provisions">Provisions</option>
 							<option value="wood">Wood</option>
 							<option value="trade_goods">Trade goods</option>
 							<option value="silver">Silver</option>
 						</select>
 					</label>
-					<label
-						><span>Units each time</span><input
+					<label>
+						<span>Units each time</span>
+						<input
 							name="quantity"
 							type="number"
 							min="0.001"
 							step="0.001"
-							value="10"
+							bind:value={proposalQuantity}
 							required
-						/></label
-					>
+						/>
+					</label>
 					<input type="hidden" name="current_game_day" value={currentGameDay} />
 					<label
 						><span>First delivery</span><select name="first_due_offset" required
 							><option value="7">In one week</option><option value="14">In two weeks</option><option
 								value="28">In four weeks</option
 							></select
-						>
-						/></label
+						></label
 					>
 					<label
 						><span>Repeat</span><select name="interval_days" required
 							><option value="7">Every week</option><option value="14">Every two weeks</option
 							><option value="28">Every four weeks</option></select
-						>
-						/></label
+						></label
 					>
 					<label
 						><span>Ends at</span><select name="end_condition_type" required
 							><option value="fixed_delivery_count">After the delivery count</option><option
 								value="winter_start">Winter begins</option
 							><option value="summer_start">Summer begins</option></select
-						>
-						/></label
+						></label
 					>
 					<label
 						><span>Delivery count</span><select name="delivery_count" required
@@ -249,7 +310,28 @@
 							></select
 						></label
 					>
-					<button type="submit">Send proposal</button>
+					{#if feedback?.action === 'contractPreview' && feedback.contractPreview}
+						<div class="contract-preview" aria-live="polite">
+							<strong
+								>{feedback.contractPreview.expected_delivery_count} deliveries · {formatMilli(
+									feedback.contractPreview.total_promised_quantity_milli
+								)} total</strong
+							>
+							<span
+								>First due {formatGameDay(
+									calendarForGameDay(feedback.contractPreview.first_due_game_day)
+								)}; dispatch by {formatGameDay(
+									calendarForGameDay(feedback.contractPreview.latest_safe_dispatch_game_day)
+								)}.</span
+							>
+							{#if feedback.contractPreview.first_delivery_stock_warning}<span class="warning"
+									>Current stock cannot support the first delivery.</span
+								>{/if}
+						</div>
+					{:else if feedback?.action === 'contractPreview' && feedback.message}
+						<p class="preview-error" role="alert">{feedback.message}</p>
+					{/if}
+					<button type="submit" formaction="?/proposeContract">Send proposal</button>
 				</form>
 			{/if}{/if}
 	</div>
@@ -274,6 +356,10 @@
 		display: grid;
 		gap: 0.9rem;
 		margin-top: 1.2rem;
+	}
+	.preview-error {
+		color: var(--critical);
+		font-size: 0.8rem;
 	}
 	.contract {
 		padding: 1rem;

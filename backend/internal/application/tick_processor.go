@@ -80,6 +80,8 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("load household %s: %w", householdID, err)
 		}
 		tickContext := simulation.NeutralTickContext(simulation.Season(productionSeason))
+		tickContext.GameDaysPerTickNum = world.GameDaysPerTickNum
+		tickContext.GameDaysPerTickDen = world.GameDaysPerTickDen
 		result, err := simulation.ProcessTick(snap.State, tick, assignments, tickContext, p.Balance)
 		if err != nil {
 			return false, fmt.Errorf("simulate household %s: %w", householdID, err)
@@ -96,7 +98,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	// Canonical tick step 8: conservative emergency supply protection after
 	// all events and political consequences have been applied.
 	for _, householdID := range householdIDs {
-		if err := p.processEmergencyFoodWork(ctx, tx, householdID, results[householdID], tick, int64(nextGameDay)); err != nil {
+		if err := p.processEmergencyFoodWork(ctx, tx, householdID, results[householdID], tick, int64(nextGameDay), world.GameDaysPerTickNum, world.GameDaysPerTickDen); err != nil {
 			return false, err
 		}
 	}
@@ -110,30 +112,30 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// processEmergencyFoodWork is deliberately narrow: only a full-capacity,
-// otherwise free worker may receive one normal food-producing assignment for
-// the next tick when provisions are below seven days.
-func (p *TickProcessor) processEmergencyFoodWork(ctx context.Context, tx port.WorldTickTransaction, householdID string, result simulation.TickResult, tick, effectiveGameDay int64) error {
-	if result.State.SupplyDays(p.Balance) >= 7 {
-		return nil
+// processEmergencyFoodWork is deliberately narrow: only an available,
+// sufficiently rested worker may receive one normal food-producing assignment
+// for the next tick when provisions are below seven days.
+func (p *TickProcessor) processEmergencyFoodWork(ctx context.Context, tx port.WorldTickTransaction, householdID string, result simulation.TickResult, tick, effectiveGameDay, gameDaysPerTickNum, gameDaysPerTickDen int64) error {
+	foodContext, err := tx.LoadEmergencyFoodContext(ctx, householdID, tick+1)
+	if err != nil {
+		return err
 	}
-	for _, c := range result.State.Characters {
-		if c.LaborPermille != 1000 {
-			continue
-		}
-		activity := simulation.Fishing
-		if c.Specialization == simulation.Agriculture || (c.Specialization != simulation.Fishing && result.State.FarmSpecialization == simulation.Agriculture) {
-			activity = simulation.Agriculture
-		}
-		scheduled, err := tx.ScheduleEmergencyFoodWork(ctx, householdID, c.ID, string(activity), tick+1, tick+1, effectiveGameDay, result.State.SupplyDays(p.Balance))
-		if err != nil {
-			return err
-		}
-		if scheduled {
-			break
-		}
+	decision := EvaluateEmergencyFoodPolicy(EmergencyFoodPolicyInput{
+		State: result.State, CurrentTick: tick, CurrentGameDay: effectiveGameDay,
+		GameDaysPerTickNum: gameDaysPerTickNum, GameDaysPerTickDen: gameDaysPerTickDen,
+		Season:      simulation.Season(calendar.ProductionSeasonAt(calendar.GameDay(effectiveGameDay))),
+		Assignments: foodContext.Assignments, IncomingShipments: foodContext.IncomingShipments, Balance: p.Balance,
+	})
+	record := port.EmergencyFoodDecisionRecord{
+		CharacterID: decision.CharacterID, Activity: string(decision.Activity), StartsTick: tick + 1, EndsTick: tick + 1,
+		OccurredTick: tick, OccurredGameDay: effectiveGameDay, Reason: decision.Reason, SupplyGameDays: decision.SupplyGameDays,
+		ExpectedProductionMilli: decision.ExpectedProductionMilli, RemainsAtRisk: decision.RemainsAtRisk,
 	}
-	return nil
+	if decision.Schedule {
+		_, err = tx.ScheduleEmergencyFoodWork(ctx, householdID, record)
+		return err
+	}
+	return tx.RecordEmergencyFoodDecision(ctx, householdID, record)
 }
 
 func (p *TickProcessor) processPolitics(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick, effectiveGameDay int64) error {

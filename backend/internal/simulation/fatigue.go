@@ -15,3 +15,9 @@ func applyFatigue(c *Character, activity Activity, intensity Intensity, cfg Bala
 		c.Fatigue = 100
 	}
 }
+
+func FatigueAfter(current int, activity Activity, intensity Intensity, cfg BalanceConfig) int {
+	c := Character{Fatigue: current}
+	applyFatigue(&c, activity, intensity, cfg)
+	return c.Fatigue
+}

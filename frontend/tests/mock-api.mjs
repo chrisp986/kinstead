@@ -42,7 +42,9 @@ const contracts = [
 		id: contractId,
 		world_id: worldId,
 		party_a_household_id: sellerId,
+		party_a_household_name: 'Hrafnstead',
 		party_b_household_id: householdId,
+		party_b_household_name: 'Bjornvik',
 		starts_tick: 2,
 		ends_tick: 2,
 		interval_ticks: 1,
@@ -105,7 +107,9 @@ function shipment(id, quantity) {
 		id,
 		world_id: worldId,
 		sender_household_id: sellerId,
+		sender_household_name: 'Hrafnstead',
 		receiver_household_id: householdId,
+		receiver_household_name: 'Bjornvik',
 		origin_location_id: '00000000-0000-0000-0000-000000000011',
 		destination_location_id: '00000000-0000-0000-0000-000000000010',
 		resource_type: 'provisions',
@@ -237,6 +241,11 @@ async function readBody(request) {
 }
 
 createServer(async (request, response) => {
+	if (request.method === 'GET' && request.url === '/api/session') {
+		response.setHeader('Content-Type', 'application/json');
+		response.end(JSON.stringify({ households: [{ id: householdId, name: 'Bjornvik' }] }));
+		return;
+	}
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1:9080');
 	if (
 		request.method === 'GET' &&
@@ -256,14 +265,29 @@ createServer(async (request, response) => {
 			calendar: responseCalendar,
 			historical_date: '0980-01-01',
 			season: 'winter',
-			supply_days: 30.6,
+			supply_game_days: 30,
+			supply_status: 'strained',
 			resources: { provisions: 150, wood: 20, trade_goods: 4, silver: 30 },
 			characters,
 			assignments,
 			alerts: [],
 			change_window: { from_tick: 0, to_tick: 0 },
 			recent_changes: chronicleEntries,
+			since_you_were_away: [
+				{
+					id: '00000000-0000-0000-0000-000000000599',
+					occurred_game_day: 0,
+					entry_type: 'food_shortage',
+					data: { food_shortage_milli: 2000 }
+				}
+			],
 			attention: [
+				{
+					code: 'food_shortage',
+					severity: 'critical',
+					target: 'trade',
+					data: { food_shortage_milli: 2000 }
+				},
 				{
 					code: 'political_demand_due',
 					severity: 'critical',
@@ -294,7 +318,7 @@ createServer(async (request, response) => {
 					code: 'secure_provisions',
 					severity: 'critical',
 					target: 'trade',
-					data: { supply_days: 6.5 }
+					data: { supply_game_days: 6 }
 				}
 			]
 		});
@@ -455,6 +479,7 @@ createServer(async (request, response) => {
 							id: offerId,
 							world_id: worldId,
 							seller_household_id: sellerId,
+							seller_household_name: 'Hrafnstead',
 							origin_location_id: '00000000-0000-0000-0000-000000000011',
 							resource_type: 'provisions',
 							quantity_remaining_milli: offerQuantity,
@@ -466,6 +491,51 @@ createServer(async (request, response) => {
 					]
 				: [];
 		return send(response, 200, { offers });
+	}
+	if (request.method === 'POST' && url.pathname === `/api/households/${householdId}/work-preview`) {
+		const body = await readBody(request);
+		const character = characters.find((value) => value.id === body.character_id);
+		return send(response, 200, {
+			produced_provisions_milli: body.activity === 'fishing' ? 3450 * body.duration_ticks : 0,
+			produced_wood_milli: body.activity === 'woodcutting' ? 3000 * body.duration_ticks : 0,
+			fatigue_start: character?.fatigue ?? 0,
+			fatigue_end: (character?.fatigue ?? 0) + 4 * body.duration_ticks,
+			season: 'spring',
+			specialization_bonus_permille: character?.specialization === body.activity ? 1150 : 1000,
+			farm_bonus_permille: body.activity === 'fishing' ? 1150 : 1000,
+			duration_game_days: Math.floor((body.duration_ticks * 91) / 12),
+			assignment_conflicts: [],
+			warnings: []
+		});
+	}
+	if (request.method === 'POST' && url.pathname === `/api/market/offers/${offerId}/quote`) {
+		const body = await readBody(request);
+		const goods = Math.ceil((body.quantity_milli * 1500) / 1000);
+		return send(response, 200, {
+			goods_cost_milli: goods,
+			transport_cost_milli: 1000,
+			total_cost_milli: goods + 1000,
+			remaining_silver_milli: 30000 - goods - 1000,
+			expected_arrival_game_day: 15,
+			travel_ticks: 2
+		});
+	}
+	if (request.method === 'POST' && url.pathname === '/api/contracts/preview') {
+		const body = await readBody(request);
+		const count = body.end_condition?.delivery_count ?? 4;
+		return send(response, 200, {
+			first_due_game_day: body.start_game_day,
+			recurrence: `every ${body.interval_days} days`,
+			end_condition: body.end_condition?.type ?? 'fixed_game_day',
+			expected_delivery_count: count,
+			latest_safe_dispatch_game_day: body.start_game_day - 15,
+			total_promised_quantity_milli: count * body.terms[0].quantity_milli,
+			first_delivery_stock_warning: false
+		});
+	}
+	if (request.method === 'POST' && url.pathname.endsWith('/report/acknowledge')) {
+		response.writeHead(204);
+		return response.end();
 	}
 	if (request.method === 'POST' && url.pathname === `/api/households/${householdId}/assignments`) {
 		const body = await readBody(request);
@@ -527,6 +597,7 @@ createServer(async (request, response) => {
 				id: offerId,
 				world_id: worldId,
 				seller_household_id: sellerId,
+				seller_household_name: 'Hrafnstead',
 				origin_location_id: created.origin_location_id,
 				resource_type: 'provisions',
 				quantity_remaining_milli: offerQuantity,
@@ -586,7 +657,9 @@ createServer(async (request, response) => {
 		const created = {
 			...shipment('00000000-0000-0000-0000-000000000603', 5_000),
 			sender_household_id: householdId,
+			sender_household_name: 'Bjornvik',
 			receiver_household_id: sellerId,
+			receiver_household_name: 'Hrafnstead',
 			origin_location_id: '00000000-0000-0000-0000-000000000010',
 			destination_location_id: '00000000-0000-0000-0000-000000000011',
 			resource_type: 'wood',

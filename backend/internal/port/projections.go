@@ -41,7 +41,9 @@ type ShipmentRecord struct {
 	ID                     string `json:"id"`
 	WorldID                string `json:"world_id"`
 	SenderHouseholdID      string `json:"sender_household_id"`
+	SenderHouseholdName    string `json:"sender_household_name"`
 	ReceiverHouseholdID    string `json:"receiver_household_id"`
+	ReceiverHouseholdName  string `json:"receiver_household_name"`
 	OriginLocationID       string `json:"origin_location_id"`
 	DestinationLocationID  string `json:"destination_location_id"`
 	ResourceType           string `json:"resource_type"`
@@ -60,6 +62,7 @@ type MarketOfferRecord struct {
 	ID                     string `json:"id"`
 	WorldID                string `json:"world_id"`
 	SellerHouseholdID      string `json:"seller_household_id"`
+	SellerHouseholdName    string `json:"seller_household_name"`
 	OriginLocationID       string `json:"origin_location_id"`
 	ResourceType           string `json:"resource_type"`
 	QuantityRemainingMilli int64  `json:"quantity_remaining_milli"`
@@ -103,6 +106,7 @@ type HouseholdSnapshot struct {
 	HistoricalDaysPerTickDen int32
 	TickDurationSeconds      int32
 	Specialization           string
+	LastSeenGameDay          int64
 	State                    simulation.HouseholdState
 	Characters               []CharacterRecord
 	Assignments              []AssignmentRecord
@@ -112,6 +116,10 @@ type HouseholdSnapshot struct {
 // PostgreSQL and allow deterministic service tests without a database.
 type ReportReader interface {
 	GetHouseholdReport(context.Context, string) (HouseholdSnapshot, error)
+}
+
+type HouseholdNameReader interface {
+	HouseholdNames(context.Context, []string) (map[string]string, error)
 }
 
 type PoliticalReportDemand struct {
@@ -138,6 +146,11 @@ type FarmReportReader interface {
 	ListRecentChronicleForReport(context.Context, string, int64, int) ([]ChronicleEntryRecord, error)
 	ListPendingPoliticalDemandsForReport(context.Context, string) ([]PoliticalReportDemand, error)
 	ListContractObligationsForReport(context.Context, string) ([]ContractReportObligation, error)
+	ListChronicleSinceGameDayForReport(context.Context, string, int64, int) ([]ChronicleEntryRecord, error)
+}
+
+type ReportAcknowledgementWriter interface {
+	AcknowledgeHouseholdReport(context.Context, string, int64) error
 }
 
 type ShipmentRepository interface {
@@ -187,6 +200,11 @@ type WorldClaim struct {
 	NextTickAt          time.Time
 }
 
+type EmergencyFoodContext struct {
+	Assignments       []AssignmentRecord
+	IncomingShipments []ShipmentRecord
+}
+
 type ContractObligationAssessment struct {
 	WorldID              contractdomain.WorldID
 	Obligation           contractdomain.Obligation
@@ -215,10 +233,25 @@ type WorldTickTransaction interface {
 	ListHouseholdIDs(context.Context, string) ([]string, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult, int64) error
-	ScheduleEmergencyFoodWork(context.Context, string, string, string, int64, int64, int64, float64) (bool, error)
+	LoadEmergencyFoodContext(context.Context, string, int64) (EmergencyFoodContext, error)
+	ScheduleEmergencyFoodWork(context.Context, string, EmergencyFoodDecisionRecord) (bool, error)
+	RecordEmergencyFoodDecision(context.Context, string, EmergencyFoodDecisionRecord) error
 	FinishWorldTick(context.Context, WorldClaim, int64, int64, int64) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
+}
+
+type EmergencyFoodDecisionRecord struct {
+	CharacterID             string
+	Activity                string
+	StartsTick              int64
+	EndsTick                int64
+	OccurredTick            int64
+	OccurredGameDay         int64
+	Reason                  string
+	SupplyGameDays          int64
+	ExpectedProductionMilli int64
+	RemainsAtRisk           bool
 }
 
 type TickRepository interface {

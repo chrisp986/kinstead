@@ -98,10 +98,27 @@ export function describeChronicleEntry(entry: ChronicleEntry): ChronicleDescript
 				title: 'Jarl demand expired',
 				detail: `${actor} demand expired and was refused${deltaPhrase(dataInteger(entry, 'standing_delta'), 'standing')}.`
 			};
-		case 'emergency_food_work_scheduled':
+		case 'emergency_food_work_scheduled': {
+			const remainsAtRisk = entry.data.remains_at_risk === true;
 			return {
 				title: 'Emergency work scheduled',
-				detail: `${person} was assigned to ${activityLabel(activity)} for supplies.`
+				detail: `${person} was assigned to ${activityLabel(activity)} for supplies.${remainsAtRisk ? ' The household is still projected to run out of food.' : ''}`
+			};
+		}
+		case 'emergency_food_policy_no_action':
+			return {
+				title: 'Emergency food review',
+				detail:
+					dataString(entry, 'reason') === 'planned_work_and_shipments_cover_supply'
+						? 'Planned work and incoming provisions are expected to restore food coverage.'
+						: dataString(entry, 'reason') === 'incoming_provisions_arrive_in_time'
+							? 'Incoming provisions are expected before stores run out.'
+							: 'No rested, uncommitted worker could be assigned. The household is still projected to run out of food.'
+			};
+		case 'food_shortage':
+			return {
+				title: 'Food shortage',
+				detail: `The household lacked ${formatMilli(dataInteger(entry, 'food_shortage_milli') ?? 0)} provisions. Food stores were exhausted.`
 			};
 		case 'emergency_work_overridden':
 			return {

@@ -20,6 +20,7 @@ import (
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
 	"game/backend/internal/postgres"
+	"game/backend/internal/simulation"
 )
 
 type Server struct {
@@ -32,6 +33,7 @@ type Server struct {
 	contracts     *application.ContractService
 	politics      *application.PoliticsService
 	calendar      *application.CalendarService
+	workPreview   *application.WorkPreviewService
 	log           *slog.Logger
 }
 
@@ -45,13 +47,17 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 		contracts:     application.NewContractService(store),
 		politics:      application.NewPoliticsService(store, store),
 		calendar:      application.NewCalendarService(store),
+		workPreview:   application.NewWorkPreviewService(store),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /api/session", s.session)
 	mux.HandleFunc("GET /api/households/{id}/report", s.farmReport)
+	mux.HandleFunc("POST /api/households/{id}/report/acknowledge", s.acknowledgeFarmReport)
 	mux.HandleFunc("GET /api/households/{id}/calendar", s.householdCalendar)
 	mux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
 	mux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
+	mux.HandleFunc("POST /api/households/{id}/work-preview", s.previewWork)
 	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
 	mux.HandleFunc("POST /api/shipments/{id}/cancel", s.cancelShipment)
 	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
@@ -59,12 +65,14 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/households/{id}/contracts", s.householdContracts)
 	mux.HandleFunc("GET /api/households/{id}/politics", s.householdPolitics)
 	mux.HandleFunc("POST /api/contracts", s.proposeContract)
+	mux.HandleFunc("POST /api/contracts/preview", s.previewContract)
 	mux.HandleFunc("POST /api/contracts/{id}/respond", s.respondContract)
 	mux.HandleFunc("POST /api/contract-obligations/{id}/dispatch", s.dispatchContractObligation)
 	mux.HandleFunc("POST /api/political-demands/{id}/respond", s.respondPoliticalDemand)
 	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
+	mux.HandleFunc("POST /api/market/offers/{id}/quote", s.quoteMarketOffer)
 	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
-	return cors(mux)
+	return cors(authenticated(store, mux))
 }
 
 func (s *Server) householdPolitics(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +171,53 @@ type proposeContractRequest struct {
 	EndsTick                *int64                            `json:"ends_tick,omitempty"`
 	IntervalTicks           *int64                            `json:"interval_ticks,omitempty"`
 	Terms                   []application.ContractTermIntent  `json:"terms"`
+}
+
+func contractCommandFromRequest(req proposeContractRequest) (application.ProposeContractCommand, error) {
+	command := application.ProposeContractCommand{ProposerHouseholdID: req.ProposerHouseholdID, CounterpartyHouseholdID: req.CounterpartyHouseholdID, Terms: req.Terms}
+	dayFields := req.StartGameDay != nil || req.EndGameDay != nil || req.FirstDueGameDay != nil || req.IntervalDays != nil
+	tickFields := req.StartsTick != nil || req.EndsTick != nil || req.IntervalTicks != nil
+	if dayFields && tickFields || ((req.StartGameDay != nil || req.EndGameDay != nil) && req.FirstDueGameDay != nil) {
+		return command, application.ErrInvalidContractSchedule
+	}
+	if req.StartGameDay != nil && req.IntervalDays != nil && (req.EndGameDay != nil || req.EndCondition != nil) {
+		command.StartGameDay, command.IntervalDays = *req.StartGameDay, *req.IntervalDays
+		if req.EndGameDay != nil {
+			command.EndGameDay = *req.EndGameDay
+		}
+		if req.EndCondition != nil {
+			command.EndCondition = *req.EndCondition
+		}
+	} else if req.FirstDueGameDay != nil && req.IntervalDays != nil {
+		command.StartGameDay, command.IntervalDays = *req.FirstDueGameDay, *req.IntervalDays
+		if req.EndCondition != nil {
+			command.EndCondition = *req.EndCondition
+		}
+	} else if req.StartsTick != nil && req.EndsTick != nil && req.IntervalTicks != nil {
+		command.StartsTick, command.EndsTick, command.IntervalTicks = *req.StartsTick, *req.EndsTick, *req.IntervalTicks
+	} else {
+		return command, application.ErrInvalidContractSchedule
+	}
+	return command, nil
+}
+
+func (s *Server) previewContract(w http.ResponseWriter, r *http.Request) {
+	var req proposeContractRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	command, err := contractCommandFromRequest(req)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	preview, err := s.contracts.Preview(r.Context(), command)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (s *Server) proposeContract(w http.ResponseWriter, r *http.Request) {
@@ -284,14 +339,29 @@ func (s *Server) dispatchContractObligation(w http.ResponseWriter, r *http.Reque
 	}
 	writeJSON(w, http.StatusCreated, dispatchContractObligationResponse{
 		Obligation: obligation,
-		Shipment:   contractShipmentRecord(result.Shipment),
+		Shipment: contractShipmentRecord(
+			result.Shipment,
+			contractHouseholdName(projection, string(result.Shipment.SenderHouseholdID)),
+			contractHouseholdName(projection, string(result.Shipment.ReceiverHouseholdID)),
+		),
 	})
 }
 
-func contractShipmentRecord(value shipmentdomain.Shipment) port.ShipmentRecord {
+func contractHouseholdName(contract application.ContractProjection, householdID string) string {
+	if contract.PartyAHouseholdID == householdID {
+		return contract.PartyAHouseholdName
+	}
+	if contract.PartyBHouseholdID == householdID {
+		return contract.PartyBHouseholdName
+	}
+	return ""
+}
+
+func contractShipmentRecord(value shipmentdomain.Shipment, senderName, receiverName string) port.ShipmentRecord {
 	record := port.ShipmentRecord{
 		ID: string(value.ID), WorldID: string(value.WorldID),
-		SenderHouseholdID: string(value.SenderHouseholdID), ReceiverHouseholdID: string(value.ReceiverHouseholdID),
+		SenderHouseholdID: string(value.SenderHouseholdID), SenderHouseholdName: senderName,
+		ReceiverHouseholdID: string(value.ReceiverHouseholdID), ReceiverHouseholdName: receiverName,
 		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
 		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
 		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
@@ -344,6 +414,22 @@ func (s *Server) marketOffers(w http.ResponseWriter, r *http.Request) {
 type purchaseMarketOfferRequest struct {
 	BuyerHouseholdID string `json:"buyer_household_id"`
 	QuantityMilli    int64  `json:"quantity_milli"`
+}
+
+func (s *Server) quoteMarketOffer(w http.ResponseWriter, r *http.Request) {
+	var req purchaseMarketOfferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	quote, err := s.market.QuoteOffer(r.Context(), application.PurchaseOfferCommand{
+		OfferID: r.PathValue("id"), BuyerHouseholdID: req.BuyerHouseholdID, QuantityMilli: req.QuantityMilli,
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, quote)
 }
 
 func (s *Server) purchaseMarketOffer(w http.ResponseWriter, r *http.Request) {
@@ -404,6 +490,25 @@ func (s *Server) farmReport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, report)
 }
 
+func (s *Server) acknowledgeFarmReport(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		GameDay int64 `json:"game_day"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if req.GameDay < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_game_day"})
+		return
+	}
+	if err := s.reports.Acknowledge(r.Context(), r.PathValue("id"), req.GameDay); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) assignments(w http.ResponseWriter, r *http.Request) {
 	snap, err := s.store.GetHouseholdReport(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -419,6 +524,27 @@ type createAssignmentRequest struct {
 	Intensity     string `json:"intensity"`
 	DurationTicks int64  `json:"duration_ticks"`
 	StartsTick    *int64 `json:"starts_tick,omitempty"`
+}
+
+func (s *Server) previewWork(w http.ResponseWriter, r *http.Request) {
+	var req createAssignmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if !validActivity(req.Activity) || !validIntensity(req.Intensity) || !validDuration(req.DurationTicks) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_work_preview"})
+		return
+	}
+	preview, err := s.workPreview.Preview(r.Context(), application.WorkPreviewCommand{
+		HouseholdID: r.PathValue("id"), CharacterID: req.CharacterID, Activity: simulation.Activity(req.Activity),
+		Intensity: simulation.Intensity(req.Intensity), DurationTicks: req.DurationTicks,
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (s *Server) createAssignment(w http.ResponseWriter, r *http.Request) {
@@ -444,7 +570,7 @@ func (s *Server) createAssignment(w http.ResponseWriter, r *http.Request) {
 	ends := starts + req.DurationTicks - 1
 	out, err := s.store.CreateAssignment(r.Context(), r.PathValue("id"), req.CharacterID, req.Activity, req.Intensity, starts, ends)
 	if err != nil {
-		if strings.Contains(err.Error(), "overlaps") || strings.Contains(err.Error(), "starts_tick") {
+		if errors.Is(err, postgres.ErrAssignmentConflict) || strings.Contains(err.Error(), "overlaps") || strings.Contains(err.Error(), "starts_tick") {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "assignment_conflict", "message": err.Error()})
 			return
 		}
@@ -490,6 +616,10 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, marketdomain.ErrInvalidQuantity) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_purchase", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, application.ErrInvalidWorkPreview) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_work_preview", "message": err.Error()})
 		return
 	}
 	if errors.Is(err, contractdomain.ErrInvalidContract) || errors.Is(err, contractdomain.ErrInvalidObligation) {
@@ -554,7 +684,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

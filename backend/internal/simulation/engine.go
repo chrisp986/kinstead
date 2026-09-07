@@ -6,6 +6,7 @@ type TickResult struct {
 	State                   HouseholdState
 	ProducedProvisionsMilli int64
 	ProducedWoodMilli       int64
+	FoodShortageMilli       int64
 }
 
 func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx TickContext, cfg BalanceConfig) (TickResult, error) {
@@ -17,21 +18,21 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 	}
 	assigned := make(map[string]Assignment, len(assignments))
 	for _, a := range assignments {
-		if _, exists := assigned[a.Character]; exists {
-			return TickResult{}, fmt.Errorf("character %q assigned twice", a.Character)
+		if _, exists := assigned[a.CharacterID]; exists {
+			return TickResult{}, fmt.Errorf("character ID %q assigned twice", a.CharacterID)
 		}
-		if _, err := state.CharacterIndex(a.Character); err != nil {
+		if _, err := state.CharacterIndexByID(a.CharacterID); err != nil {
 			return TickResult{}, err
 		}
-		assigned[a.Character] = a
+		assigned[a.CharacterID] = a
 	}
 
 	var food, wood int64
 	for i := range state.Characters {
 		c := &state.Characters[i]
-		a, ok := assigned[c.Name]
+		a, ok := assigned[c.ID]
 		if !ok {
-			a = Assignment{Character: c.Name, Activity: Rest, Intensity: Normal}
+			a = Assignment{CharacterID: c.ID, Activity: Rest, Intensity: Normal}
 		}
 		produced := EstimateProduction(*c, a, state.FarmSpecialization, ctx, cfg)
 		switch a.Activity {
@@ -47,8 +48,10 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 
 	state.ProvisionsMilli += food
 	state.WoodMilli += wood
-	state.ProvisionsMilli -= cfg.DailyConsumptionMilli
+	state.ProvisionsMilli -= cfg.ConsumptionPerTickMilli
+	var shortage int64
 	if state.ProvisionsMilli < 0 {
+		shortage = -state.ProvisionsMilli
 		state.ProvisionsMilli = 0
 	}
 	state.WoodMilli -= cfg.DailyWoodUpkeepMilli
@@ -56,12 +59,12 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 		state.WoodMilli = 0
 	}
 
-	if state.SupplyDays(cfg) < float64(cfg.CriticalSupplyDays) {
+	if state.SupplyBelowGameDays(cfg, cfg.CriticalSupplyDays, ctx.GameDaysPerTickNum, ctx.GameDaysPerTickDen) {
 		state.CriticalDays++
 	}
-	if state.SupplyDays(cfg) <= float64(cfg.StrainedSupplyDays) {
+	if state.SupplyAtMostGameDays(cfg, cfg.StrainedSupplyDays, ctx.GameDaysPerTickNum, ctx.GameDaysPerTickDen) {
 		state.StrainedDays++
 	}
 	state.Tick = tick
-	return TickResult{State: state, ProducedProvisionsMilli: food, ProducedWoodMilli: wood}, nil
+	return TickResult{State: state, ProducedProvisionsMilli: food, ProducedWoodMilli: wood, FoodShortageMilli: shortage}, nil
 }

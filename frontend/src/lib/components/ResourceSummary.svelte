@@ -1,32 +1,27 @@
 <script lang="ts">
 	import { formatProjectedUnits, labelResource } from '$lib/domain/format';
-	let { resources, supplyDays }: { resources: Record<string, number>; supplyDays: number } =
-		$props();
-	let wholeSupplyDays = $derived(Math.max(0, Math.floor(supplyDays)));
-	let supplyTone = $derived(
-		wholeSupplyDays < 7
-			? 'emergency'
-			: wholeSupplyDays < 15
-				? 'critical'
-				: wholeSupplyDays <= 30
-					? 'warning'
-					: 'safe'
-	);
+	let {
+		resources,
+		supplyGameDays,
+		supplyStatus
+	}: {
+		resources: Record<string, number>;
+		supplyGameDays: number;
+		supplyStatus: 'safe' | 'strained' | 'critical' | 'emergency';
+	} = $props();
+	let wholeSupplyDays = $derived(Math.max(0, Math.floor(supplyGameDays)));
+	let supplyTone = $derived(supplyStatus === 'strained' ? 'warning' : supplyStatus);
 	let supplyState = $derived(
-		wholeSupplyDays < 7
-			? 'Emergency'
-			: wholeSupplyDays < 15
-				? 'Critical'
-				: wholeSupplyDays <= 30
-					? 'Strained'
-					: 'Secure'
+		supplyStatus === 'safe'
+			? 'Secure'
+			: supplyStatus.charAt(0).toUpperCase() + supplyStatus.slice(1)
 	);
 	let supplyMessage = $derived(
-		wholeSupplyDays < 7
+		supplyStatus === 'emergency'
 			? 'Food security needs immediate action.'
-			: wholeSupplyDays < 15
+			: supplyStatus === 'critical'
 				? 'Plan food work or trade before reserves become an emergency.'
-				: wholeSupplyDays <= 30
+				: supplyStatus === 'strained'
 					? 'Reserves are adequate, but the household has little margin.'
 					: 'The household has a comfortable provisions buffer.'
 	);

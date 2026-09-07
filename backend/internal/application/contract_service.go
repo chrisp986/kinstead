@@ -82,17 +82,29 @@ type ContractObligationProjection struct {
 }
 
 type ContractProjection struct {
-	ID                string                         `json:"id"`
-	WorldID           string                         `json:"world_id"`
-	PartyAHouseholdID string                         `json:"party_a_household_id"`
-	PartyBHouseholdID string                         `json:"party_b_household_id"`
-	StartGameDay      int64                          `json:"start_game_day"`
-	EndGameDay        int64                          `json:"end_game_day"`
-	IntervalDays      int64                          `json:"interval_days"`
-	Interval          string                         `json:"interval"`
-	Status            string                         `json:"status"`
-	Terms             []ContractTermProjection       `json:"terms"`
-	Obligations       []ContractObligationProjection `json:"obligations"`
+	ID                  string                         `json:"id"`
+	WorldID             string                         `json:"world_id"`
+	PartyAHouseholdID   string                         `json:"party_a_household_id"`
+	PartyBHouseholdID   string                         `json:"party_b_household_id"`
+	PartyAHouseholdName string                         `json:"party_a_household_name"`
+	PartyBHouseholdName string                         `json:"party_b_household_name"`
+	StartGameDay        int64                          `json:"start_game_day"`
+	EndGameDay          int64                          `json:"end_game_day"`
+	IntervalDays        int64                          `json:"interval_days"`
+	Interval            string                         `json:"interval"`
+	Status              string                         `json:"status"`
+	Terms               []ContractTermProjection       `json:"terms"`
+	Obligations         []ContractObligationProjection `json:"obligations"`
+}
+
+type ContractPreview struct {
+	FirstDueGameDay            int64  `json:"first_due_game_day"`
+	Recurrence                 string `json:"recurrence"`
+	EndCondition               string `json:"end_condition"`
+	ExpectedDeliveryCount      int64  `json:"expected_delivery_count"`
+	LatestSafeDispatchGameDay  int64  `json:"latest_safe_dispatch_game_day"`
+	TotalPromisedQuantityMilli int64  `json:"total_promised_quantity_milli"`
+	FirstDeliveryStockWarning  bool   `json:"first_delivery_stock_warning"`
 }
 
 type ContractService struct {
@@ -103,7 +115,62 @@ func NewContractService(store port.ContractRepository) *ContractService {
 	return &ContractService{Store: store}
 }
 
+func validateContractTermIntents(cmd ProposeContractCommand) error {
+	if cmd.ProposerHouseholdID == "" || cmd.CounterpartyHouseholdID == "" ||
+		cmd.ProposerHouseholdID == cmd.CounterpartyHouseholdID || len(cmd.Terms) == 0 {
+		return contractdomain.ErrInvalidContract
+	}
+	for _, term := range cmd.Terms {
+		validResource := term.ResourceType == "provisions" || term.ResourceType == "wood" ||
+			term.ResourceType == "trade_goods" || term.ResourceType == "silver"
+		debtorIsParty := term.DebtorHouseholdID == cmd.ProposerHouseholdID || term.DebtorHouseholdID == cmd.CounterpartyHouseholdID
+		creditorIsParty := term.CreditorHouseholdID == cmd.ProposerHouseholdID || term.CreditorHouseholdID == cmd.CounterpartyHouseholdID
+		if !validResource || term.QuantityMilli <= 0 || !debtorIsParty || !creditorIsParty ||
+			term.DebtorHouseholdID == term.CreditorHouseholdID {
+			return contractdomain.ErrInvalidContract
+		}
+	}
+	return nil
+}
+
+func (s *ContractService) Preview(ctx context.Context, cmd ProposeContractCommand) (ContractPreview, error) {
+	reader, ok := s.Store.(port.ContractPreviewReader)
+	if !ok {
+		return ContractPreview{}, fmt.Errorf("contract preview is unavailable")
+	}
+	if len(cmd.Terms) != 1 || validateContractTermIntents(cmd) != nil {
+		return ContractPreview{}, contractdomain.ErrInvalidContract
+	}
+	term := cmd.Terms[0]
+	previewContext, err := reader.LoadContractPreviewContext(ctx, contractdomain.HouseholdID(cmd.ProposerHouseholdID), contractdomain.HouseholdID(cmd.CounterpartyHouseholdID), term.ResourceType)
+	if err != nil {
+		return ContractPreview{}, err
+	}
+	schedule, err := resolveContractSchedule(cmd, previewContext.Parties)
+	if err != nil {
+		return ContractPreview{}, err
+	}
+	count := (schedule.endDay-schedule.startDay)/schedule.intervalDays + 1
+	if count <= 0 || term.QuantityMilli > math.MaxInt64/count {
+		return ContractPreview{}, contractdomain.ErrInvalidContract
+	}
+	latest, err := calendar.LatestDispatchGameDay(calendar.GameDay(previewContext.Parties.CurrentGameDay), previewContext.Parties.CalendarRemainder, previewContext.Parties.GameDaysPerTickNum, previewContext.Parties.GameDaysPerTickDen, calendar.GameDay(schedule.startDay), previewContext.TravelTicks)
+	if err != nil {
+		return ContractPreview{}, err
+	}
+	endCondition := "fixed_game_day"
+	if cmd.EndCondition.Type != "" {
+		endCondition = cmd.EndCondition.Type
+	}
+	return ContractPreview{FirstDueGameDay: schedule.startDay, Recurrence: formatContractInterval(schedule.intervalDays), EndCondition: endCondition,
+		ExpectedDeliveryCount: count, LatestSafeDispatchGameDay: int64(latest), TotalPromisedQuantityMilli: count * term.QuantityMilli,
+		FirstDeliveryStockWarning: previewContext.CurrentStockMilli < term.QuantityMilli}, nil
+}
+
 func (s *ContractService) Propose(ctx context.Context, cmd ProposeContractCommand) (contractdomain.Contract, error) {
+	if err := validateContractTermIntents(cmd); err != nil {
+		return contractdomain.Contract{}, err
+	}
 	tx, err := s.Store.BeginContractProposal(ctx)
 	if err != nil {
 		return contractdomain.Contract{}, err
@@ -172,7 +239,11 @@ func (s *ContractService) Detail(ctx context.Context, contractID string) (Contra
 	if err != nil {
 		return ContractProjection{}, err
 	}
-	return projectContract(value, obligations), nil
+	names, err := s.contractHouseholdNames(ctx, value)
+	if err != nil {
+		return ContractProjection{}, err
+	}
+	return projectContract(value, obligations, names), nil
 }
 
 func (s *ContractService) ListDetailsForHousehold(ctx context.Context, householdID string) ([]ContractProjection, error) {
@@ -186,15 +257,28 @@ func (s *ContractService) ListDetailsForHousehold(ctx context.Context, household
 		if err != nil {
 			return nil, err
 		}
-		values = append(values, projectContract(value, obligations))
+		names, err := s.contractHouseholdNames(ctx, value)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, projectContract(value, obligations, names))
 	}
 	return values, nil
 }
 
-func projectContract(value contractdomain.Contract, obligations []contractdomain.Obligation) ContractProjection {
+func (s *ContractService) contractHouseholdNames(ctx context.Context, value contractdomain.Contract) (map[string]string, error) {
+	reader, ok := s.Store.(port.HouseholdNameReader)
+	if !ok {
+		return map[string]string{}, nil
+	}
+	return reader.HouseholdNames(ctx, []string{string(value.PartyAHouseholdID), string(value.PartyBHouseholdID)})
+}
+
+func projectContract(value contractdomain.Contract, obligations []contractdomain.Obligation, names map[string]string) ContractProjection {
 	projection := ContractProjection{
 		ID: string(value.ID), WorldID: string(value.WorldID),
 		PartyAHouseholdID: string(value.PartyAHouseholdID), PartyBHouseholdID: string(value.PartyBHouseholdID),
+		PartyAHouseholdName: names[string(value.PartyAHouseholdID)], PartyBHouseholdName: names[string(value.PartyBHouseholdID)],
 		StartGameDay: int64(value.StartGameDay), EndGameDay: int64(value.EndGameDay), IntervalDays: value.IntervalDays,
 		Interval: formatContractInterval(value.IntervalDays),
 		Status:   string(value.Status), Terms: make([]ContractTermProjection, 0, len(value.Terms)),

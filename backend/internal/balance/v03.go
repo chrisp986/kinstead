@@ -7,11 +7,11 @@ import "game/backend/internal/simulation"
 // separate.
 func V03() simulation.BalanceConfig {
 	return simulation.BalanceConfig{
-		DailyConsumptionMilli: 4900,
-		DailyWoodUpkeepMilli:  1000,
-		CriticalSupplyDays:    15,
-		EmergencySupplyDays:   7,
-		StrainedSupplyDays:    30,
+		ConsumptionPerTickMilli: 4900,
+		DailyWoodUpkeepMilli:    1000,
+		CriticalSupplyDays:      15,
+		EmergencySupplyDays:     7,
+		StrainedSupplyDays:      30,
 		Intensity: map[simulation.Intensity]simulation.IntensityRule{
 			simulation.Light:  {ProductionPermille: 800, FatigueDelta: 2},
 			simulation.Normal: {ProductionPermille: 1000, FatigueDelta: 4},

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Relationship } from '$lib/api/generated';
-	import { sentenceCase, shortId } from '$lib/domain/format';
+	import { sentenceCase } from '$lib/domain/format';
 
 	let { relationships, householdId }: { relationships: Relationship[]; householdId: string } =
 		$props();
@@ -9,12 +9,6 @@
 		return relationship.source_household_id === householdId
 			? relationship.target_household_name
 			: relationship.source_household_name;
-	}
-
-	function otherId(relationship: Relationship): string {
-		return relationship.source_household_id === householdId
-			? relationship.target_household_id
-			: relationship.source_household_id;
 	}
 
 	function direction(relationship: Relationship): string {
@@ -83,7 +77,6 @@
 							<small>Trust {relationship.trust}</small>
 						</div>
 					</header>
-					<div class="identity-detail">Household …{shortId(otherId(relationship))}</div>
 					{#if relationship.events.length > 0}
 						<div class="history-heading">Recent history</div>
 						<ul>

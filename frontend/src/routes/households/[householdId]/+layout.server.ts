@@ -1,6 +1,6 @@
 import { getHouseholdReport } from '$lib/api/generated';
 import { apiErrorMessage, createServerApi } from '$lib/server/api';
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ fetch, params }) => {
@@ -10,6 +10,7 @@ export const load: LayoutServerLoad = async ({ fetch, params }) => {
 			path: { householdId: params.householdId }
 		});
 		if (!result.data) {
+			if (result.response?.status === 401) redirect(303, '/sign-in');
 			error(
 				result.response?.status ?? 502,
 				apiErrorMessage(result.error, 'Unable to load household')

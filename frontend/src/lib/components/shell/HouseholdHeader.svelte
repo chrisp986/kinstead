@@ -27,25 +27,20 @@
 	let tiredCount = $derived(
 		report.characters.filter((character) => character.fatigue >= 50).length
 	);
-	let matterCount = $derived(report.attention.length + report.decisions.length);
-	let supplyDays = $derived(Math.max(0, Math.floor(report.supply_days)));
-	let supplyTone = $derived(
-		supplyDays < 7
-			? 'emergency'
-			: supplyDays < 15
-				? 'critical'
-				: supplyDays <= 30
-					? 'warning'
-					: 'safe'
-	);
+	let matterCount = $derived.by(() => {
+		const matters = new Set(
+			[...report.attention, ...report.decisions].map(
+				(item) => `${item.code}:${item.related_id ?? ''}`
+			)
+		);
+		return matters.size;
+	});
+	let supplyDays = $derived(Math.max(0, Math.floor(report.supply_game_days)));
+	let supplyTone = $derived(report.supply_status === 'strained' ? 'warning' : report.supply_status);
 	let supplyState = $derived(
-		supplyDays < 7
-			? 'Emergency'
-			: supplyDays < 15
-				? 'Critical'
-				: supplyDays <= 30
-					? 'Strained'
-					: 'Secure'
+		report.supply_status === 'safe'
+			? 'Secure'
+			: report.supply_status.charAt(0).toUpperCase() + report.supply_status.slice(1)
 	);
 
 	function householdPath(suffix = ''): `/households/${string}` {

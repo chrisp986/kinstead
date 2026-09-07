@@ -30,6 +30,8 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page.getByText('980 CE · Spring · first week')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Household report' }).first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'What needs your decision?' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Since you were away' })).toBeVisible();
+	await expect(page.getByText(/suffered a food shortage/i)).toBeVisible();
 	await expectMobileNavContent(page);
 
 	const provisions = page.getByLabel('Household status').getByRole('link').first();
@@ -41,6 +43,9 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page).toHaveURL(/\/work$/);
 	await page.getByLabel('Who?').selectOption({ label: 'Astrid' });
 	await page.getByLabel('Activity').selectOption('fishing');
+	await page.getByLabel('Duration').selectOption('1');
+	await expect(page.getByText('Expected output')).toBeVisible();
+	await expect(page.getByText(/Fatigue/).last()).toBeVisible();
 	await page.getByRole('button', { name: 'Assign Astrid' }).click();
 	await expect(page.getByRole('status')).toContainText("Astrid's work was scheduled");
 	await page.getByRole('link', { name: 'Report' }).click();
@@ -55,16 +60,27 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	// Flow C: Trade → purchase → transit.
 	await page.getByRole('link', { name: 'Trade' }).click();
 	await expect(page).toHaveURL(/\/trade$/);
+	const quoteQuantity = page.getByLabel('Quantity').first();
+	await quoteQuantity.fill('5');
+	await expect(page.getByText('Silver after purchase')).toBeVisible();
+	await expect(page.getByText('Expected arrival', { exact: true })).toBeVisible();
+	await expect(page.getByText('Hrafnstead').first()).toBeVisible();
 	await page.getByRole('button', { name: 'Buy for delivery' }).click();
 	await expect(page.getByRole('status')).toContainText('shipment is on its way');
 	await expect(page.getByRole('heading', { name: 'Journeys' })).toBeVisible();
+	await expect(page.getByText('Incoming · Hrafnstead').first()).toBeVisible();
 
 	// Flow D: accept and dispatch a contract, then inspect Transit.
 	await page.getByRole('button', { name: /Propose recurring delivery/ }).click();
+	await page.getByLabel('Units each time').fill('6');
+	await expect(page.getByText(/deliveries.*total/i)).toBeVisible();
+	await expect(page.getByText(/one-way delivery obligation/i)).toBeVisible();
 	await page.getByRole('button', { name: 'Send proposal' }).click();
 	await expect(page.getByRole('status')).toContainText('Contract proposal sent');
 	await page.getByRole('button', { name: 'Accept promise' }).click();
 	await expect(page.getByRole('status')).toContainText('Contract accepted');
+	await expect(page.getByText('Next delivery')).toBeVisible();
+	await expect(page.locator('body')).not.toContainText(/Household …[0-9a-f]{6}/i);
 
 	// The accepted schedule is projected into both calendar action and due events.
 	await page.getByRole('link', { name: 'Calendar', exact: true }).click();
@@ -121,12 +137,19 @@ test('household surfaces fit the supported viewport range', async ({ page }) => 
 		{ width: 1440, height: 900 }
 	]) {
 		await page.setViewportSize(viewport);
-		await page.goto('/households/00000000-0000-0000-0000-000000000020');
-		await expect(page.getByRole('heading', { name: 'Household report' }).first()).toBeVisible();
-		const overflow = await page.evaluate(
-			() => document.documentElement.scrollWidth > window.innerWidth + 1
-		);
-		expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBe(false);
+		for (const suffix of ['', '/farm', '/work', '/trade', '/calendar', '/chronicle']) {
+			await page.goto(`/households/00000000-0000-0000-0000-000000000020${suffix}`);
+			const overflow = await page.evaluate(
+				() => document.documentElement.scrollWidth > window.innerWidth + 1
+			);
+			expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}${suffix}`).toBe(
+				false
+			);
+			await expect(page.locator('body')).not.toContainText(/(?:…|\.{3})[0-9a-f]{6}\b/i);
+			await expect(page.locator('body')).not.toContainText(
+				/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
+			);
+		}
 	}
 });
 

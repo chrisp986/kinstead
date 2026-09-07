@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Shipment } from '$lib/api/generated';
-	import { formatMilli, labelResource, shortId } from '$lib/domain/format';
+	import { formatMilli, labelResource } from '$lib/domain/format';
 	import { formatRelativeGameDay } from '$lib/domain/time';
 	import StatusBadge from './StatusBadge.svelte';
 	let {
@@ -11,6 +11,12 @@
 
 	function direction(shipment: Shipment): string {
 		return shipment.receiver_household_id === householdId ? 'Incoming' : 'Outgoing';
+	}
+
+	function counterpart(shipment: Shipment): string {
+		return shipment.receiver_household_id === householdId
+			? shipment.sender_household_name || 'Unknown household'
+			: shipment.receiver_household_name || 'Unknown household';
 	}
 </script>
 
@@ -30,12 +36,12 @@
 				<article class="shipment">
 					<div class="shipment-main">
 						<div>
-							<span class="direction">{direction(shipment)}</span>
+							<span class="direction">{direction(shipment)} · {counterpart(shipment)}</span>
 							<strong
 								>{formatMilli(shipment.quantity_milli)}
 								{labelResource(shipment.resource_type)}</strong
 							>
-							<p>Shipment …{shortId(shipment.id)}</p>
+							<p>{shipment.status === 'arrived' ? 'Arrived shipment' : 'Shipment in transit'}</p>
 						</div>
 						<StatusBadge status={shipment.status} />
 					</div>

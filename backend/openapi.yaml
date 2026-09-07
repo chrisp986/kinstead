@@ -5,9 +5,34 @@ info:
   description: Command and projection API for the browser client.
 servers:
   - url: http://localhost:8080
+security:
+  - playerSession: []
 paths:
+  /api/session:
+    get:
+      operationId: getSession
+      responses:
+        '200':
+          description: Authenticated player's households
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [households]
+                properties:
+                  households:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name]
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+        '401':
+          description: Missing, expired, or revoked session
   /healthz:
     get:
+      security: []
       operationId: getHealth
       responses:
         '200':
@@ -30,6 +55,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/HouseholdReport' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/households/{householdId}/report/acknowledge:
+    post:
+      operationId: acknowledgeHouseholdReport
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcknowledgeReportIntent' }
+      responses:
+        '204': { description: Report events acknowledged through the supplied game day }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
   /api/households/{householdId}/calendar:
     get:
@@ -88,6 +127,24 @@ paths:
               schema: { $ref: '#/components/schemas/Assignment' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/households/{householdId}/work-preview:
+    post:
+      operationId: previewHouseholdWork
+      parameters:
+        - $ref: '#/components/parameters/HouseholdId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAssignmentIntent' }
+      responses:
+        '200':
+          description: Authoritative production and fatigue preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/households/{householdId}/shipments:
     get:
       operationId: listHouseholdShipments
@@ -214,6 +271,22 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/contracts/preview:
+    post:
+      operationId: previewContract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProposeContractIntent' }
+      responses:
+        '200':
+          description: Authoritative recurring delivery preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContractPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/contracts/{contractId}/respond:
     post:
       operationId: respondToContract
@@ -324,7 +397,34 @@ paths:
               schema: { $ref: '#/components/schemas/PurchaseResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/market/offers/{offerId}/quote:
+    post:
+      operationId: quoteMarketOffer
+      parameters:
+        - name: offerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseOfferIntent' }
+      responses:
+        '200':
+          description: Validated purchase costs and delivery estimate without reservation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarketQuote' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 components:
+  securitySchemes:
+    playerSession:
+      type: http
+      scheme: bearer
+      description: Opaque expiring player session; households must belong to this player. Unauthorized household access returns 403.
   parameters:
     HouseholdId:
       name: householdId
@@ -408,7 +508,7 @@ components:
     HouseholdReport:
       type: object
       required:
-        [household_id, household_name, world_id, setting_start_year, tick, game_day, calendar, supply_days, resources, characters, assignments, alerts, change_window, recent_changes, attention, decisions]
+        [household_id, household_name, world_id, setting_start_year, tick, game_day, calendar, supply_game_days, supply_status, resources, characters, assignments, alerts, change_window, recent_changes, since_you_were_away, attention, decisions]
       properties:
         household_id: { type: string, format: uuid }
         household_name: { type: string }
@@ -418,7 +518,8 @@ components:
         game_day: { type: integer, format: int64 }
         calendar: { $ref: '#/components/schemas/CalendarBreakdown' }
         season: { type: string }
-        supply_days: { type: number }
+        supply_game_days: { type: integer, format: int64 }
+        supply_status: { type: string, enum: [safe, strained, critical, emergency] }
         resources:
           type: object
           additionalProperties: { type: number }
@@ -433,6 +534,9 @@ components:
           items: { $ref: '#/components/schemas/Alert' }
         change_window: { $ref: '#/components/schemas/ReportChangeWindow' }
         recent_changes:
+          type: array
+          items: { $ref: '#/components/schemas/ChronicleEntry' }
+        since_you_were_away:
           type: array
           items: { $ref: '#/components/schemas/ChronicleEntry' }
         attention:
@@ -499,12 +603,14 @@ components:
     Shipment:
       type: object
       required:
-        [id, world_id, sender_household_id, receiver_household_id, origin_location_id, destination_location_id, resource_type, quantity_milli, departure_game_day, expected_arrival_game_day, transport_cost_milli, status]
+        [id, world_id, sender_household_id, sender_household_name, receiver_household_id, receiver_household_name, origin_location_id, destination_location_id, resource_type, quantity_milli, departure_game_day, expected_arrival_game_day, transport_cost_milli, status]
       properties:
         id: { type: string, format: uuid }
         world_id: { type: string, format: uuid }
         sender_household_id: { type: string, format: uuid }
+        sender_household_name: { type: string }
         receiver_household_id: { type: string, format: uuid }
+        receiver_household_name: { type: string }
         origin_location_id: { type: string, format: uuid }
         destination_location_id: { type: string, format: uuid }
         resource_type: { type: string }
@@ -660,12 +766,14 @@ components:
     Contract:
       type: object
       required:
-        [id, world_id, party_a_household_id, party_b_household_id, start_game_day, end_game_day, interval_days, interval, status, terms, obligations]
+        [id, world_id, party_a_household_id, party_a_household_name, party_b_household_id, party_b_household_name, start_game_day, end_game_day, interval_days, interval, status, terms, obligations]
       properties:
         id: { type: string, format: uuid }
         world_id: { type: string, format: uuid }
         party_a_household_id: { type: string, format: uuid }
+        party_a_household_name: { type: string }
         party_b_household_id: { type: string, format: uuid }
+        party_b_household_name: { type: string }
         start_game_day: { type: integer, format: int64 }
         end_game_day: { type: integer, format: int64 }
         interval_days: { type: integer, format: int64, enum: [7, 14, 28] }
@@ -723,11 +831,12 @@ components:
     MarketOffer:
       type: object
       required:
-        [id, world_id, seller_household_id, origin_location_id, resource_type, quantity_remaining_milli, price_per_unit_milli, created_tick, status]
+        [id, world_id, seller_household_id, seller_household_name, origin_location_id, resource_type, quantity_remaining_milli, price_per_unit_milli, created_tick, status]
       properties:
         id: { type: string, format: uuid }
         world_id: { type: string, format: uuid }
         seller_household_id: { type: string, format: uuid }
+        seller_household_name: { type: string }
         origin_location_id: { type: string, format: uuid }
         resource_type: { type: string }
         quantity_remaining_milli: { type: integer, format: int64 }
@@ -744,12 +853,54 @@ components:
         intensity: { type: string, enum: [light, normal, high] }
         duration_ticks: { type: integer, enum: [1, 3, 6, 12] }
         starts_tick: { type: integer, format: int64 }
+    WorkPreview:
+      type: object
+      required: [produced_provisions_milli, produced_wood_milli, fatigue_start, fatigue_end, season, specialization_bonus_permille, farm_bonus_permille, conflict, warning, duration_game_days, assignment_conflicts, warnings]
+      properties:
+        conflict: { type: boolean }
+        warning: { type: string, nullable: true }
+        produced_provisions_milli: { type: integer, format: int64 }
+        produced_wood_milli: { type: integer, format: int64 }
+        fatigue_start: { type: integer }
+        fatigue_end: { type: integer }
+        season: { type: string, enum: [spring, summer, autumn, winter] }
+        specialization_bonus_permille: { type: integer, format: int64 }
+        farm_bonus_permille: { type: integer, format: int64 }
+        duration_game_days: { type: integer, format: int64 }
+        assignment_conflicts: { type: array, items: { type: string, format: uuid } }
+        warnings: { type: array, items: { type: string } }
+    AcknowledgeReportIntent:
+      type: object
+      required: [game_day]
+      properties:
+        game_day: { type: integer, format: int64, minimum: 0 }
     PurchaseOfferIntent:
       type: object
       required: [buyer_household_id, quantity_milli]
       properties:
         buyer_household_id: { type: string, format: uuid }
         quantity_milli: { type: integer, format: int64, minimum: 1 }
+    MarketQuote:
+      type: object
+      required: [goods_cost_milli, transport_cost_milli, total_cost_milli, remaining_silver_milli, expected_arrival_game_day, travel_ticks]
+      properties:
+        goods_cost_milli: { type: integer, format: int64 }
+        transport_cost_milli: { type: integer, format: int64 }
+        total_cost_milli: { type: integer, format: int64 }
+        remaining_silver_milli: { type: integer, format: int64 }
+        expected_arrival_game_day: { type: integer, format: int64 }
+        travel_ticks: { type: integer, format: int64 }
+    ContractPreview:
+      type: object
+      required: [first_due_game_day, recurrence, end_condition, expected_delivery_count, latest_safe_dispatch_game_day, total_promised_quantity_milli, first_delivery_stock_warning]
+      properties:
+        first_due_game_day: { type: integer, format: int64 }
+        recurrence: { type: string }
+        end_condition: { type: string }
+        expected_delivery_count: { type: integer, format: int64 }
+        latest_safe_dispatch_game_day: { type: integer, format: int64 }
+        total_promised_quantity_milli: { type: integer, format: int64 }
+        first_delivery_stock_warning: { type: boolean }
     CancelShipmentIntent:
       type: object
       required: [sender_household_id]

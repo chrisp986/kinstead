@@ -11,6 +11,8 @@ func fatigueProductionPermille(fatigue int) int64 {
 	}
 }
 
+func FatigueProductionPermille(fatigue int) int64 { return fatigueProductionPermille(fatigue) }
+
 // EstimateProduction exposes the shared deterministic production mechanic to
 // production orchestration and balancing scenarios. Calendar/event selection
 // remains outside the generic engine.

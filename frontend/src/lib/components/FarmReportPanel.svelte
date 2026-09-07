@@ -14,6 +14,7 @@
 		report: {
 			household_id: string;
 			recent_changes: ChronicleEntry[];
+			since_you_were_away: ChronicleEntry[];
 			attention: ReportItem[];
 			decisions: ReportItem[];
 			game_day: number;
@@ -148,7 +149,23 @@
 	</div>
 
 	<section class="recent" aria-labelledby="recent-heading">
-		<h3 id="recent-heading">Since your last visit</h3>
+		{#if report.since_you_were_away.length > 0}
+			<div class="support-heading">
+				<h3>Since you were away</h3>
+				<form method="POST" action="?/acknowledge">
+					<input type="hidden" name="game_day" value={report.game_day} /><button
+						class="calendar-link"
+						type="submit">Mark reviewed</button
+					>
+				</form>
+			</div>
+			<ul>
+				{#each report.since_you_were_away as entry (entry.id)}{@const description =
+						describeChronicleEntry(entry)}
+					<li><strong>{description.title}</strong><span>{description.detail}</span></li>{/each}
+			</ul>
+		{/if}
+		<h3 id="recent-heading">Recent changes</h3>
 		{#if report.recent_changes.length === 0}
 			<p class="empty">No recent changes.</p>
 		{:else}

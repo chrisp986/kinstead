@@ -76,6 +76,30 @@ coordination. Avoid long-lived in-memory authoritative state.
 
 ## Game time
 
+Provisions consumption is `ConsumptionPerTickMilli` (4,900 in frozen v0.3),
+deducted once per execution tick. `SupplyTicks` returns whole consumption
+periods. Historical coverage is `floor(stock_milli * game_days_per_tick_num /
+(consumption_per_tick_milli * game_days_per_tick_den))`, computed with integer
+arithmetic and overflow-safe intermediates. The API and Chronicle call this
+`supply_game_days`; the report also projects the domain-derived `supply_status`
+so clients do not duplicate gameplay thresholds. Emergency policy uses this
+same floored historical coverage:
+below 7 emergency, below 15 critical, 15–30 strained, above 30 safe. Wall-clock
+tick duration never enters the calculation. Coverage describes existing stock;
+work and shipments are considered separately by emergency planning. Arrivals
+occur before that tick's production and consumption. Unmet consumption is
+recorded as `food_shortage_milli`; stock clamps to zero in the atomic tick.
+
+The synthetic v0.3 runner retains its original precise coverage metrics and
+1:1 synthetic pacing for balancing probes. This unit correction does not change
+consumption, production, fatigue, or the frozen v0.3 regression expectations.
+
+Return history uses persistent `last_seen_game_day` and an explicit report
+acknowledgement command. GET never advances the marker. Queries retain recent
+candidates per event type, then application rules rank importance before
+recency, so routine activity cannot hide an older shortage. Active play retains
+the separate Recent changes window.
+
 Authoritative simulated historical time is an absolute integer `game_day`.
 `game_day = 0` is the world's initial snapshot. A gameplay year contains
 **364 days / 52 weeks**, divided into **four 91-day / 13-week seasons**.

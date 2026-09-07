@@ -24,7 +24,7 @@ type ScenarioSummary struct {
 func RunV03Scenario(strategy StrategyName) (ScenarioSummary, error) {
 	cfg := balance.V03()
 	state := NewBjornvikState()
-	ss := StrategyState{Name: strategy, ServiceCharacter: "Einar"}
+	ss := StrategyState{Name: strategy, ServiceCharacter: "einar"}
 
 	for tick := int64(1); tick <= 48; tick++ {
 		// Decisions happen before work for this technical scenario runner.
@@ -51,7 +51,7 @@ func RunV03Scenario(strategy StrategyName) (ScenarioSummary, error) {
 	}
 	return ScenarioSummary{
 		Strategy:             strategy,
-		SupplyDays:           state.SupplyDays(cfg),
+		SupplyDays:           syntheticSupplyDays(state, cfg),
 		Silver:               float64(state.SilverMilli) / 1000,
 		Wood:                 float64(state.WoodMilli) / 1000,
 		StrainedDays:         state.StrainedDays,
@@ -78,7 +78,7 @@ func RunAllV03Scenarios() ([]ScenarioSummary, error) {
 }
 
 func applyPoliticalEvent(state *HouseholdState, ss *StrategyState, tick int64, cfg BalanceConfig) {
-	supply := state.SupplyDays(cfg)
+	supply := syntheticSupplyDays(*state, cfg)
 	switch tick {
 	case 15:
 		serve := (ss.Name == StrategyAutark || ss.Name == StrategySupplySafe || ss.Name == StrategyLoyal) && supply >= 20
@@ -167,7 +167,7 @@ func applyTradeRules(state *HouseholdState, strategy StrategyName, tick int64, c
 		return true
 	}
 
-	supply := state.SupplyDays(cfg)
+	supply := syntheticSupplyDays(*state, cfg)
 	switch strategy {
 	case StrategySupplySafe:
 		if supply < 16 {
@@ -180,7 +180,7 @@ func applyTradeRules(state *HouseholdState, strategy StrategyName, tick int64, c
 		if tick == 21 {
 			sellGoods(4, true)
 		}
-		if state.SupplyDays(cfg) > 29 && state.ProvisionsMilli >= 20_000 {
+		if syntheticSupplyDays(*state, cfg) > 29 && state.ProvisionsMilli >= 20_000 {
 			sellFood(10)
 		}
 		if state.WoodMilli < 30_000 && state.SilverMilli >= 35_000 {
@@ -242,7 +242,7 @@ func startAndProgressBuilding(state *HouseholdState, strategy StrategyName, assi
 	// Construction competes with productive work: only an explicit building assignment progresses the project.
 	for _, a := range assignments {
 		if a.Activity == Building {
-			idx, _ := state.CharacterIndex(a.Character)
+			idx, _ := state.CharacterIndexByID(a.CharacterID)
 			b.ProgressPermille += state.Characters[idx].LaborPermille
 			break
 		}
@@ -250,4 +250,11 @@ func startAndProgressBuilding(state *HouseholdState, strategy StrategyName, assi
 	if b.ProgressPermille >= b.WorkerDaysPermille {
 		b.Completed = true
 	}
+}
+
+func syntheticSupplyDays(state HouseholdState, cfg BalanceConfig) float64 {
+	if cfg.ConsumptionPerTickMilli <= 0 {
+		return 0
+	}
+	return float64(state.ProvisionsMilli) / float64(cfg.ConsumptionPerTickMilli)
 }

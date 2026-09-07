@@ -28,7 +28,7 @@ func TestSeasonBoundaries(t *testing.T) {
 func TestSpecializedFishingProduction(t *testing.T) {
 	s := NewBjornvikState()
 	cfg := balance.V03()
-	result, err := ProcessTick(s, 1, []Assignment{{Character: "Astrid", Activity: Fishing, Intensity: Normal}}, contextForTick(1), cfg)
+	result, err := ProcessTick(s, 1, []Assignment{{CharacterID: "astrid", Activity: Fishing, Intensity: Normal}}, contextForTick(1), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestFatigueThresholdPenalty(t *testing.T) {
 			s.Characters[i].Fatigue = 70
 		}
 	}
-	result, err := ProcessTick(s, 1, []Assignment{{Character: "Einar", Activity: Fishing, Intensity: Normal}}, contextForTick(1), balance.V03())
+	result, err := ProcessTick(s, 1, []Assignment{{CharacterID: "einar", Activity: Fishing, Intensity: Normal}}, contextForTick(1), balance.V03())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestSupplyThresholdsMatchV03Baseline(t *testing.T) {
 	cfg := balance.V03()
 	state := NewBjornvikState()
 	// ProcessTick consumes at the end of a tick, so leave exactly 30 days then.
-	state.ProvisionsMilli = 31 * cfg.DailyConsumptionMilli
+	state.ProvisionsMilli = 31 * cfg.ConsumptionPerTickMilli
 
 	result, err := ProcessTick(state, 1, nil, contextForTick(1), cfg)
 	if err != nil {
@@ -84,8 +84,8 @@ func TestSupplyThresholdsMatchV03Baseline(t *testing.T) {
 
 func TestRejectsDuplicateAssignment(t *testing.T) {
 	_, err := ProcessTick(NewBjornvikState(), 1, []Assignment{
-		{Character: "Bjorn", Activity: Agriculture, Intensity: Normal},
-		{Character: "Bjorn", Activity: Fishing, Intensity: Normal},
+		{CharacterID: "bjorn", Activity: Agriculture, Intensity: Normal},
+		{CharacterID: "bjorn", Activity: Fishing, Intensity: Normal},
 	}, contextForTick(1), balance.V03())
 	if err == nil {
 		t.Fatal("expected duplicate assignment error")

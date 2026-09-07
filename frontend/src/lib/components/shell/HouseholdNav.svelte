@@ -13,7 +13,7 @@
 	] as const;
 
 	function href(path: (typeof items)[number]['path']): string {
-		return resolve(path.replace('[householdId]', householdId) as `/households/${string}`);
+		return resolve(path, { householdId });
 	}
 
 	function active(path: (typeof items)[number]['path']): boolean {
@@ -27,7 +27,7 @@
 <nav class="household-nav" aria-label="Household sections">
 	{#each items as item (item.key)}
 		<a
-			href={href(item.path)}
+			href={resolve(item.path, { householdId })}
 			aria-label={item.label}
 			aria-current={active(item.path) ? 'page' : undefined}
 			data-icon={item.icon}
@@ -62,7 +62,7 @@
 	 * The current navigation is intentionally rendered only through the two
 	 * pseudo-elements below, so suppress any stale child icon/label nodes.
 	 */
-	.household-nav a > * {
+	:global(.household-nav a > *) {
 		display: none !important;
 	}
 	.household-nav a::before,

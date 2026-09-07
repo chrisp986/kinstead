@@ -3,6 +3,9 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
 import type {
+	AcknowledgeHouseholdReportData,
+	AcknowledgeHouseholdReportErrors,
+	AcknowledgeHouseholdReportResponses,
 	CancelShipmentData,
 	CancelShipmentErrors,
 	CancelShipmentResponses,
@@ -23,6 +26,9 @@ import type {
 	GetHouseholdReportData,
 	GetHouseholdReportErrors,
 	GetHouseholdReportResponses,
+	GetSessionData,
+	GetSessionErrors,
+	GetSessionResponses,
 	ListHouseholdAssignmentsData,
 	ListHouseholdAssignmentsResponses,
 	ListHouseholdChronicleData,
@@ -39,12 +45,21 @@ import type {
 	ListMarketOffersData,
 	ListMarketOffersErrors,
 	ListMarketOffersResponses,
+	PreviewContractData,
+	PreviewContractErrors,
+	PreviewContractResponses,
+	PreviewHouseholdWorkData,
+	PreviewHouseholdWorkErrors,
+	PreviewHouseholdWorkResponses,
 	ProposeContractData,
 	ProposeContractErrors,
 	ProposeContractResponses,
 	PurchaseMarketOfferData,
 	PurchaseMarketOfferErrors,
 	PurchaseMarketOfferResponses,
+	QuoteMarketOfferData,
+	QuoteMarketOfferErrors,
+	QuoteMarketOfferResponses,
 	RespondToContractData,
 	RespondToContractErrors,
 	RespondToContractResponses,
@@ -71,6 +86,15 @@ export type Options<
 	meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta;
 };
 
+export const getSession = <ThrowOnError extends boolean = false>(
+	options?: Options<GetSessionData, ThrowOnError>
+): RequestResult<GetSessionResponses, GetSessionErrors, ThrowOnError> =>
+	(options?.client ?? client).get<GetSessionResponses, GetSessionErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/session',
+		...options
+	});
+
 export const getHealth = <ThrowOnError extends boolean = false>(
 	options?: Options<GetHealthData, ThrowOnError>
 ): RequestResult<GetHealthResponses, unknown, ThrowOnError> =>
@@ -86,7 +110,32 @@ export const getHouseholdReport = <ThrowOnError extends boolean = false>(
 		GetHouseholdReportResponses,
 		GetHouseholdReportErrors,
 		ThrowOnError
-	>({ url: '/api/households/{householdId}/report', ...options });
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/report',
+		...options
+	});
+
+export const acknowledgeHouseholdReport = <ThrowOnError extends boolean = false>(
+	options: Options<AcknowledgeHouseholdReportData, ThrowOnError>
+): RequestResult<
+	AcknowledgeHouseholdReportResponses,
+	AcknowledgeHouseholdReportErrors,
+	ThrowOnError
+> =>
+	(options.client ?? client).post<
+		AcknowledgeHouseholdReportResponses,
+		AcknowledgeHouseholdReportErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/report/acknowledge',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
 
 export const getHouseholdCalendar = <ThrowOnError extends boolean = false>(
 	options: Options<GetHouseholdCalendarData, ThrowOnError>
@@ -95,12 +144,17 @@ export const getHouseholdCalendar = <ThrowOnError extends boolean = false>(
 		GetHouseholdCalendarResponses,
 		GetHouseholdCalendarErrors,
 		ThrowOnError
-	>({ url: '/api/households/{householdId}/calendar', ...options });
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/calendar',
+		...options
+	});
 
 export const listHouseholdAssignments = <ThrowOnError extends boolean = false>(
 	options: Options<ListHouseholdAssignmentsData, ThrowOnError>
 ): RequestResult<ListHouseholdAssignmentsResponses, unknown, ThrowOnError> =>
 	(options.client ?? client).get<ListHouseholdAssignmentsResponses, unknown, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/households/{householdId}/assignments',
 		...options
 	});
@@ -117,7 +171,25 @@ export const createHouseholdAssignment = <ThrowOnError extends boolean = false>(
 		CreateHouseholdAssignmentErrors,
 		ThrowOnError
 	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/households/{householdId}/assignments',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const previewHouseholdWork = <ThrowOnError extends boolean = false>(
+	options: Options<PreviewHouseholdWorkData, ThrowOnError>
+): RequestResult<PreviewHouseholdWorkResponses, PreviewHouseholdWorkErrors, ThrowOnError> =>
+	(options.client ?? client).post<
+		PreviewHouseholdWorkResponses,
+		PreviewHouseholdWorkErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/work-preview',
 		...options,
 		headers: {
 			'Content-Type': 'application/json',
@@ -129,6 +201,7 @@ export const listHouseholdShipments = <ThrowOnError extends boolean = false>(
 	options: Options<ListHouseholdShipmentsData, ThrowOnError>
 ): RequestResult<ListHouseholdShipmentsResponses, unknown, ThrowOnError> =>
 	(options.client ?? client).get<ListHouseholdShipmentsResponses, unknown, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/households/{householdId}/shipments',
 		...options
 	});
@@ -140,7 +213,11 @@ export const listHouseholdChronicle = <ThrowOnError extends boolean = false>(
 		ListHouseholdChronicleResponses,
 		ListHouseholdChronicleErrors,
 		ThrowOnError
-	>({ url: '/api/households/{householdId}/chronicle', ...options });
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/chronicle',
+		...options
+	});
 
 export const listHouseholdRelationships = <ThrowOnError extends boolean = false>(
 	options: Options<ListHouseholdRelationshipsData, ThrowOnError>
@@ -153,7 +230,11 @@ export const listHouseholdRelationships = <ThrowOnError extends boolean = false>
 		ListHouseholdRelationshipsResponses,
 		ListHouseholdRelationshipsErrors,
 		ThrowOnError
-	>({ url: '/api/households/{householdId}/relationships', ...options });
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/relationships',
+		...options
+	});
 
 export const listHouseholdContracts = <ThrowOnError extends boolean = false>(
 	options: Options<ListHouseholdContractsData, ThrowOnError>
@@ -162,7 +243,11 @@ export const listHouseholdContracts = <ThrowOnError extends boolean = false>(
 		ListHouseholdContractsResponses,
 		ListHouseholdContractsErrors,
 		ThrowOnError
-	>({ url: '/api/households/{householdId}/contracts', ...options });
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/contracts',
+		...options
+	});
 
 export const getHouseholdPolitics = <ThrowOnError extends boolean = false>(
 	options: Options<GetHouseholdPoliticsData, ThrowOnError>
@@ -171,7 +256,11 @@ export const getHouseholdPolitics = <ThrowOnError extends boolean = false>(
 		GetHouseholdPoliticsResponses,
 		GetHouseholdPoliticsErrors,
 		ThrowOnError
-	>({ url: '/api/households/{householdId}/politics', ...options });
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/households/{householdId}/politics',
+		...options
+	});
 
 export const respondToPoliticalDemand = <ThrowOnError extends boolean = false>(
 	options: Options<RespondToPoliticalDemandData, ThrowOnError>
@@ -181,6 +270,7 @@ export const respondToPoliticalDemand = <ThrowOnError extends boolean = false>(
 		RespondToPoliticalDemandErrors,
 		ThrowOnError
 	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/political-demands/{decisionId}/respond',
 		...options,
 		headers: {
@@ -193,7 +283,21 @@ export const proposeContract = <ThrowOnError extends boolean = false>(
 	options: Options<ProposeContractData, ThrowOnError>
 ): RequestResult<ProposeContractResponses, ProposeContractErrors, ThrowOnError> =>
 	(options.client ?? client).post<ProposeContractResponses, ProposeContractErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/contracts',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const previewContract = <ThrowOnError extends boolean = false>(
+	options: Options<PreviewContractData, ThrowOnError>
+): RequestResult<PreviewContractResponses, PreviewContractErrors, ThrowOnError> =>
+	(options.client ?? client).post<PreviewContractResponses, PreviewContractErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/contracts/preview',
 		...options,
 		headers: {
 			'Content-Type': 'application/json',
@@ -209,6 +313,7 @@ export const respondToContract = <ThrowOnError extends boolean = false>(
 		RespondToContractErrors,
 		ThrowOnError
 	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/contracts/{contractId}/respond',
 		...options,
 		headers: {
@@ -229,6 +334,7 @@ export const dispatchContractObligation = <ThrowOnError extends boolean = false>
 		DispatchContractObligationErrors,
 		ThrowOnError
 	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/contract-obligations/{obligationId}/dispatch',
 		...options,
 		headers: {
@@ -241,6 +347,7 @@ export const cancelShipment = <ThrowOnError extends boolean = false>(
 	options: Options<CancelShipmentData, ThrowOnError>
 ): RequestResult<CancelShipmentResponses, CancelShipmentErrors, ThrowOnError> =>
 	(options.client ?? client).post<CancelShipmentResponses, CancelShipmentErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/shipments/{shipmentId}/cancel',
 		...options,
 		headers: {
@@ -253,6 +360,7 @@ export const listMarketOffers = <ThrowOnError extends boolean = false>(
 	options: Options<ListMarketOffersData, ThrowOnError>
 ): RequestResult<ListMarketOffersResponses, ListMarketOffersErrors, ThrowOnError> =>
 	(options.client ?? client).get<ListMarketOffersResponses, ListMarketOffersErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/market/offers',
 		...options
 	});
@@ -265,7 +373,21 @@ export const purchaseMarketOffer = <ThrowOnError extends boolean = false>(
 		PurchaseMarketOfferErrors,
 		ThrowOnError
 	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
 		url: '/api/market/offers/{offerId}/purchase',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const quoteMarketOffer = <ThrowOnError extends boolean = false>(
+	options: Options<QuoteMarketOfferData, ThrowOnError>
+): RequestResult<QuoteMarketOfferResponses, QuoteMarketOfferErrors, ThrowOnError> =>
+	(options.client ?? client).post<QuoteMarketOfferResponses, QuoteMarketOfferErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/market/offers/{offerId}/quote',
 		...options,
 		headers: {
 			'Content-Type': 'application/json',
