@@ -8,8 +8,10 @@ import { apiErrorMessage, createServerApi } from '$lib/server/api';
 import { error } from '@sveltejs/kit';
 import {
 	dispatchObligation,
+	contractPreview,
 	proposeContract,
 	purchase,
+	quote,
 	respondContract
 } from '$lib/server/household-actions';
 import type { Actions, PageServerLoad } from './$types';
@@ -53,7 +55,9 @@ export const load: PageServerLoad = async ({ fetch, params, parent }) => {
 
 export const actions = {
 	purchase,
+	quote,
 	proposeContract,
 	respondContract,
-	dispatchObligation
+	dispatchObligation,
+	contractPreview
 } satisfies Actions;

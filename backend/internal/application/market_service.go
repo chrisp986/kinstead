@@ -23,6 +23,15 @@ type PurchaseOfferResult struct {
 	Shipment           port.ShipmentRecord    `json:"shipment"`
 }
 
+type MarketQuote struct {
+	GoodsCostMilli         int64 `json:"goods_cost_milli"`
+	TransportCostMilli     int64 `json:"transport_cost_milli"`
+	TotalCostMilli         int64 `json:"total_cost_milli"`
+	RemainingSilverMilli   int64 `json:"remaining_silver_milli"`
+	ExpectedArrivalGameDay int64 `json:"expected_arrival_game_day"`
+	TravelTicks            int64 `json:"travel_ticks"`
+}
+
 type MarketService struct {
 	Store port.MarketRepository
 }
@@ -96,6 +105,36 @@ func (s *MarketService) PurchaseOffer(ctx context.Context, cmd PurchaseOfferComm
 		return PurchaseOfferResult{}, fmt.Errorf("commit market purchase: %w", err)
 	}
 	return PurchaseOfferResult{CostMilli: int64(purchase.TotalCostMilli), GoodsCostMilli: int64(purchase.GoodsCostMilli), TransportCostMilli: int64(purchase.TransportCostMilli), Offer: offerRecord, Shipment: shipmentRecord}, nil
+}
+
+// QuoteOffer evaluates the same authoritative market rules as a purchase and
+// always rolls its transaction back, so it reserves neither stock nor silver.
+func (s *MarketService) QuoteOffer(ctx context.Context, cmd PurchaseOfferCommand) (MarketQuote, error) {
+	if cmd.QuantityMilli <= 0 {
+		return MarketQuote{}, marketdomain.ErrInvalidQuantity
+	}
+	tx, err := s.Store.BeginMarketPurchase(ctx)
+	if err != nil {
+		return MarketQuote{}, err
+	}
+	defer tx.Rollback(ctx)
+	snapshot, err := tx.Load(ctx, cmd.OfferID, cmd.BuyerHouseholdID)
+	if err != nil {
+		return MarketQuote{}, err
+	}
+	purchase, err := marketdomain.EvaluatePurchase(snapshot.Offer, snapshot.Buyer, snapshot.Route, snapshot.SellerStockMilli, marketdomain.QuantityMilli(cmd.QuantityMilli), marketdomain.Tick(snapshot.CurrentTick))
+	if err != nil {
+		return MarketQuote{}, err
+	}
+	arrivalDay, err := gameDayAfterTicks(snapshot.CurrentGameDay, snapshot.CalendarRemainder, snapshot.GameDaysPerTickNum, snapshot.GameDaysPerTickDen, int64(snapshot.Route.TravelTicks))
+	if err != nil {
+		return MarketQuote{}, err
+	}
+	return MarketQuote{
+		GoodsCostMilli: int64(purchase.GoodsCostMilli), TransportCostMilli: int64(purchase.TransportCostMilli),
+		TotalCostMilli: int64(purchase.TotalCostMilli), RemainingSilverMilli: int64(snapshot.Buyer.SilverMilli - purchase.TotalCostMilli),
+		ExpectedArrivalGameDay: arrivalDay, TravelTicks: int64(snapshot.Route.TravelTicks),
+	}, nil
 }
 
 func (s *MarketService) ListActiveOffers(ctx context.Context, worldID string) ([]port.MarketOfferRecord, error) {

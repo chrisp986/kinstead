@@ -2,6 +2,9 @@ import {
 	createHouseholdAssignment,
 	dispatchContractObligation,
 	purchaseMarketOffer,
+	quoteMarketOffer,
+	previewHouseholdWork,
+	previewContract as previewContractApi,
 	proposeContract as proposeContractApi,
 	respondToContract,
 	respondToPoliticalDemand,
@@ -53,6 +56,32 @@ export async function assign({ fetch, params, request }: ActionContext) {
 	}
 }
 
+export async function workPreview({ fetch, params, request }: ActionContext) {
+	const formData = await request.formData();
+	const duration = Number(formData.get('duration_ticks'));
+	const intent: CreateAssignmentIntent = {
+		character_id: String(formData.get('character_id') ?? ''),
+		activity: String(formData.get('activity') ?? '') as CreateAssignmentIntent['activity'],
+		intensity: String(formData.get('intensity') ?? '') as CreateAssignmentIntent['intensity'],
+		duration_ticks: duration as CreateAssignmentIntent['duration_ticks']
+	};
+	try {
+		const result = await previewHouseholdWork({
+			client: createServerApi(fetch),
+			path: { householdId: params.householdId },
+			body: intent
+		});
+		if (!result.data)
+			return fail(result.response?.status ?? 502, {
+				action: 'workPreview',
+				message: apiErrorMessage(result.error, 'The work preview is unavailable.')
+			});
+		return { success: true, action: 'workPreview', preview: result.data };
+	} catch {
+		return fail(503, { action: 'workPreview', message: 'The simulation backend is unavailable.' });
+	}
+}
+
 export async function purchase({ fetch, params, request }: ActionContext) {
 	const formData = await request.formData();
 	const offerId = String(formData.get('offer_id') ?? '');
@@ -80,6 +109,38 @@ export async function purchase({ fetch, params, request }: ActionContext) {
 		};
 	} catch {
 		return fail(503, { action: 'purchase', message: 'The simulation backend is unavailable.' });
+	}
+}
+
+export async function quote({ fetch, params, request }: ActionContext) {
+	const formData = await request.formData();
+	const offerId = String(formData.get('offer_id') ?? '');
+	const quantityMilli = parseMilli(String(formData.get('quantity') ?? ''));
+	if (!offerId || quantityMilli === null)
+		return fail(400, {
+			action: 'quote',
+			offerId,
+			message: 'Enter a positive quantity with at most three decimal places.'
+		});
+	try {
+		const result = await quoteMarketOffer({
+			client: createServerApi(fetch),
+			path: { offerId },
+			body: { buyer_household_id: params.householdId, quantity_milli: quantityMilli }
+		});
+		if (!result.data)
+			return fail(result.response?.status ?? 502, {
+				action: 'quote',
+				offerId,
+				message: apiErrorMessage(result.error, 'This quantity cannot be quoted.')
+			});
+		return { success: true, action: 'quote', offerId, quote: result.data };
+	} catch {
+		return fail(503, {
+			action: 'quote',
+			offerId,
+			message: 'The simulation backend is unavailable.'
+		});
 	}
 }
 
@@ -145,6 +206,58 @@ export async function proposeContract({ fetch, params, request }: ActionContext)
 	} catch {
 		return fail(503, {
 			action: 'proposeContract',
+			message: 'The simulation backend is unavailable.'
+		});
+	}
+}
+
+export async function contractPreview({ fetch, params, request }: ActionContext) {
+	const formData = await request.formData();
+	const counterparty = String(formData.get('counterparty_household_id') ?? '');
+	const resource = String(formData.get('resource_type') ?? '');
+	const quantity = parseMilli(String(formData.get('quantity') ?? ''));
+	const current = Number(formData.get('current_game_day'));
+	const offset = Number(formData.get('first_due_offset'));
+	const interval = Number(formData.get('interval_days'));
+	const endType = String(formData.get('end_condition_type') ?? '');
+	const count = Number(formData.get('delivery_count'));
+	if (!counterparty || quantity === null)
+		return fail(400, {
+			action: 'contractPreview',
+			message: 'Complete the delivery terms to see a preview.'
+		});
+	const endCondition =
+		endType === 'fixed_delivery_count'
+			? { type: 'fixed_delivery_count' as const, delivery_count: count }
+			: { type: endType as 'winter_start' | 'summer_start' };
+	try {
+		const result = await previewContractApi({
+			client: createServerApi(fetch),
+			body: {
+				proposer_household_id: params.householdId,
+				counterparty_household_id: counterparty,
+				start_game_day: current + offset,
+				interval_days: interval as 7 | 14 | 28,
+				end_condition: endCondition,
+				terms: [
+					{
+						debtor_household_id: params.householdId,
+						creditor_household_id: counterparty,
+						resource_type: resource,
+						quantity_milli: quantity
+					}
+				]
+			}
+		});
+		if (!result.data)
+			return fail(result.response?.status ?? 502, {
+				action: 'contractPreview',
+				message: apiErrorMessage(result.error, 'The contract preview is unavailable.')
+			});
+		return { success: true, action: 'contractPreview', contractPreview: result.data };
+	} catch {
+		return fail(503, {
+			action: 'contractPreview',
 			message: 'The simulation backend is unavailable.'
 		});
 	}

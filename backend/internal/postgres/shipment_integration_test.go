@@ -58,6 +58,20 @@ func TestShipmentArrivalPersistence(t *testing.T) {
 	if created.ID == "" || created.Status != shipmentdomain.StatusInTransit {
 		t.Fatalf("created shipment = %+v", created)
 	}
+	listed, err := store.ListHouseholdShipments(ctx, fixture.receiverID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected *ShipmentRecord
+	for i := range listed {
+		if listed[i].ID == string(created.ID) {
+			projected = &listed[i]
+			break
+		}
+	}
+	if projected == nil || projected.SenderHouseholdName != "sender" || projected.ReceiverHouseholdName != "receiver" {
+		t.Fatalf("shipment household names = %+v", projected)
+	}
 	assertStock(t, ctx, store.Pool, fixture.senderID, 38_000)
 
 	tx, err := store.Begin(ctx)

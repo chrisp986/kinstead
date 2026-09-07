@@ -103,15 +103,16 @@ type ContractTerm struct {
 }
 
 type Household struct {
-	ID             pgtype.UUID
-	WorldID        pgtype.UUID
-	OwnerPlayerID  pgtype.UUID
-	LocationID     pgtype.UUID
-	Name           string
-	Specialization pgtype.Text
-	CreatedTick    int64
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
+	ID              pgtype.UUID
+	WorldID         pgtype.UUID
+	OwnerPlayerID   pgtype.UUID
+	LocationID      pgtype.UUID
+	Name            string
+	Specialization  pgtype.Text
+	CreatedTick     int64
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	LastSeenGameDay int64
 }
 
 type HouseholdBuilding struct {

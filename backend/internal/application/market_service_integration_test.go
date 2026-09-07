@@ -43,6 +43,9 @@ func TestMarketPurchaseCreatesShipmentAtomically(t *testing.T) {
 		result.Shipment.ExpectedArrivalTick != 6 || result.Shipment.QuantityMilli != 20_000 || result.Shipment.TransportCostMilli != 1_000 {
 		t.Fatalf("shipment = %+v", result.Shipment)
 	}
+	if result.Offer.SellerHouseholdName == "" || result.Shipment.SenderHouseholdName == "" || result.Shipment.ReceiverHouseholdName == "" {
+		t.Fatalf("purchase omitted household names: offer=%+v shipment=%+v", result.Offer, result.Shipment)
+	}
 	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "silver", 69_000)
 	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "provisions", 7_000)
 	assertMarketStock(t, ctx, store, fixture.sellerID, "provisions", 80_000)
@@ -68,6 +71,23 @@ func TestMarketPurchaseCreatesShipmentAtomically(t *testing.T) {
 	assertMarketStock(t, ctx, store, fixture.sellerID, "provisions", 40_000)
 	assertMarketStock(t, ctx, store, fixture.sellerID, "silver", 90_000)
 	assertMarketCounts(t, ctx, store, fixture.worldID, 2, 4)
+}
+
+func TestMarketQuoteUsesPurchaseRulesWithoutReservation(t *testing.T) {
+	ctx, store := openMarketTestStore(t)
+	fixture := createMarketFixture(t, ctx, store, 100_000, 30_000, 60_000)
+	t.Cleanup(func() { removeMarketFixture(t, ctx, store, fixture.worldID) })
+	quote, err := NewMarketService(store).QuoteOffer(ctx, PurchaseOfferCommand{OfferID: fixture.offerID, BuyerHouseholdID: fixture.buyerIDs[0], QuantityMilli: 5_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quote.GoodsCostMilli != 7_500 || quote.TransportCostMilli != 1_000 || quote.TotalCostMilli != 8_500 || quote.RemainingSilverMilli != 21_500 || quote.TravelTicks != 2 || quote.ExpectedArrivalGameDay <= 0 {
+		t.Fatalf("quote=%+v", quote)
+	}
+	assertMarketStock(t, ctx, store, fixture.buyerIDs[0], "silver", 30_000)
+	assertMarketStock(t, ctx, store, fixture.sellerID, "provisions", 100_000)
+	assertMarketOffer(t, ctx, store, fixture.offerID, 60_000, "active")
+	assertMarketCounts(t, ctx, store, fixture.worldID, 0, 0)
 }
 
 func TestMarketPurchaseFailuresRollBack(t *testing.T) {

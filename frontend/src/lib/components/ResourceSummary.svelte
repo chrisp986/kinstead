@@ -2,14 +2,14 @@
 	import { formatProjectedUnits, labelResource } from '$lib/domain/format';
 	let {
 		resources,
-		supplyDays,
+		supplyGameDays,
 		supplyStatus
 	}: {
 		resources: Record<string, number>;
-		supplyDays: number;
+		supplyGameDays: number;
 		supplyStatus: 'safe' | 'strained' | 'critical' | 'emergency';
 	} = $props();
-	let wholeSupplyDays = $derived(Math.max(0, Math.floor(supplyDays)));
+	let wholeSupplyDays = $derived(Math.max(0, Math.floor(supplyGameDays)));
 	let supplyTone = $derived(supplyStatus === 'strained' ? 'warning' : supplyStatus);
 	let supplyState = $derived(
 		supplyStatus === 'safe'
@@ -37,7 +37,7 @@
 
 	<div class={`supply-callout ${supplyTone}`}>
 		<div>
-			<span class="supply-label">Food coverage</span>
+			<span class="supply-label">Provisions last</span>
 			<strong>{wholeSupplyDays} days</strong>
 		</div>
 		<div class="supply-copy">

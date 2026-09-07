@@ -54,7 +54,3 @@ export function parseMilli(value: string): number | null {
 	const result = whole * 1000 + fraction;
 	return Number.isSafeInteger(result) && result > 0 ? result : null;
 }
-
-export function shortId(value: string): string {
-	return value.slice(-6);
-}

@@ -73,3 +73,13 @@ type ContractRepository interface {
 	ListContractsForHousehold(context.Context, contractdomain.HouseholdID) ([]contractdomain.Contract, error)
 	ListContractObligations(context.Context, contractdomain.ID) ([]contractdomain.Obligation, error)
 }
+
+type ContractPreviewContext struct {
+	Parties           ContractPartiesSnapshot
+	TravelTicks       int64
+	CurrentStockMilli int64
+}
+
+type ContractPreviewReader interface {
+	LoadContractPreviewContext(context.Context, contractdomain.HouseholdID, contractdomain.HouseholdID, string) (ContractPreviewContext, error)
+}

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 
 	shipmentdomain "game/backend/internal/domain/shipment"
 	"game/backend/internal/port"
@@ -40,17 +41,16 @@ func (s *ShipmentService) Cancel(ctx context.Context, cmd CancelShipmentCommand)
 	if err != nil {
 		return port.ShipmentRecord{}, err
 	}
-	return port.ShipmentRecord{
-		ID: string(value.ID), WorldID: string(value.WorldID),
-		SenderHouseholdID: string(value.SenderHouseholdID), ReceiverHouseholdID: string(value.ReceiverHouseholdID),
-		OriginLocationID: string(value.OriginLocationID), DestinationLocationID: string(value.DestinationLocationID),
-		ResourceType: string(value.ResourceType), QuantityMilli: int64(value.QuantityMilli),
-		DepartureTick: int64(value.DepartureTick), ExpectedArrivalTick: int64(value.ExpectedArrivalTick),
-		DepartureGameDay: int64(value.DepartureGameDay), ExpectedArrivalGameDay: int64(value.ExpectedArrivalGameDay),
-		ActualArrivalGameDay: gameDayPointer(value.ActualArrivalGameDay),
-		ActualArrivalTick:    tickPointer(value.ActualArrivalTick),
-		TransportCostMilli:   int64(value.TransportCostMilli), Status: string(value.Status),
-	}, nil
+	records, err := s.Store.ListHouseholdShipments(ctx, string(cmd.SenderHouseholdID))
+	if err != nil {
+		return port.ShipmentRecord{}, err
+	}
+	for _, record := range records {
+		if record.ID == string(value.ID) {
+			return record, nil
+		}
+	}
+	return port.ShipmentRecord{}, fmt.Errorf("cancelled shipment %s missing from projection", value.ID)
 }
 
 func NewShipmentService(store port.ShipmentRepository) *ShipmentService {
@@ -76,22 +76,6 @@ func (s *ShipmentService) Create(ctx context.Context, cmd CreateShipmentCommand)
 		return shipmentdomain.Shipment{}, err
 	}
 	return s.Store.CreateShipment(ctx, dispatched)
-}
-
-func tickPointer(value *shipmentdomain.Tick) *int64 {
-	if value == nil {
-		return nil
-	}
-	converted := int64(*value)
-	return &converted
-}
-
-func gameDayPointer(value *shipmentdomain.GameDay) *int64 {
-	if value == nil {
-		return nil
-	}
-	converted := int64(*value)
-	return &converted
 }
 
 func (s *ShipmentService) ListForHousehold(ctx context.Context, householdID string) ([]port.ShipmentRecord, error) {

@@ -68,7 +68,7 @@
 
 	<div class="status-strip" aria-label="Household status">
 		<a class={`status ${supplyTone}`} href={resolve(householdPath('/farm'))}>
-			<span>Food coverage</span>
+			<span>Provisions</span>
 			<strong>{supplyDays} days</strong>
 			<small>{supplyState}</small>
 		</a>

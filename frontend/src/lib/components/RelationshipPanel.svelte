@@ -77,7 +77,6 @@
 							<small>Trust {relationship.trust}</small>
 						</div>
 					</header>
-					<div class="identity-detail">{otherName(relationship) || 'Unknown household'}</div>
 					{#if relationship.events.length > 0}
 						<div class="history-heading">Recent history</div>
 						<ul>

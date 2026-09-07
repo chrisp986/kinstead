@@ -17,7 +17,7 @@
 	/>
 	<ResourceSummary
 		resources={data.report.resources}
-		supplyDays={data.report.supply_game_days}
+		supplyGameDays={data.report.supply_game_days}
 		supplyStatus={data.report.supply_status}
 	/>
 	<HouseholdMembers

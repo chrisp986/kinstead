@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	contractdomain "game/backend/internal/domain/contract"
@@ -15,6 +16,11 @@ type contractRepositoryStub struct {
 	tx         *contractProposalTxStub
 	responseTx *contractResponseTxStub
 	dispatchTx *contractDispatchTxStub
+	preview    port.ContractPreviewContext
+}
+
+func (s contractRepositoryStub) LoadContractPreviewContext(context.Context, contractdomain.HouseholdID, contractdomain.HouseholdID, string) (port.ContractPreviewContext, error) {
+	return s.preview, nil
 }
 
 func (s contractRepositoryStub) BeginContractProposal(context.Context) (port.ContractProposalTransaction, error) {
@@ -135,6 +141,41 @@ func TestProposeContractUsesCalendarSchedule(t *testing.T) {
 	obligations, err := contractdomain.GenerateObligations(active)
 	if err != nil || len(obligations) != 3 || obligations[1].DueGameDay != 24 {
 		t.Fatalf("calendar obligations = %+v, %v", obligations, err)
+	}
+}
+
+func TestContractPreviewCalculatesScheduleDispatchAndStockWarning(t *testing.T) {
+	repo := contractRepositoryStub{preview: port.ContractPreviewContext{Parties: port.ContractPartiesSnapshot{WorldID: "world", CurrentTick: 4, CurrentGameDay: 30, CalendarRemainder: 4, GameDaysPerTickNum: 91, GameDaysPerTickDen: 12}, TravelTicks: 2, CurrentStockMilli: 5_000}}
+	preview, err := NewContractService(repo).Preview(context.Background(), ProposeContractCommand{ProposerHouseholdID: "a", CounterpartyHouseholdID: "b", StartGameDay: 44, IntervalDays: 7, EndCondition: ContractEndCondition{Type: "fixed_delivery_count", DeliveryCount: 4}, Terms: []ContractTermIntent{{DebtorHouseholdID: "a", CreditorHouseholdID: "b", ResourceType: "provisions", QuantityMilli: 10_000}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.FirstDueGameDay != 44 || preview.ExpectedDeliveryCount != 4 || preview.TotalPromisedQuantityMilli != 40_000 || !preview.FirstDeliveryStockWarning || preview.LatestSafeDispatchGameDay >= preview.FirstDueGameDay {
+		t.Fatalf("preview=%+v", preview)
+	}
+}
+
+func TestContractPreviewRejectsInvalidAndOverflowingTerms(t *testing.T) {
+	repo := contractRepositoryStub{preview: port.ContractPreviewContext{Parties: port.ContractPartiesSnapshot{WorldID: "world", CurrentGameDay: 30, GameDaysPerTickNum: 1, GameDaysPerTickDen: 1}}}
+	base := ProposeContractCommand{
+		ProposerHouseholdID: "a", CounterpartyHouseholdID: "b", StartGameDay: 31, IntervalDays: 7,
+		EndCondition: ContractEndCondition{Type: "fixed_delivery_count", DeliveryCount: 2},
+		Terms:        []ContractTermIntent{{DebtorHouseholdID: "a", CreditorHouseholdID: "b", ResourceType: "provisions", QuantityMilli: 10_000}},
+	}
+	for name, mutate := range map[string]func(*ProposeContractCommand){
+		"unknown resource": func(cmd *ProposeContractCommand) { cmd.Terms[0].ResourceType = "unknown" },
+		"wrong party":      func(cmd *ProposeContractCommand) { cmd.Terms[0].CreditorHouseholdID = "c" },
+		"zero quantity":    func(cmd *ProposeContractCommand) { cmd.Terms[0].QuantityMilli = 0 },
+		"overflow":         func(cmd *ProposeContractCommand) { cmd.Terms[0].QuantityMilli = math.MaxInt64 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := base
+			cmd.Terms = append([]ContractTermIntent(nil), base.Terms...)
+			mutate(&cmd)
+			if _, err := NewContractService(repo).Preview(context.Background(), cmd); !errors.Is(err, contractdomain.ErrInvalidContract) {
+				t.Fatalf("error = %v, want invalid contract", err)
+			}
+		})
 	}
 }
 

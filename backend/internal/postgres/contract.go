@@ -23,6 +23,40 @@ import (
 var ErrInvalidContractParticipants = errors.New("contract participants must be distinct households in one world")
 var ErrContractDispatchStateChanged = errors.New("contract obligation changed during dispatch")
 
+func (s *Store) LoadContractPreviewContext(ctx context.Context, proposer, counterparty contractdomain.HouseholdID, resource string) (port.ContractPreviewContext, error) {
+	var result port.ContractPreviewContext
+	var proposerWorld, counterpartyWorld, origin, destination string
+	if err := s.Pool.QueryRow(ctx, `SELECT world_id::text,location_id::text FROM households WHERE id=$1::uuid`, proposer).Scan(&proposerWorld, &origin); err != nil {
+		return result, err
+	}
+	if err := s.Pool.QueryRow(ctx, `SELECT world_id::text,location_id::text FROM households WHERE id=$1::uuid`, counterparty).Scan(&counterpartyWorld, &destination); err != nil {
+		return result, err
+	}
+	if proposer == counterparty || proposerWorld != counterpartyWorld {
+		return result, ErrInvalidContractParticipants
+	}
+	result.Parties.WorldID = contractdomain.WorldID(proposerWorld)
+	if err := s.Pool.QueryRow(ctx, `SELECT current_tick,current_game_day,calendar_remainder,game_days_per_tick_num,game_days_per_tick_den FROM worlds WHERE id=$1::uuid`, proposerWorld).Scan(&result.Parties.CurrentTick, &result.Parties.CurrentGameDay, &result.Parties.CalendarRemainder, &result.Parties.GameDaysPerTickNum, &result.Parties.GameDaysPerTickDen); err != nil {
+		return result, err
+	}
+	var distance geography.DistanceClass
+	if err := s.Pool.QueryRow(ctx, `SELECT distance_class FROM location_routes WHERE world_id=$1::uuid AND origin_location_id=$2::uuid AND destination_location_id=$3::uuid`, proposerWorld, origin, destination).Scan(&distance); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return result, geography.ErrRouteUnavailable
+		}
+		return result, err
+	}
+	route, err := geography.RouteForDistance(geography.WorldID(proposerWorld), geography.LocationID(origin), geography.LocationID(destination), distance)
+	if err != nil {
+		return result, err
+	}
+	result.TravelTicks = int64(route.TravelTicks)
+	if err := s.Pool.QueryRow(ctx, `SELECT COALESCE((SELECT quantity_milli FROM resource_stocks WHERE household_id=$1::uuid AND resource_code=$2),0)`, proposer, resource).Scan(&result.CurrentStockMilli); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 type contractProposalTx struct {
 	store    *Store
 	tx       pgx.Tx

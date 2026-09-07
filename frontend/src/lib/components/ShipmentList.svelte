@@ -12,6 +12,12 @@
 	function direction(shipment: Shipment): string {
 		return shipment.receiver_household_id === householdId ? 'Incoming' : 'Outgoing';
 	}
+
+	function counterpart(shipment: Shipment): string {
+		return shipment.receiver_household_id === householdId
+			? shipment.sender_household_name || 'Unknown household'
+			: shipment.receiver_household_name || 'Unknown household';
+	}
 </script>
 
 <section class="panel" aria-labelledby="shipments-heading">
@@ -30,12 +36,12 @@
 				<article class="shipment">
 					<div class="shipment-main">
 						<div>
-							<span class="direction">{direction(shipment)}</span>
+							<span class="direction">{direction(shipment)} · {counterpart(shipment)}</span>
 							<strong
 								>{formatMilli(shipment.quantity_milli)}
 								{labelResource(shipment.resource_type)}</strong
 							>
-							<p>Nearby household</p>
+							<p>{shipment.status === 'arrived' ? 'Arrived shipment' : 'Shipment in transit'}</p>
 						</div>
 						<StatusBadge status={shipment.status} />
 					</div>

@@ -3,6 +3,9 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
 import type {
+	AcknowledgeHouseholdReportData,
+	AcknowledgeHouseholdReportErrors,
+	AcknowledgeHouseholdReportResponses,
 	CancelShipmentData,
 	CancelShipmentErrors,
 	CancelShipmentResponses,
@@ -39,12 +42,21 @@ import type {
 	ListMarketOffersData,
 	ListMarketOffersErrors,
 	ListMarketOffersResponses,
+	PreviewContractData,
+	PreviewContractErrors,
+	PreviewContractResponses,
+	PreviewHouseholdWorkData,
+	PreviewHouseholdWorkErrors,
+	PreviewHouseholdWorkResponses,
 	ProposeContractData,
 	ProposeContractErrors,
 	ProposeContractResponses,
 	PurchaseMarketOfferData,
 	PurchaseMarketOfferErrors,
 	PurchaseMarketOfferResponses,
+	QuoteMarketOfferData,
+	QuoteMarketOfferErrors,
+	QuoteMarketOfferResponses,
 	RespondToContractData,
 	RespondToContractErrors,
 	RespondToContractResponses,
@@ -88,6 +100,26 @@ export const getHouseholdReport = <ThrowOnError extends boolean = false>(
 		ThrowOnError
 	>({ url: '/api/households/{householdId}/report', ...options });
 
+export const acknowledgeHouseholdReport = <ThrowOnError extends boolean = false>(
+	options: Options<AcknowledgeHouseholdReportData, ThrowOnError>
+): RequestResult<
+	AcknowledgeHouseholdReportResponses,
+	AcknowledgeHouseholdReportErrors,
+	ThrowOnError
+> =>
+	(options.client ?? client).post<
+		AcknowledgeHouseholdReportResponses,
+		AcknowledgeHouseholdReportErrors,
+		ThrowOnError
+	>({
+		url: '/api/households/{householdId}/report/acknowledge',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
 export const getHouseholdCalendar = <ThrowOnError extends boolean = false>(
 	options: Options<GetHouseholdCalendarData, ThrowOnError>
 ): RequestResult<GetHouseholdCalendarResponses, GetHouseholdCalendarErrors, ThrowOnError> =>
@@ -118,6 +150,22 @@ export const createHouseholdAssignment = <ThrowOnError extends boolean = false>(
 		ThrowOnError
 	>({
 		url: '/api/households/{householdId}/assignments',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const previewHouseholdWork = <ThrowOnError extends boolean = false>(
+	options: Options<PreviewHouseholdWorkData, ThrowOnError>
+): RequestResult<PreviewHouseholdWorkResponses, PreviewHouseholdWorkErrors, ThrowOnError> =>
+	(options.client ?? client).post<
+		PreviewHouseholdWorkResponses,
+		PreviewHouseholdWorkErrors,
+		ThrowOnError
+	>({
+		url: '/api/households/{householdId}/work-preview',
 		...options,
 		headers: {
 			'Content-Type': 'application/json',
@@ -201,6 +249,18 @@ export const proposeContract = <ThrowOnError extends boolean = false>(
 		}
 	});
 
+export const previewContract = <ThrowOnError extends boolean = false>(
+	options: Options<PreviewContractData, ThrowOnError>
+): RequestResult<PreviewContractResponses, PreviewContractErrors, ThrowOnError> =>
+	(options.client ?? client).post<PreviewContractResponses, PreviewContractErrors, ThrowOnError>({
+		url: '/api/contracts/preview',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
 export const respondToContract = <ThrowOnError extends boolean = false>(
 	options: Options<RespondToContractData, ThrowOnError>
 ): RequestResult<RespondToContractResponses, RespondToContractErrors, ThrowOnError> =>
@@ -266,6 +326,18 @@ export const purchaseMarketOffer = <ThrowOnError extends boolean = false>(
 		ThrowOnError
 	>({
 		url: '/api/market/offers/{offerId}/purchase',
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+
+export const quoteMarketOffer = <ThrowOnError extends boolean = false>(
+	options: Options<QuoteMarketOfferData, ThrowOnError>
+): RequestResult<QuoteMarketOfferResponses, QuoteMarketOfferErrors, ThrowOnError> =>
+	(options.client ?? client).post<QuoteMarketOfferResponses, QuoteMarketOfferErrors, ThrowOnError>({
+		url: '/api/market/offers/{offerId}/quote',
 		...options,
 		headers: {
 			'Content-Type': 'application/json',

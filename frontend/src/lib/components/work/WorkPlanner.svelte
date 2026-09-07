@@ -15,7 +15,23 @@
 		characters: Character[];
 		assignments: Assignment[];
 		currentGameDay: number;
-		feedback?: { success?: boolean; action?: string; message?: string } | null;
+		feedback?: {
+			success?: boolean;
+			action?: string;
+			message?: string;
+			preview?: {
+				produced_provisions_milli: number;
+				produced_wood_milli: number;
+				fatigue_start: number;
+				fatigue_end: number;
+				season: string;
+				specialization_bonus_permille: number;
+				farm_bonus_permille: number;
+				duration_game_days: number;
+				assignment_conflicts: string[];
+				warnings: string[];
+			};
+		} | null;
 	} = $props();
 	let working = $state(false);
 	const workers = $derived(characters.filter((character) => character.labor_permille > 0));
@@ -23,6 +39,19 @@
 	let activity = $state('agriculture');
 	let intensity = $state('normal');
 	let duration = $state(3);
+	let previewForm: HTMLFormElement;
+	let previewVersion = 0;
+	$effect(() => {
+		// Track all intent fields, including worker-card selection.
+		const intent = [selectedCharacterId, activity, intensity, duration];
+		if (!previewForm || !intent[0]) return;
+		previewVersion += 1;
+		const timer = setTimeout(() => previewForm.requestSubmit(), 250);
+		return () => clearTimeout(timer);
+	});
+	function durationLabel(days: number): string {
+		return `${days} game ${days === 1 ? 'day' : 'days'}`;
+	}
 	let selectedWorker = $derived(
 		workers.find((character) => character.id === selectedCharacterId) ?? workers[0]
 	);
@@ -76,11 +105,15 @@
 
 	<form
 		method="POST"
-		action="?/assign"
-		use:enhance={() => {
-			working = true;
+		action="?/workPreview"
+		bind:this={previewForm}
+		use:enhance={({ submitter }) => {
+			const version = previewVersion;
+			const assigning = submitter?.getAttribute('formaction') === '?/assign';
+			working = assigning;
 			return async ({ update }) => {
-				await update();
+				if (!assigning && version !== previewVersion) return;
+				await update({ reset: assigning });
 				working = false;
 			};
 		}}
@@ -134,15 +167,13 @@
 				<select name="duration_ticks" required bind:value={duration}>
 					{#each [1, 3, 6, 12] as durationOption (durationOption)}
 						<option value={durationOption}
-							>{durationOption === 1 ? 'one period' : `${durationOption} periods`}</option
+							>{durationOption === 1 ? 'One work period' : `${durationOption} work periods`}</option
 						>
 					{/each}
 				</select>
 			</label>
 		</div>
 
-		<h4>Assignment summary</h4>
-		<p>General work trade-offs only; this is not a calculated outcome.</p>
 		<div class="plan-preview" aria-live="polite">
 			<div>
 				<span>Planned work</span>
@@ -158,9 +189,53 @@
 			</div>
 			<div>
 				<span>Duration</span>
-				<strong>{duration === 1 ? 'One period' : `${duration} periods`}</strong>
+				<strong
+					>{feedback?.preview
+						? durationLabel(feedback.preview.duration_game_days)
+						: duration === 1
+							? 'One work period'
+							: `${duration} work periods`}</strong
+				>
 			</div>
+			{#if feedback?.action === 'workPreview' && feedback.preview}
+				<div>
+					<span>Expected output</span><strong
+						>{feedback.preview.produced_provisions_milli / 1000} provisions · {feedback.preview
+							.produced_wood_milli / 1000} wood</strong
+					>
+				</div>
+				<div>
+					<span>Fatigue</span><strong
+						>{feedback.preview.fatigue_start} → {feedback.preview.fatigue_end}</strong
+					>
+				</div>
+				<div>
+					<span>Season & modifiers</span><strong
+						>{sentenceCase(feedback.preview.season)} · skill {feedback.preview
+							.specialization_bonus_permille / 10}% · farm {feedback.preview.farm_bonus_permille /
+							10}%</strong
+					>
+				</div>
+			{/if}
 		</div>
+		{#if feedback?.action === 'workPreview' && feedback.preview?.assignment_conflicts.length}<p
+				class="preview-warning"
+				role="alert"
+			>
+				This overlaps existing work.
+			</p>{/if}
+		{#if feedback?.action === 'workPreview' && feedback.preview?.warnings.length}<p
+				class="preview-warning"
+				role="alert"
+			>
+				Fatigue will reduce production.
+			</p>{/if}
+		{#if feedback?.action === 'workPreview' && !feedback.preview && feedback.message}<p
+				class="preview-warning"
+				role="alert"
+			>
+				{feedback.message}
+			</p>{/if}
 
 		<p class="decision-note">
 			{activity === 'rest'
@@ -173,7 +248,14 @@
 		</p>
 
 		<ActionFeedback feedback={feedback?.action === 'assign' ? feedback : null} />
-		<button class="primary-action" type="submit" disabled={working || workers.length === 0}>
+		<button
+			class="primary-action"
+			type="submit"
+			formaction="?/assign"
+			disabled={working ||
+				workers.length === 0 ||
+				Boolean(feedback?.preview?.assignment_conflicts.length)}
+		>
 			{working ? 'Scheduling…' : `Assign ${selectedWorker?.name ?? 'work'}`}
 		</button>
 	</form>

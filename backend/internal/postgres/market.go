@@ -288,7 +288,20 @@ func (s *Store) PersistMarketPurchase(
 	if err := insertMarketChronicleFacts(ctx, tx, purchase, createdShipment); err != nil {
 		return MarketOfferRecord{}, ShipmentRecord{}, err
 	}
-	return marketOfferRecord(updatedOffer), shipmentRecord(createdShipment), nil
+	var sellerName, buyerName string
+	if err := tx.QueryRow(ctx, `
+		SELECT seller.name, buyer.name
+		FROM households seller, households buyer
+		WHERE seller.id=$1::uuid AND buyer.id=$2::uuid
+	`, purchase.Offer.SellerHouseholdID, purchase.Buyer.HouseholdID).Scan(&sellerName, &buyerName); err != nil {
+		return MarketOfferRecord{}, ShipmentRecord{}, err
+	}
+	offerRecord := marketOfferRecord(updatedOffer)
+	offerRecord.SellerHouseholdName = sellerName
+	shipmentRecord := shipmentRecord(createdShipment)
+	shipmentRecord.SenderHouseholdName = sellerName
+	shipmentRecord.ReceiverHouseholdName = buyerName
+	return offerRecord, shipmentRecord, nil
 }
 
 func insertMarketChronicleFacts(ctx context.Context, tx pgx.Tx, purchase marketdomain.Purchase, shipment shipmentdomain.Shipment) error {
@@ -324,21 +337,31 @@ func insertMarketChronicleFacts(ctx context.Context, tx pgx.Tx, purchase marketd
 }
 
 func (s *Store) ListActiveMarketOffers(ctx context.Context, worldID string) ([]MarketOfferRecord, error) {
-	id, err := uuidParam(worldID)
+	rows, err := s.Pool.Query(ctx, `
+		SELECT o.id::text, o.world_id::text, o.seller_household_id::text, h.name,
+		       o.origin_location_id::text, o.resource_code, o.quantity_remaining_milli,
+		       o.price_per_unit_milli, o.created_tick, o.expires_tick, o.status
+		FROM market_offers o
+		JOIN worlds w ON w.id=o.world_id
+		JOIN households h ON h.id=o.seller_household_id
+		WHERE o.world_id=$1::uuid AND o.status='active'
+		  AND (o.expires_tick IS NULL OR o.expires_tick >= w.current_tick)
+		ORDER BY o.created_tick,o.id`, worldID)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := sqlcdb.New(s.Pool).ListActiveMarketOffers(ctx, id)
-	if err != nil {
-		return nil, err
+	defer rows.Close()
+	offers := make([]MarketOfferRecord, 0)
+	for rows.Next() {
+		var record MarketOfferRecord
+		if err := rows.Scan(&record.ID, &record.WorldID, &record.SellerHouseholdID, &record.SellerHouseholdName,
+			&record.OriginLocationID, &record.ResourceType, &record.QuantityRemainingMilli,
+			&record.PricePerUnitMilli, &record.CreatedTick, &record.ExpiresTick, &record.Status); err != nil {
+			return nil, err
+		}
+		offers = append(offers, record)
 	}
-	offers := make([]MarketOfferRecord, 0, len(rows))
-	for _, row := range rows {
-		offer := marketOfferFromSQLC(row.ID, row.WorldID, row.SellerHouseholdID, row.OriginLocationID,
-			row.ResourceCode, row.QuantityRemainingMilli, row.PricePerUnitMilli, row.CreatedTick, row.ExpiresTick, row.Status)
-		offers = append(offers, marketOfferRecord(offer))
-	}
-	return offers, nil
+	return offers, rows.Err()
 }
 
 func marketOfferFromSQLC(id, worldID, sellerID, originID, resource string, quantity, price, created int64, expiresValue pgtype.Int8, status string) marketdomain.Offer {

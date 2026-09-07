@@ -31,18 +31,19 @@ type FarmReport struct {
 	Calendar         calendar.Date `json:"calendar"`
 	// HistoricalDate is retained for legacy Go fixtures only; it is not part of
 	// the player-facing report contract.
-	HistoricalDate string                      `json:"-"`
-	Season         simulation.Season           `json:"season"`
-	SupplyGameDays int64                       `json:"supply_game_days"`
-	SupplyStatus   string                      `json:"supply_status"`
-	Resources      map[string]float64          `json:"resources"`
-	Characters     []port.CharacterRecord      `json:"characters"`
-	Assignments    []port.AssignmentRecord     `json:"assignments"`
-	Alerts         []Alert                     `json:"alerts"`
-	ChangeWindow   ChangeWindow                `json:"change_window"`
-	RecentChanges  []port.ChronicleEntryRecord `json:"recent_changes"`
-	Attention      []reportdomain.Item         `json:"attention"`
-	Decisions      []reportdomain.Item         `json:"decisions"`
+	HistoricalDate   string                      `json:"-"`
+	Season           simulation.Season           `json:"season"`
+	SupplyGameDays   int64                       `json:"supply_game_days"`
+	SupplyStatus     string                      `json:"supply_status"`
+	Resources        map[string]float64          `json:"resources"`
+	Characters       []port.CharacterRecord      `json:"characters"`
+	Assignments      []port.AssignmentRecord     `json:"assignments"`
+	Alerts           []Alert                     `json:"alerts"`
+	ChangeWindow     ChangeWindow                `json:"change_window"`
+	RecentChanges    []port.ChronicleEntryRecord `json:"recent_changes"`
+	SinceYouWereAway []port.ChronicleEntryRecord `json:"since_you_were_away"`
+	Attention        []reportdomain.Item         `json:"attention"`
+	Decisions        []reportdomain.Item         `json:"decisions"`
 }
 
 type ChangeWindow struct {
@@ -114,6 +115,7 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 		attentionInput.Characters = append(attentionInput.Characters, reportdomain.Character{ID: c.ID, Name: c.Name, Fatigue: c.Fatigue})
 	}
 	var recent []port.ChronicleEntryRecord
+	var sinceAway []port.ChronicleEntryRecord
 	var political []port.PoliticalReportDemand
 	var obligations []port.ContractReportObligation
 	if reader, ok := s.Store.(port.FarmReportReader); ok {
@@ -126,7 +128,13 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 		if err != nil {
 			return FarmReport{}, err
 		}
-		for _, entry := range recent {
+		recent = selectSignificantChanges(recent)
+		sinceAway, err = reader.ListChronicleSinceGameDayForReport(ctx, householdID, snap.LastSeenGameDay, 100)
+		if err != nil {
+			return FarmReport{}, err
+		}
+		sinceAway = selectSinceAway(sinceAway)
+		for _, entry := range sinceAway {
 			if entry.EntryType == chronicle_domain.FoodShortage {
 				if number, ok := entry.Data["food_shortage_milli"].(json.Number); ok {
 					value, err := number.Int64()
@@ -136,7 +144,6 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 				}
 			}
 		}
-		recent = selectSignificantChanges(recent)
 		political, err = reader.ListPendingPoliticalDemandsForReport(ctx, householdID)
 		if err != nil {
 			return FarmReport{}, err
@@ -156,6 +163,9 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 	decisions := reportdomain.BuildDecisions(attentionInput)
 	if recent == nil {
 		recent = make([]port.ChronicleEntryRecord, 0)
+	}
+	if sinceAway == nil {
+		sinceAway = make([]port.ChronicleEntryRecord, 0)
 	}
 	if attention == nil {
 		attention = make([]reportdomain.Item, 0)
@@ -178,8 +188,46 @@ func (s *ReportService) FarmReport(ctx context.Context, householdID string) (Far
 		Resources:  map[string]float64{"provisions": float64(snap.State.ProvisionsMilli) / 1000, "wood": float64(snap.State.WoodMilli) / 1000, "trade_goods": float64(snap.State.TradeGoodsMilli) / 1000, "silver": float64(snap.State.SilverMilli) / 1000},
 		Characters: characters, Assignments: assignments, Alerts: alerts,
 		ChangeWindow: ChangeWindow{FromTick: fromTick, ToTick: snap.CurrentTick}, RecentChanges: recent,
-		Attention: attention, Decisions: decisions,
+		SinceYouWereAway: sinceAway,
+		Attention:        attention, Decisions: decisions,
 	}, nil
+}
+
+func (s *ReportService) Acknowledge(ctx context.Context, householdID string, gameDay int64) error {
+	writer, ok := s.Store.(port.ReportAcknowledgementWriter)
+	if !ok {
+		return fmt.Errorf("report acknowledgement is unavailable")
+	}
+	return writer.AcknowledgeHouseholdReport(ctx, householdID, gameDay)
+}
+
+func selectSinceAway(entries []port.ChronicleEntryRecord) []port.ChronicleEntryRecord {
+	importance := map[string]int{
+		chronicle_domain.FoodShortage: 100, chronicle_domain.EmergencyFoodWorkScheduled: 95,
+		chronicle_domain.EmergencyFoodPolicyNoAction: 94, chronicle_domain.ContractObligationBroken: 90,
+		chronicle_domain.ContractObligationLate: 85, chronicle_domain.PoliticalDemandAutoResolved: 80,
+		chronicle_domain.ShipmentArrived: 70, chronicle_domain.EmergencyWorkOverridden: 60,
+	}
+	selected := entries[:0]
+	for _, entry := range entries {
+		if importance[entry.EntryType] > 0 {
+			selected = append(selected, entry)
+		}
+	}
+	sort.SliceStable(selected, func(i, j int) bool {
+		pi, pj := importance[selected[i].EntryType], importance[selected[j].EntryType]
+		if pi != pj {
+			return pi > pj
+		}
+		if selected[i].OccurredGameDay != selected[j].OccurredGameDay {
+			return selected[i].OccurredGameDay > selected[j].OccurredGameDay
+		}
+		return selected[i].ID > selected[j].ID
+	})
+	if len(selected) > 5 {
+		selected = selected[:5]
+	}
+	return selected
 }
 
 func selectSignificantChanges(entries []port.ChronicleEntryRecord) []port.ChronicleEntryRecord {

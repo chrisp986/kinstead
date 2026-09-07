@@ -361,7 +361,10 @@ func (s *Store) ListHouseholdShipments(ctx context.Context, householdID string) 
 			row.DepartureTick, row.ExpectedArrivalTick, row.ActualArrivalTick,
 			row.DepartureGameDay, row.ExpectedArrivalGameDay, row.ActualArrivalGameDay,
 			row.TransportCostMilli, row.Status)
-		records = append(records, shipmentRecord(value))
+		record := shipmentRecord(value)
+		record.SenderHouseholdName = row.SenderHouseholdName
+		record.ReceiverHouseholdName = row.ReceiverHouseholdName
+		records = append(records, record)
 	}
 	return records, nil
 }
@@ -582,7 +585,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-		       w.tick_duration_seconds, COALESCE(h.specialization, '')
+		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day
         FROM households h
         JOIN worlds w ON w.id = h.world_id
         WHERE h.id = $1::uuid
@@ -591,7 +594,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName,
 		&snap.CurrentTick, &snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum,
 		&snap.GameDaysPerTickDen, &snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum,
-		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization,
+		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay,
 	)
 	if err != nil {
 		return snap, nil, err
@@ -956,13 +959,13 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-		       w.tick_duration_seconds, COALESCE(h.specialization, '')
+		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day
         FROM households h JOIN worlds w ON w.id=h.world_id
         WHERE h.id=$1::uuid
 	`, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.CurrentTick,
 		&snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum, &snap.GameDaysPerTickDen,
 		&snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen,
-		&snap.TickDurationSeconds, &snap.Specialization)
+		&snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay)
 	if err != nil {
 		return snap, nil, err
 	}
