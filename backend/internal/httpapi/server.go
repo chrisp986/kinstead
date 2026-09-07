@@ -51,6 +51,7 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /api/session", s.session)
 	mux.HandleFunc("GET /api/households/{id}/report", s.farmReport)
 	mux.HandleFunc("POST /api/households/{id}/report/acknowledge", s.acknowledgeFarmReport)
 	mux.HandleFunc("GET /api/households/{id}/calendar", s.householdCalendar)
@@ -71,7 +72,7 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
 	mux.HandleFunc("POST /api/market/offers/{id}/quote", s.quoteMarketOffer)
 	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
-	return cors(mux)
+	return cors(authenticated(store, mux))
 }
 
 func (s *Server) householdPolitics(w http.ResponseWriter, r *http.Request) {
@@ -683,7 +684,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

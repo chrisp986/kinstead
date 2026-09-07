@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"game/backend/internal/postgres"
 )
@@ -36,7 +37,23 @@ func TestPoliticsProjectionJSONShapeAndMissingHousehold(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := New(store, slog.Default())
+	var playerID string
+	if err := store.Pool.QueryRow(ctx, `INSERT INTO players(external_auth_subject) VALUES($1) RETURNING id::text`, "test-"+householdID).Scan(&playerID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.Pool.Exec(ctx, `UPDATE households SET owner_player_id=NULL WHERE owner_player_id=$1::uuid`, playerID)
+		_, _ = store.Pool.Exec(ctx, `DELETE FROM players WHERE id=$1::uuid`, playerID)
+	})
+	if _, err := store.Pool.Exec(ctx, `UPDATE households SET owner_player_id=$1::uuid WHERE id=$2::uuid`, playerID, householdID); err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.IssuePlayerSession(ctx, playerID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/api/households/"+householdID+"/politics", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -62,9 +79,10 @@ func TestPoliticsProjectionJSONShapeAndMissingHousehold(t *testing.T) {
 		t.Fatal("projection must use lower-case JSON keys")
 	}
 	unknown := httptest.NewRequest("GET", "/api/households/00000000-0000-0000-0000-000000000099/politics", nil)
+	unknown.Header.Set("Authorization", "Bearer "+token)
 	unknownRec := httptest.NewRecorder()
 	handler.ServeHTTP(unknownRec, unknown)
-	if unknownRec.Code != 404 {
+	if unknownRec.Code != 403 {
 		t.Fatalf("unknown household status = %d", unknownRec.Code)
 	}
 }

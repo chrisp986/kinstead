@@ -5,9 +5,34 @@ info:
   description: Command and projection API for the browser client.
 servers:
   - url: http://localhost:8080
+security:
+  - playerSession: []
 paths:
+  /api/session:
+    get:
+      operationId: getSession
+      responses:
+        '200':
+          description: Authenticated player's households
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [households]
+                properties:
+                  households:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name]
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+        '401':
+          description: Missing, expired, or revoked session
   /healthz:
     get:
+      security: []
       operationId: getHealth
       responses:
         '200':
@@ -395,6 +420,11 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 components:
+  securitySchemes:
+    playerSession:
+      type: http
+      scheme: bearer
+      description: Opaque expiring player session; households must belong to this player. Unauthorized household access returns 403.
   parameters:
     HouseholdId:
       name: householdId

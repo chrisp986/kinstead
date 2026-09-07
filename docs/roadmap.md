@@ -6,9 +6,12 @@ Build and validate a testable Vertical Slice proving **labor + supply +
 relationships** under asynchronous time.
 
 The core simulation, historical game-time model, calendar projection, and
-household decision UI are implemented. The immediate product task is to merge
-and validate the decision-focused household UX in PR #5, then use playtesting
-to decide which post-slice retention/depth work earns priority.
+household decision UI are implemented. Repository hardening now covers stable
+character assignment IDs, historical supply coverage, explicit emergency food
+policy, authoritative previews, return history, readable household projections,
+and authenticated ownership. The changes are delivered as stacked review
+branches; the existing UI PR must remain unmerged until its replacement checks
+and every dependent branch are green.
 
 ## Foundation correction --- complete
 
@@ -128,7 +131,7 @@ existing Farm Report accelerated-world cap prove that wall-clock tick duration
 does not change calendar results. Tick fields retained in the schema are
 execution, compatibility, or diagnostic projections only.
 
-### 9. Decision-focused household UX --- implementation complete in PR #5
+### 9. Decision-focused household UX --- implementation complete, merge pending
 
 The product-polish pass identified after the initial vertical slice has now been
 implemented on `ui/decision-focused-polish`:
@@ -153,8 +156,25 @@ implemented on `ui/decision-focused-polish`:
 -   Playwright coverage updated for the decision-focused route flow and mobile
     navigation regressions
 
-PR #5 is still draft, so **merge/CI validation is the remaining delivery step**;
-no new simulation or persistence semantics are introduced by this milestone.
+The lint and wording defects found during PR #5 review are corrected on the
+dedicated UI-fix branch, including unique matter counting and regression tests.
+Do not merge PR #5 until that branch's full frontend suite is green.
+
+### 10. Repository hardening --- implementation complete, review pending
+
+- simulation assignments use stable character IDs and invalid ticks roll back
+- supply coverage and severity use authoritative historical game days
+- emergency food automation is an explicit, tested application policy
+- assignment replacement rules distinguish player, emergency, and political work
+- work and market previews reuse server-side rules without reserving state
+- return history uses explicit persistent acknowledgement and importance ranking
+- market, contract, shipment, Chronicle, and relationship projections carry names
+- expiring database sessions enforce household ownership for reads and commands
+
+The remaining work is review and CI validation of the stacked branches. The
+controlled playtest session flow is not a self-service public account system;
+identity-provider login, registration, recovery, and session-management UI
+remain intentionally deferred.
 
 ## First end-to-end economic scenario
 

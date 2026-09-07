@@ -193,6 +193,14 @@ type Player struct {
 	UpdatedAt           pgtype.Timestamptz
 }
 
+type PlayerSession struct {
+	TokenHash []byte
+	PlayerID  pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
 type PoliticalActor struct {
 	ID         pgtype.UUID
 	WorldID    pgtype.UUID

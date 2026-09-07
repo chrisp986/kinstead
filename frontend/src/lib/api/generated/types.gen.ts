@@ -412,6 +412,34 @@ export type PurchaseResult = {
 
 export type HouseholdId = string;
 
+export type GetSessionData = {
+	body?: never;
+	path?: never;
+	query?: never;
+	url: '/api/session';
+};
+
+export type GetSessionErrors = {
+	/**
+	 * Missing, expired, or revoked session
+	 */
+	401: unknown;
+};
+
+export type GetSessionResponses = {
+	/**
+	 * Authenticated player's households
+	 */
+	200: {
+		households: Array<{
+			id: string;
+			name: string;
+		}>;
+	};
+};
+
+export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
+
 export type GetHealthData = {
 	body?: never;
 	path?: never;

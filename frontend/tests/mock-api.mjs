@@ -241,6 +241,11 @@ async function readBody(request) {
 }
 
 createServer(async (request, response) => {
+	if (request.method === 'GET' && request.url === '/api/session') {
+		response.setHeader('Content-Type', 'application/json');
+		response.end(JSON.stringify({ households: [{ id: householdId, name: 'Bjornvik' }] }));
+		return;
+	}
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1:9080');
 	if (
 		request.method === 'GET' &&

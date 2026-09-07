@@ -60,3 +60,15 @@ func TestContractShipmentProjectionIncludesHouseholdNames(t *testing.T) {
 		t.Fatalf("shipment names = %+v", shipment)
 	}
 }
+
+func TestCORSAllowsSessionAuthorizationHeader(t *testing.T) {
+	handler := cors(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("preflight reached protected handler")
+	}))
+	request := httptest.NewRequest(http.MethodOptions, "/api/session", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || !strings.Contains(response.Header().Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("preflight status/headers = %d/%q", response.Code, response.Header().Get("Access-Control-Allow-Headers"))
+	}
+}
