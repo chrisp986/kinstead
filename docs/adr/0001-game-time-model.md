@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted for legacy compatibility; partially superseded by ADR-0002
 
 ## Date
 
@@ -46,6 +46,10 @@ intervals from 08:00 inclusive through 17:00 exclusive. Production accrues
 to pending output and settles at 17:00 in the same transaction as the
 simulation tick. Worker polling is separately configured; the development
 seed's 1,894-second interval approximates eight real days per game year.
+
+These fixed-season and fixed-workday rules remain valid only for existing
+`daily_labor_v1` worlds. ADR-0002 defines the anchor, month-based seasons,
+daylight work, and real-time scheduling used by new worlds.
 
 The committed clock has an explicit interval rule. `current_tick` counts fully
 committed execution steps and `current_game_day` is the calendar position

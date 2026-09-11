@@ -27,7 +27,7 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/');
 	await expect(page.getByRole('heading', { level: 1, name: 'Bjornvik' })).toBeVisible();
-	await expect(page.getByText('980 CE · Spring · first week')).toBeVisible();
+	await expect(page.getByText('980 CE · spring · day 1 of 31')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Household report' }).first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'What needs your decision?' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Since you were away' })).toBeVisible();
@@ -38,16 +38,16 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(provisions).toContainText('30 days');
 	await expect(provisions).not.toContainText(/\d+\.\d+ days/);
 
-	// Flow A: report → work → schedule → report.
+	// Flow A: report → persistent occupation preview/change → report.
 	await page.getByRole('link', { name: 'Work', exact: true }).click();
 	await expect(page).toHaveURL(/\/work$/);
-	await page.getByLabel('Who?').selectOption({ label: 'Astrid' });
-	await page.getByLabel('Activity').selectOption('fishing');
-	await page.getByLabel('Duration').selectOption('1');
-	await expect(page.getByText('Expected output')).toBeVisible();
-	await expect(page.getByText(/Fatigue/).last()).toBeVisible();
-	await page.getByRole('button', { name: 'Assign Astrid' }).click();
-	await expect(page.getByRole('status')).toContainText("Astrid's work was scheduled");
+	await expect(page.getByText('Today’s work: 09:00–17:00')).toBeVisible();
+	await expect(page.getByText('Regular occupation').first()).toBeVisible();
+	await page.getByLabel('Character').selectOption({ label: 'Astrid' });
+	await page.getByLabel('Occupation').selectOption('agriculture');
+	await expect(page.getByText('Proposed after 7 days')).toBeVisible();
+	await page.getByRole('button', { name: 'Change occupation' }).click();
+	await expect(page.getByRole('status')).toContainText('Occupation plan updated');
 	await page.getByRole('link', { name: 'Report' }).click();
 	await expect(page).toHaveURL(/\/households\/[^/]+$/);
 
@@ -92,11 +92,9 @@ test('keeps the five household surfaces connected on mobile', async ({ page }) =
 	await expect(page.getByText('Midsummer')).toHaveCount(0);
 	await page.getByRole('button', { name: 'All', exact: true }).click();
 	await expect(page.locator('body')).not.toContainText(/00000000-0000-0000-0000-000000000[0-9]{3}/);
-	await page.getByRole('tab', { name: 'Year cycle' }).click();
-	await expect(page.getByRole('heading', { name: 'Year cycle' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Summer half' })).toBeVisible();
+	await expect(page.getByRole('tab', { name: 'Year cycle' })).toHaveCount(0);
+	await expect(page.getByText(/days until the next season/i).first()).toBeVisible();
 	await expect(page.locator('body')).not.toContainText(/(?:game_day|current_tick|\btick\b)/i);
-	await page.getByRole('tab', { name: 'Upcoming' }).click();
 	await page.getByRole('link', { name: 'Trade', exact: true }).click();
 	await page.getByRole('button', { name: 'Dispatch goods' }).click();
 	await expect(page.getByRole('status')).toContainText('Shipment dispatched. It is on the way.');
@@ -115,7 +113,7 @@ test('mobile navigation leaves room for the final controls', async ({ page }) =>
 	await page.setViewportSize({ width: 320, height: 568 });
 	await page.goto('/households/00000000-0000-0000-0000-000000000020/work');
 	const nav = await expectMobileNavContent(page);
-	const button = page.getByRole('button', { name: /^Assign / });
+	const button = page.getByRole('button', { name: 'Change occupation' });
 	await expect(button).toBeVisible();
 	await button.scrollIntoViewIfNeeded();
 	const navBox = await nav.boundingBox();

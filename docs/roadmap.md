@@ -176,21 +176,37 @@ controlled playtest session flow is not a self-service public account system;
 identity-provider login, registration, recovery, and session-management UI
 remain intentionally deferred.
 
-### 11. Persistent household occupations and daily routine --- current milestone
+### 11. Monthly seasons and daylight Work Plan --- implemented, review pending
 
-New development and test worlds use `daily_labor_v1`: characters keep an
-agriculture, fishing, or woodcutting occupation; work runs from 08:00 through
-17:00 exclusive; output is earned hourly and settled atomically at 17:00; and
-fatigue recovers outside working hours. Occupation changes take effect at the
-next 08:00 boundary. Existing worlds remain on `legacy` until an explicit,
-reviewed conversion path preserves their history, stocks, service terms,
-ages, deadlines, and shipments.
+Explicit new development and test worlds use `monthly_seasons_v1`: one real
+hour is one game hour, each calendar month is a season, and a fixed world-time
+anchor makes every day exactly 24 hours. Characters keep an agriculture,
+fishing, or woodcutting occupation. Outdoor work follows interpolated daylight
+for up to eight hours; output settles automatically at the calculated end; and
+occupation changes take effect at the next daylight work start. Forecasts and
+reports share those server rules and include confirmed arrivals. Existing
+worlds retain their original model until an explicit reviewed conversion can
+preserve clocks, stocks, service terms, ages, deadlines, shipments, and history.
 
-### 12. Seasonal agriculture and field management --- deferred
+### 12. Personal delivery journeys --- deferred
+
+Add selection of a traveler, reservation of goods, outbound travel,
+delivery or collection, and return travel with explicit home-labor opportunity
+cost. Goods arriving at the destination and the traveler returning home are
+separate events. This must extend shipment and commitment rules rather than
+teleport goods or silently replace occupations.
+
+### 13. Seasonal agriculture and field management --- deferred
 
 After daily-routine playtesting, add fields, seeds, sowing, crop growth,
 tending, harvesting, and seasonal food-gap planning. This milestone is
 explicitly deferred; crop mechanics are not part of the daily-labor model.
+
+### 14. Jarl-service redesign --- deferred
+
+Keep existing temporary service compatible with hourly work. Revisit its
+choices, durations, and consequences only after the Work Plan has been
+playtested; this timing change does not redesign it.
 
 ## First end-to-end economic scenario
 

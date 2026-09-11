@@ -606,7 +606,7 @@ func (s *Server) previewWork(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	if snap.SimulationModel == port.ModelDailyLabor {
+	if snap.SimulationModel.UsesHourlyLabor() {
 		s.writeError(w, application.ErrUnsupportedSimulationModel)
 		return
 	}
@@ -636,7 +636,7 @@ func (s *Server) createAssignment(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	if snap.SimulationModel == port.ModelDailyLabor {
+	if snap.SimulationModel.UsesHourlyLabor() {
 		s.writeError(w, application.ErrUnsupportedSimulationModel)
 		return
 	}

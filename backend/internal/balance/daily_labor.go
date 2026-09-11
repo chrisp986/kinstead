@@ -9,7 +9,7 @@ import (
 // nine-hour workday quantities, not legacy tick quantities.
 func DailyLaborV1() simulation.DailyLaborConfig {
 	return simulation.DailyLaborConfig{
-		WorkdayHours: 9,
+		MaximumNormalWorkHours: 9,
 		ProductionPerWorkday: map[simulation.Season]map[workdomain.Activity]int64{
 			simulation.Spring: {workdomain.Agriculture: 12000, workdomain.Fishing: 10000, workdomain.Woodcutting: 8000},
 			simulation.Summer: {workdomain.Agriculture: 16000, workdomain.Fishing: 13000, workdomain.Woodcutting: 8500},
@@ -27,5 +27,24 @@ func DailyLaborV1() simulation.DailyLaborConfig {
 			workdomain.Fishing:     {workdomain.Fishing: 1150, workdomain.Agriculture: 900},
 			workdomain.Woodcutting: {workdomain.Woodcutting: 1200, workdomain.Agriculture: 900},
 		},
+		AllowReserveRedirects: true,
 	}
+}
+
+// MonthlySeasonsV1 interprets rates as complete eight-hour normal-workday
+// quantities. Short daylight windows therefore earn only their hourly shares.
+func MonthlySeasonsV1() simulation.DailyLaborConfig {
+	cfg := DailyLaborV1()
+	cfg.MaximumNormalWorkHours = 8
+	cfg.AllowReserveRedirects = false
+	cfg.SettleBeforeConsumption = true
+	// These are eight-hour rates. Winter remains productive, while its shorter
+	// daylight window still lowers the amount earned before settlement.
+	cfg.ProductionPerWorkday = map[simulation.Season]map[workdomain.Activity]int64{
+		simulation.Spring: {workdomain.Agriculture: 1000, workdomain.Fishing: 850, workdomain.Woodcutting: 5000},
+		simulation.Summer: {workdomain.Agriculture: 1200, workdomain.Fishing: 1050, workdomain.Woodcutting: 5200},
+		simulation.Autumn: {workdomain.Agriculture: 1300, workdomain.Fishing: 900, workdomain.Woodcutting: 5800},
+		simulation.Winter: {workdomain.Agriculture: 850, workdomain.Fishing: 1100, workdomain.Woodcutting: 7000},
+	}
+	return cfg
 }

@@ -85,7 +85,7 @@ func (s *PoliticsService) respondOnce(ctx context.Context, cmd RespondPoliticalD
 			return politics.ErrIneligibleCharacter
 		}
 		serviceTicks := r.ServiceTicks
-		if d.SimulationModel == port.ModelDailyLabor {
+		if d.SimulationModel.UsesHourlyLabor() {
 			hours := terms.ServiceHours
 			if hours <= 0 {
 				hours = terms.ServiceTicks // compatibility for a pre-versioned term

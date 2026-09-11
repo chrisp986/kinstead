@@ -15,7 +15,7 @@ const claimDueWorld = `-- name: ClaimDueWorld :one
 SELECT id::text AS id, current_tick, tick_duration_seconds, next_tick_at,
        current_game_day, calendar_remainder,
        game_days_per_tick_num, game_days_per_tick_den, setting_start_year,
-       simulation_model
+       simulation_model, calendar_anchor_at, world_utc_offset_minutes
 FROM worlds
 WHERE next_tick_at <= now()
 ORDER BY next_tick_at
@@ -24,16 +24,18 @@ LIMIT 1
 `
 
 type ClaimDueWorldRow struct {
-	ID                  string
-	CurrentTick         int64
-	TickDurationSeconds int32
-	NextTickAt          pgtype.Timestamptz
-	CurrentGameDay      int64
-	CalendarRemainder   int64
-	GameDaysPerTickNum  int64
-	GameDaysPerTickDen  int64
-	SettingStartYear    int32
-	SimulationModel     string
+	ID                    string
+	CurrentTick           int64
+	TickDurationSeconds   int32
+	NextTickAt            pgtype.Timestamptz
+	CurrentGameDay        int64
+	CalendarRemainder     int64
+	GameDaysPerTickNum    int64
+	GameDaysPerTickDen    int64
+	SettingStartYear      int32
+	SimulationModel       string
+	CalendarAnchorAt      pgtype.Timestamptz
+	WorldUtcOffsetMinutes pgtype.Int4
 }
 
 func (q *Queries) ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error) {
@@ -50,6 +52,8 @@ func (q *Queries) ClaimDueWorld(ctx context.Context) (ClaimDueWorldRow, error) {
 		&i.GameDaysPerTickDen,
 		&i.SettingStartYear,
 		&i.SimulationModel,
+		&i.CalendarAnchorAt,
+		&i.WorldUtcOffsetMinutes,
 	)
 	return i, err
 }

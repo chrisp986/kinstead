@@ -46,13 +46,15 @@ type ReservePolicyConfig struct {
 }
 
 type DailyLaborConfig struct {
-	WorkdayHours          int
-	ProductionPerWorkday  map[Season]map[workdomain.Activity]int64
-	ConsumptionRules      ConsumptionConfig
-	WoodUpkeepPerDayMilli int64
-	WorkFatigueRules      FatigueConfig
-	RecoveryRules         RecoveryConfig
-	ReservePolicy         ReservePolicyConfig
-	SkillModifierPermille int64
-	FarmModifiers         map[workdomain.Activity]map[workdomain.Activity]int64
+	MaximumNormalWorkHours  int
+	ProductionPerWorkday    map[Season]map[workdomain.Activity]int64
+	ConsumptionRules        ConsumptionConfig
+	WoodUpkeepPerDayMilli   int64
+	WorkFatigueRules        FatigueConfig
+	RecoveryRules           RecoveryConfig
+	ReservePolicy           ReservePolicyConfig
+	SkillModifierPermille   int64
+	FarmModifiers           map[workdomain.Activity]map[workdomain.Activity]int64
+	AllowReserveRedirects   bool
+	SettleBeforeConsumption bool
 }

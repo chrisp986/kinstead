@@ -136,6 +136,17 @@ func (s *Store) ClaimDueWorld(ctx context.Context, tx pgx.Tx) (WorldClaim, bool,
 		GameDaysPerTickDen: row.GameDaysPerTickDen, TickDurationSeconds: row.TickDurationSeconds,
 		NextTickAt: row.NextTickAt.Time, SimulationModel: port.SimulationModel(row.SimulationModel),
 	}
+	if row.CalendarAnchorAt.Valid {
+		value := row.CalendarAnchorAt.Time
+		w.CalendarAnchorAt = &value
+	}
+	if row.WorldUtcOffsetMinutes.Valid {
+		value := int(row.WorldUtcOffsetMinutes.Int32)
+		w.WorldUTCOffsetMinutes = &value
+	}
+	if !w.SimulationModel.Valid() {
+		return WorldClaim{}, false, fmt.Errorf("unknown simulation model %q", w.SimulationModel)
+	}
 	return w, true, nil
 }
 
@@ -590,7 +601,8 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day,
+		       w.tick_duration_seconds, w.calendar_anchor_at, w.world_utc_offset_minutes,
+		       COALESCE(h.specialization, ''), h.last_seen_game_day,
 		       h.last_seen_chronicle_sequence
         FROM households h
         JOIN worlds w ON w.id = h.world_id
@@ -600,7 +612,8 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.SimulationModel,
 		&snap.CurrentTick, &snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum,
 		&snap.GameDaysPerTickDen, &snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum,
-		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay,
+		&snap.HistoricalDaysPerTickDen, &snap.TickDurationSeconds, &snap.CalendarAnchorAt, &snap.WorldUTCOffsetMinutes,
+		&snap.Specialization, &snap.LastSeenGameDay,
 		&snap.LastSeenChronicleSequence,
 	)
 	if err != nil {
@@ -643,7 +656,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		JOIN households h ON h.id = c.household_id
 		JOIN worlds w ON w.id = h.world_id
 		WHERE c.household_id = $1::uuid
-		  AND (c.status = 'active' OR (w.simulation_model = 'daily_labor_v1' AND c.status <> 'dead'))
+			  AND (c.status = 'active' OR (w.simulation_model IN ('daily_labor_v1','monthly_seasons_v1') AND c.status <> 'dead'))
         ORDER BY c.created_at, c.id
         FOR UPDATE OF c
     `, householdID)
@@ -713,7 +726,7 @@ func (s *Store) LoadHouseholdForTick(ctx context.Context, tx pgx.Tx, householdID
 		SilverMilli:        stocks["silver"],
 		Characters:         chars,
 	}
-	if snap.SimulationModel == port.ModelDailyLabor {
+	if snap.SimulationModel.UsesHourlyLabor() {
 		if err := s.loadDailyLaborState(ctx, tx, &snap, stocks); err != nil {
 			return snap, nil, err
 		}
@@ -740,7 +753,7 @@ func (s *Store) loadDailyLaborState(ctx context.Context, tx pgx.Tx, snap *Househ
 		FarmSpecialization: dbFarmSpecialization(snap.Specialization), ProvisionsMilli: stocks["provisions"], WoodMilli: stocks["wood"],
 		TradeGoodsMilli: stocks["trade_goods"], SilverMilli: stocks["silver"], ProductionRemainders: map[string]int64{}, FatigueRemainders: map[string]int64{},
 	}
-	rows, err := tx.Query(ctx, `SELECT o.character_id::text, o.activity, o.pending_activity, o.effective_game_day, o.revision
+	rows, err := tx.Query(ctx, `SELECT o.character_id::text, o.activity, o.pending_activity, o.effective_game_day, o.effective_hour, o.revision
 		FROM character_occupations o JOIN characters c ON c.id=o.character_id WHERE c.household_id=$1::uuid`, snap.HouseholdID)
 	if err == nil {
 		defer rows.Close()
@@ -748,8 +761,9 @@ func (s *Store) loadDailyLaborState(ctx context.Context, tx pgx.Tx, snap *Househ
 			var id, activity string
 			var pending pgtype.Text
 			var effective pgtype.Int8
+			var effectiveHour pgtype.Int4
 			var revision int64
-			if err := rows.Scan(&id, &activity, &pending, &effective, &revision); err != nil {
+			if err := rows.Scan(&id, &activity, &pending, &effective, &effectiveHour, &revision); err != nil {
 				return err
 			}
 			for i := range snap.Characters {
@@ -764,6 +778,10 @@ func (s *Store) loadDailyLaborState(ctx context.Context, tx pgx.Tx, snap *Househ
 				if effective.Valid {
 					v := calendar.GameDay(effective.Int64)
 					o.EffectiveDay = &v
+				}
+				if effectiveHour.Valid {
+					v := int(effectiveHour.Int32)
+					o.EffectiveHour = &v
 				}
 				snap.Characters[i].Occupation = &o
 				break
@@ -814,11 +832,20 @@ func (s *Store) loadDailyLaborState(ctx context.Context, tx pgx.Tx, snap *Househ
 		if assignment.Activity != string(workdomain.RulerService) {
 			continue
 		}
-		start := calendar.AdvanceMoment(currentMoment, int(assignment.StartsTick-snap.CurrentTick))
-		end := calendar.AdvanceMoment(start, int(assignment.EndsTick-assignment.StartsTick+1))
+		// Assignment tick ranges are inclusive and identify intervals being
+		// executed. Convert them to [start,end) moments without clamping duties
+		// that began before the current committed tick.
+		start, err := calendar.ShiftMoment(currentMoment, assignment.StartsTick-snap.CurrentTick-1)
+		if err != nil {
+			return err
+		}
+		end, err := calendar.ShiftMoment(currentMoment, assignment.EndsTick-snap.CurrentTick)
+		if err != nil {
+			return err
+		}
 		for i := range state.Characters {
 			if state.Characters[i].ID == assignment.CharacterID {
-				state.Characters[i].TemporaryDuties = append(state.Characters[i].TemporaryDuties, workdomain.TemporaryDuty{ID: assignment.ID, Activity: workdomain.RulerService, Starts: start, Ends: end, Description: "temporary Jarl service"})
+				state.Characters[i].TemporaryDuties = append(state.Characters[i].TemporaryDuties, workdomain.TemporaryDuty{ID: assignment.ID, CharacterID: assignment.CharacterID, Activity: workdomain.RulerService, Starts: start, Ends: end, Description: "temporary Jarl service"})
 			}
 		}
 	}
@@ -1066,14 +1093,16 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
 		       w.game_days_per_tick_den, w.setting_start_year,
 		       w.historical_start_date::timestamp, w.historical_days_per_tick_num, w.historical_days_per_tick_den,
-		       w.tick_duration_seconds, COALESCE(h.specialization, ''), h.last_seen_game_day,
+		       w.tick_duration_seconds, w.calendar_anchor_at, w.world_utc_offset_minutes,
+		       COALESCE(h.specialization, ''), h.last_seen_game_day,
 		       h.last_seen_chronicle_sequence
         FROM households h JOIN worlds w ON w.id=h.world_id
         WHERE h.id=$1::uuid
 	`, householdID).Scan(&snap.HouseholdID, &snap.HouseholdName, &snap.WorldID, &snap.WorldName, &snap.SimulationModel, &snap.CurrentTick,
 		&snap.CurrentGameDay, &snap.CalendarRemainder, &snap.GameDaysPerTickNum, &snap.GameDaysPerTickDen,
 		&snap.SettingStartYear, &snap.HistoricalStart, &snap.HistoricalDaysPerTickNum, &snap.HistoricalDaysPerTickDen,
-		&snap.TickDurationSeconds, &snap.Specialization, &snap.LastSeenGameDay, &snap.LastSeenChronicleSequence)
+		&snap.TickDurationSeconds, &snap.CalendarAnchorAt, &snap.WorldUTCOffsetMinutes,
+		&snap.Specialization, &snap.LastSeenGameDay, &snap.LastSeenChronicleSequence)
 	if err != nil {
 		return snap, nil, err
 	}
@@ -1101,7 +1130,7 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 		SELECT c.id::text,c.name,c.birth_game_day,c.labor_capacity_milli,c.fatigue,c.status,
         COALESCE((SELECT cs.skill_code FROM character_skills cs WHERE cs.character_id=c.id AND cs.level>0 ORDER BY cs.level DESC,cs.skill_code LIMIT 1),'')
         FROM characters c JOIN households h ON h.id=c.household_id JOIN worlds w ON w.id=h.world_id
-        WHERE c.household_id=$1::uuid AND (c.status='active' OR (w.simulation_model='daily_labor_v1' AND c.status <> 'dead')) ORDER BY c.created_at,c.id
+		WHERE c.household_id=$1::uuid AND (c.status='active' OR (w.simulation_model IN ('daily_labor_v1','monthly_seasons_v1') AND c.status <> 'dead')) ORDER BY c.created_at,c.id
     `, householdID)
 	if err != nil {
 		return snap, nil, err
@@ -1148,9 +1177,40 @@ func (s *Store) LoadHouseholdReadOnly(ctx context.Context, tx pgx.Tx, householdI
 	if err := rows.Err(); err != nil {
 		return snap, nil, err
 	}
+	rows, err = tx.Query(ctx, `
+		SELECT s.id::text,s.world_id::text,COALESCE(s.sender_household_id::text,''),
+		       COALESCE(sh.name,''),COALESCE(s.receiver_household_id::text,''),COALESCE(rh.name,''),
+		       s.origin_location_id::text,s.destination_location_id::text,s.resource_code,s.quantity_milli,
+		       COALESCE(s.departure_tick,0),s.expected_arrival_tick,s.actual_arrival_tick,
+		       COALESCE(s.departure_game_day,0),s.expected_arrival_game_day,s.actual_arrival_game_day,
+		       s.transport_cost_milli,s.status
+		FROM shipments s
+		LEFT JOIN households sh ON sh.id=s.sender_household_id
+		LEFT JOIN households rh ON rh.id=s.receiver_household_id
+		WHERE s.receiver_household_id=$1::uuid AND s.status='in_transit'
+		ORDER BY s.expected_arrival_tick,s.id
+	`, householdID)
+	if err != nil {
+		return snap, nil, err
+	}
+	for rows.Next() {
+		var shipment ShipmentRecord
+		if err := rows.Scan(&shipment.ID, &shipment.WorldID, &shipment.SenderHouseholdID, &shipment.SenderHouseholdName,
+			&shipment.ReceiverHouseholdID, &shipment.ReceiverHouseholdName, &shipment.OriginLocationID, &shipment.DestinationLocationID,
+			&shipment.ResourceType, &shipment.QuantityMilli, &shipment.DepartureTick, &shipment.ExpectedArrivalTick, &shipment.ActualArrivalTick,
+			&shipment.DepartureGameDay, &shipment.ExpectedArrivalGameDay, &shipment.ActualArrivalGameDay, &shipment.TransportCostMilli, &shipment.Status); err != nil {
+			rows.Close()
+			return snap, nil, err
+		}
+		snap.IncomingShipments = append(snap.IncomingShipments, shipment)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return snap, nil, err
+	}
 
 	snap.State = simulation.HouseholdState{Tick: snap.CurrentTick, FarmSpecialization: dbFarmSpecialization(snap.Specialization), ProvisionsMilli: stocks["provisions"], WoodMilli: stocks["wood"], TradeGoodsMilli: stocks["trade_goods"], SilverMilli: stocks["silver"], Characters: chars}
-	if snap.SimulationModel == port.ModelDailyLabor {
+	if snap.SimulationModel.UsesHourlyLabor() {
 		if err := s.loadDailyLaborState(ctx, tx, &snap, stocks); err != nil {
 			return snap, nil, err
 		}
@@ -1239,11 +1299,11 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
         INSERT INTO assignments(household_id, character_id, activity_type, intensity, starts_tick, ends_tick, status)
         VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,'planned')
         RETURNING id::text, character_id::text, $7::text, activity_type, intensity, starts_tick, ends_tick, status
-    `, householdID, characterID, activity, intensity, startsTick, endsTick, characterName).Scan(
+	`, householdID, characterID, activity, intensity, startsTick, endsTick, characterName).Scan(
 		&out.ID, &out.CharacterID, &out.Character, &out.Activity, &out.Intensity, &out.StartsTick, &out.EndsTick, &out.Status,
 	)
 	if err != nil {
-		return AssignmentRecord{}, err
+		return AssignmentRecord{}, assignmentConflictError(err)
 	}
 	out.StartsGameDay = gameDayAtTick(snap, out.StartsTick)
 	out.EndsGameDay = gameDayAtTick(snap, out.EndsTick)
@@ -1273,11 +1333,15 @@ func (s *Store) CreateAssignment(ctx context.Context, householdID, characterID, 
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && (pgErr.Code == "40001" || pgErr.Code == "23P01" || pgErr.Code == "23505") {
-			return AssignmentRecord{}, ErrAssignmentConflict
-		}
-		return AssignmentRecord{}, err
+		return AssignmentRecord{}, assignmentConflictError(err)
 	}
 	return out, nil
+}
+
+func assignmentConflictError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == "40001" || pgErr.Code == "23P01" || pgErr.Code == "23505") {
+		return ErrAssignmentConflict
+	}
+	return err
 }

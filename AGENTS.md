@@ -29,15 +29,19 @@ Tick order:
 Ticks are sequential, atomic, idempotent by `(world_id, tick)`. Process
 missed ticks sequentially.
 
-Authoritative simulated time is absolute integer `game_day`. Legacy worlds
-use the frozen 364-day calendar; `daily_labor_v1` worlds use 365 days with
-season boundaries 0/91/183/274/365. Derive calendar labels from `game_day`;
-never use SQL `DATE`/`TIMESTAMP` for simulated dates. Real-world audit
-timestamps use `TIMESTAMPTZ`. Ticks are execution cadence, not calendar
-units. Daily-labor worlds run at 1/24 game-day per tick and target roughly
-eight real days per game year using a separate worker polling interval. The
-v0.3 `48 ticks/year`, `12/season` model is balancing data for legacy worlds,
-not the production calendar. Existing worlds are not silently converted.
+Authoritative simulated time is absolute integer `game_day` plus an hourly
+remainder. Legacy worlds use the frozen 364-day calendar and
+`daily_labor_v1` worlds retain their 365-day calendar. New
+`monthly_seasons_v1` worlds run one hourly tick per real hour. Their
+world-owned midnight anchor and fixed UTC offset map game moments onto a
+modern scheduling calendar: each calendar month is one season and spring,
+summer, autumn, and winter repeat every four months. This scheduling calendar
+does not accelerate character aging or replace the historical setting label.
+Derive new-model season and daylight rules from the anchored tick interval;
+never call the host clock from domain, production, or forecast code. Real-world
+audit timestamps use `TIMESTAMPTZ`. Worker polling is separate from tick
+duration. The v0.3 `48 ticks/year`, `12/season` model remains compatibility
+balancing data. Existing worlds are never silently converted.
 
 ## Gameplay constraints
 

@@ -2,6 +2,7 @@ package calendar
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 )
 
@@ -40,14 +41,19 @@ var DailyLaborDefinition = CalendarDefinition{
 	SpringEnd: 91, SummerEnd: 183, AutumnEnd: 274, HalfYearStart: 183,
 }
 
-// DefinitionForModel returns the calendar definition for a persisted model
-// identifier. Unknown models deliberately use legacy rules so old callers do
-// not accidentally reinterpret existing worlds.
-func DefinitionForModel(model string) CalendarDefinition {
-	if model == "daily_labor_v1" {
-		return DailyLaborDefinition
+// DefinitionForModel returns the historical/aging calendar for a persisted
+// model. Monthly seasons use a real scheduling calendar for work but retain
+// the 365-day historical age convention. Unknown identifiers are errors so a
+// typo can never silently execute legacy rules.
+func DefinitionForModel(model string) (CalendarDefinition, error) {
+	switch model {
+	case "legacy":
+		return LegacyDefinition, nil
+	case "daily_labor_v1", "monthly_seasons_v1":
+		return DailyLaborDefinition, nil
+	default:
+		return CalendarDefinition{}, fmt.Errorf("%w: unknown simulation model %q", ErrInvalidClock, model)
 	}
-	return LegacyDefinition
 }
 
 func (d CalendarDefinition) DayOfYear(day GameDay) int64 {
@@ -209,6 +215,24 @@ func AdvanceMoment(moment Moment, hours int) Moment {
 	}
 	total := moment.Hour + hours
 	return Moment{Day: moment.Day + GameDay(total/24), Hour: total % 24}
+}
+
+// ShiftMoment moves across whole-hour boundaries in either direction. It is
+// used when an already-running inclusive tick range is projected into the
+// end-exclusive [start,end) moment convention.
+func ShiftMoment(moment Moment, hours int64) (Moment, error) {
+	if moment.Hour < 0 || moment.Hour > 23 {
+		return Moment{}, ErrInvalidClock
+	}
+	totalValue := new(big.Int).Mul(big.NewInt(int64(moment.Day)), big.NewInt(24))
+	totalValue.Add(totalValue, big.NewInt(int64(moment.Hour)))
+	totalValue.Add(totalValue, big.NewInt(hours))
+	if !totalValue.IsInt64() {
+		return Moment{}, ErrArithmeticOverflow
+	}
+	total := totalValue.Int64()
+	day, hour := floorDivMod(total, 24)
+	return Moment{Day: GameDay(day), Hour: int(hour)}, nil
 }
 
 type Date struct {

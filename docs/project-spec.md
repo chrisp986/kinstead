@@ -37,15 +37,19 @@ Sigtuna can rise. Christianization and stronger royal power are visible
 but incomplete. Historical tendencies should create gameplay
 opportunities rather than rigid scripting.
 
-Target pacing: `1 game year ≈ 8 real days`; a generation ≈ 18--25 game
-years.
+In new worlds, one real hour is one game hour. A four-month scheduling-season
+cycle is deliberately separate from the historical year used for character
+ages; repeating spring through winter must not accelerate a generation.
 
 The authoritative simulated calendar is based on an absolute integer
-`game_day`. Legacy worlds use **364 days / 52 weeks** and four 91-day
-seasons. Daily-labor worlds use **365 days** with season boundaries
-`[0,91)`, `[91,183)`, `[183,274)`, and `[274,365)`. Year, season, week,
-day, and relative-duration labels are derived from `game_day`; they are not
-independent sources of truth.
+`game_day` and an hourly remainder. Legacy worlds use **364 days / 52 weeks**
+and four 91-day seasons. Existing daily-labor worlds use **365 days** with
+season boundaries `[0,91)`, `[91,183)`, `[183,274)`, and `[274,365)`.
+New `monthly_seasons_v1` worlds map the game moment through a persisted
+world-midnight anchor and fixed UTC offset. The scheduling month determines
+the season: January/May/September are spring, February/June/October summer,
+March/July/November autumn, and April/August/December winter. Actual month
+lengths apply. Calendar labels are projections, not independent truth.
 
 Normal player-facing time should use seasons, weeks, days, relative
 phrasing, and meaningful events rather than modern month/day notation.
@@ -60,14 +64,16 @@ ticks are execution cadence and must not become calendar semantics. The
 v0.3 balancing model's `48 ticks/year, 12/season` remains synthetic
 balancing data and must not define the production calendar.
 
-Daily-labor worlds use one game day per 24 ticks, with the worker polling
-interval kept separate from game speed; the development seed's 1,894-second
-interval is approximately eight real days per game year. Characters have
-persistent occupations rather than renewed daily assignments. They work in
-`[08:00,17:00)`, recover outside those hours, and occupation changes become
-effective at the next 08:00 boundary. Hourly output remains pending until the
-17:00 settlement, so pending output cannot be consumed, traded, dispatched, or
-levied.
+Monthly-season worlds use one game day per 24 hourly ticks. Worker polling is
+separate from the fixed 3,600-second due interval, and missed intervals are
+processed in order from their preceding scheduled due times. Characters have
+persistent occupations rather than renewed daily assignments. Outdoor work
+starts one hour after interpolated sunrise and ends after at most eight hours
+or at sunset. The interval is `[start,end)`; output settles automatically at
+`end`, before that interval's consumption. Pending output cannot be consumed,
+traded, dispatched, or levied. Occupation changes activate at the next
+calculated daylight work start, with an already-committed start boundary
+rolling to tomorrow.
 
 At the default `91 / 12` pacing, production on ticks 1--12 uses spring,
 13--24 summer, 25--36 autumn, and 37--48 winter. Tick 12 commits day 91, so
@@ -241,11 +247,12 @@ Time-sensitive UI should prefer derived, readable game-calendar labels such
 as season/week and relative durations. Exact internal `game_day` values may
 be exposed in diagnostics, but are not the normal player-facing format.
 
-The Calendar screen offers `Upcoming` (grouped by urgency and half-year) and
-`Year cycle` (the summer/winter rhythm with seasonal phases and anchors). It
-projects contract due dates, dispatch deadlines, shipment arrivals, political
-response deadlines, farm markers, festivals, and assemblies without creating a
-second source of truth.
+The Calendar screen offers `Upcoming`, grouped by urgency and season. New
+worlds show current season position, days until the next season, and upcoming
+consequences; legacy worlds retain their year-cycle projection. It projects
+contract due dates, dispatch deadlines, shipment arrivals, political response
+deadlines, farm markers, festivals, and assemblies without creating a second
+source of truth.
 
 Desktop navigation is inline. On mobile, household navigation is a fixed bottom
 bar with a visible icon and text label for every section, active-state feedback,

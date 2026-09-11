@@ -17,10 +17,16 @@ type calendarReaderStub struct {
 }
 
 func (s calendarReaderStub) GetHouseholdReport(context.Context, string) (port.HouseholdSnapshot, error) {
+	if s.snapshot.SimulationModel == "" {
+		s.snapshot.SimulationModel = port.ModelLegacy
+	}
 	return s.snapshot, nil
 }
 
 func (s calendarReaderStub) LoadCalendarContext(context.Context, string, int64, int64) (port.CalendarContext, error) {
+	if s.value.Snapshot.SimulationModel == "" {
+		s.value.Snapshot.SimulationModel = port.ModelLegacy
+	}
 	return s.value, nil
 }
 

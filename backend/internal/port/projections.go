@@ -15,9 +15,18 @@ import (
 type SimulationModel string
 
 const (
-	ModelLegacy     SimulationModel = "legacy"
-	ModelDailyLabor SimulationModel = "daily_labor_v1"
+	ModelLegacy         SimulationModel = "legacy"
+	ModelDailyLabor     SimulationModel = "daily_labor_v1"
+	ModelMonthlySeasons SimulationModel = "monthly_seasons_v1"
 )
+
+func (m SimulationModel) UsesHourlyLabor() bool {
+	return m == ModelDailyLabor || m == ModelMonthlySeasons
+}
+
+func (m SimulationModel) Valid() bool {
+	return m == ModelLegacy || m == ModelDailyLabor || m == ModelMonthlySeasons
+}
 
 type CharacterRecord struct {
 	ID           string `json:"id"`
@@ -25,13 +34,15 @@ type CharacterRecord struct {
 	BirthGameDay int64  `json:"birth_game_day"`
 	// BirthDate is retained only as a decoding compatibility field for older
 	// fixtures. PostgreSQL-backed projections no longer populate it.
-	BirthDate      string                 `json:"-"`
-	Age            int                    `json:"age"`
-	LaborPermille  int64                  `json:"labor_permille"`
-	Fatigue        int                    `json:"fatigue"`
-	Status         string                 `json:"status"`
-	Specialization string                 `json:"specialization,omitempty"`
-	Occupation     *workdomain.Occupation `json:"occupation,omitempty"`
+	BirthDate             string                 `json:"-"`
+	Age                   int                    `json:"age"`
+	LaborPermille         int64                  `json:"labor_permille"`
+	Fatigue               int                    `json:"fatigue"`
+	Status                string                 `json:"status"`
+	Specialization        string                 `json:"specialization,omitempty"`
+	Occupation            *workdomain.Occupation `json:"occupation,omitempty"`
+	CurrentActivity       string                 `json:"current_activity,omitempty"`
+	CurrentActivityReason string                 `json:"current_activity_reason,omitempty"`
 }
 
 type AssignmentRecord struct {
@@ -117,12 +128,15 @@ type HouseholdSnapshot struct {
 	HistoricalDaysPerTickNum  int32
 	HistoricalDaysPerTickDen  int32
 	TickDurationSeconds       int32
+	CalendarAnchorAt          *time.Time
+	WorldUTCOffsetMinutes     *int
 	Specialization            string
 	LastSeenGameDay           int64
 	LastSeenChronicleSequence int64
 	State                     simulation.HouseholdState
 	Characters                []CharacterRecord
 	Assignments               []AssignmentRecord
+	IncomingShipments         []ShipmentRecord
 	DailyLabor                *simulation.DailyLaborState
 }
 
@@ -216,15 +230,17 @@ type MarketRepository interface {
 }
 
 type WorldClaim struct {
-	ID                  string
-	CurrentTick         int64
-	CurrentGameDay      int64
-	CalendarRemainder   int64
-	GameDaysPerTickNum  int64
-	GameDaysPerTickDen  int64
-	TickDurationSeconds int32
-	NextTickAt          time.Time
-	SimulationModel     SimulationModel
+	ID                    string
+	CurrentTick           int64
+	CurrentGameDay        int64
+	CalendarRemainder     int64
+	GameDaysPerTickNum    int64
+	GameDaysPerTickDen    int64
+	TickDurationSeconds   int32
+	NextTickAt            time.Time
+	SimulationModel       SimulationModel
+	CalendarAnchorAt      *time.Time
+	WorldUTCOffsetMinutes *int
 }
 
 type EmergencyFoodContext struct {

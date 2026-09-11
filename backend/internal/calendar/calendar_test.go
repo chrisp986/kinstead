@@ -21,6 +21,15 @@ func TestDateAtTickCarriesRationalRemainder(t *testing.T) {
 	}
 }
 
+func TestDefinitionForModelRejectsUnknownIdentifiers(t *testing.T) {
+	if _, err := DefinitionForModel("monthly_seasons_v1"); err != nil {
+		t.Fatalf("monthly model: %v", err)
+	}
+	if _, err := DefinitionForModel("monthly_seasons_v2"); !errors.Is(err, ErrInvalidClock) {
+		t.Fatalf("unknown model error=%v", err)
+	}
+}
+
 func TestAgeOnUsesHistoricalBirthday(t *testing.T) {
 	birth := time.Date(948, time.September, 10, 0, 0, 0, 0, time.UTC)
 	before := time.Date(980, time.September, 9, 0, 0, 0, 0, time.UTC)

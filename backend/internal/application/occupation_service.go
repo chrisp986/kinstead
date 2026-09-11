@@ -55,7 +55,7 @@ func (s *OccupationService) Change(ctx context.Context, command ChangeOccupation
 	if err != nil {
 		return OccupationChangeResult{}, err
 	}
-	if loaded.Model != port.ModelDailyLabor {
+	if !loaded.Model.UsesHourlyLabor() {
 		return OccupationChangeResult{}, ErrUnsupportedSimulationModel
 	}
 	if loaded.CharacterStatus == "dead" || loaded.LaborPermille <= 0 {
@@ -64,7 +64,16 @@ func (s *OccupationService) Change(ctx context.Context, command ChangeOccupation
 	if command.ExpectedRevision != loaded.Occupation.Revision {
 		return OccupationChangeResult{}, fmt.Errorf("%w: expected %d, current %d", ErrOccupationRevisionConflict, command.ExpectedRevision, loaded.Occupation.Revision)
 	}
-	effective, err := calendar.NextWorkStart(loaded.Clock)
+	var effective calendar.Moment
+	if loaded.Model == port.ModelMonthlySeasons {
+		now, clockErr := calendar.MomentAtClock(loaded.Clock)
+		if clockErr != nil {
+			return OccupationChangeResult{}, clockErr
+		}
+		effective, err = calendar.NextWorkStartForWorld(loaded.CalendarAnchorAt, loaded.WorldUTCOffsetMinutes, now, calendar.DefaultDaylightConfig())
+	} else {
+		effective, err = calendar.NextWorkStart(loaded.Clock)
+	}
 	if err != nil {
 		return OccupationChangeResult{}, err
 	}
@@ -74,13 +83,16 @@ func (s *OccupationService) Change(ctx context.Context, command ChangeOccupation
 		if updated.PendingActivity != nil {
 			updated.PendingActivity = nil
 			updated.EffectiveDay = nil
+			updated.EffectiveHour = nil
 			changed = true // selecting the current role cancels a pending change
 		}
 	} else if updated.PendingActivity == nil || *updated.PendingActivity != command.Activity {
 		activity := command.Activity
 		updated.PendingActivity = &activity
 		day := effective.Day
+		hour := effective.Hour
 		updated.EffectiveDay = &day
+		updated.EffectiveHour = &hour
 		changed = true
 	}
 	if !changed {

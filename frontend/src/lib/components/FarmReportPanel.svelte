@@ -22,6 +22,7 @@
 			pending_output_milli?: Record<string, number>;
 			forecast_net_milli?: Record<string, number>;
 			minimum_expected_food_milli?: number;
+			workday?: { start_hour: number; end_hour: number };
 		};
 		householdId?: string;
 		calendar?: { events: CalendarEvent[] };
@@ -155,10 +156,22 @@
 	{#if report.pending_output_milli || report.forecast_net_milli}
 		<section class="plan-outcome" aria-label="Household plan outcome">
 			<strong>Plan outcome</strong>
-			<span>Earned output settles automatically at 17:00.</span>
-			{#if report.pending_output_milli}<small>Awaiting settlement: {(report.pending_output_milli.provisions ?? 0) / 1000} food · {(report.pending_output_milli.wood ?? 0) / 1000} wood</small>{/if}
-			{#if report.forecast_net_milli}<small>Seven-day forecast: {(report.forecast_net_milli.provisions ?? 0) / 1000} food · {(report.forecast_net_milli.wood ?? 0) / 1000} wood</small>{/if}
-			{#if report.minimum_expected_food_milli !== undefined}<small>Minimum expected food stock: {report.minimum_expected_food_milli / 1000}</small>{/if}
+			<span
+				>Earned output settles automatically{report.workday
+					? ` at ${String(report.workday.end_hour).padStart(2, '0')}:00 world time`
+					: ''}.</span
+			>
+			{#if report.pending_output_milli}<small
+					>Awaiting settlement: {(report.pending_output_milli.provisions ?? 0) / 1000} food · {(report
+						.pending_output_milli.wood ?? 0) / 1000} wood</small
+				>{/if}
+			{#if report.forecast_net_milli}<small
+					>Seven-day forecast: {(report.forecast_net_milli.provisions ?? 0) / 1000} food · {(report
+						.forecast_net_milli.wood ?? 0) / 1000} wood</small
+				>{/if}
+			{#if report.minimum_expected_food_milli !== undefined}<small
+					>Minimum expected food stock: {report.minimum_expected_food_milli / 1000}</small
+				>{/if}
 		</section>
 	{/if}
 

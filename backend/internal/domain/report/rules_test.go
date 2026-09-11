@@ -20,6 +20,16 @@ func TestSupplyAttentionThresholds(t *testing.T) {
 	}
 }
 
+func TestReliableForecastSuppressesStoredReserveWarning(t *testing.T) {
+	in := Input{SupplyGameDays: 2, ReliableFoodReplenishment: true}
+	if got := BuildAttention(in); len(got) != 0 {
+		t.Fatalf("attention=%+v", got)
+	}
+	if got := BuildDecisions(in); len(got) != 0 {
+		t.Fatalf("decisions=%+v", got)
+	}
+}
+
 func TestDecisionRankingIsStableAndCapped(t *testing.T) {
 	in := Input{CurrentTick: 10, SupplyGameDays: 6,
 		Characters:          []Character{{ID: "c", Name: "Bjorn", Fatigue: 90}},

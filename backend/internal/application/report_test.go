@@ -13,6 +13,9 @@ import (
 type reportReaderStub struct{ snapshot port.HouseholdSnapshot }
 
 func (s reportReaderStub) GetHouseholdReport(context.Context, string) (port.HouseholdSnapshot, error) {
+	if s.snapshot.SimulationModel == "" {
+		s.snapshot.SimulationModel = port.ModelLegacy
+	}
 	return s.snapshot, nil
 }
 

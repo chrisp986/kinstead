@@ -28,6 +28,7 @@ type ForecastWarning struct {
 }
 
 type HouseholdForecast struct {
+	SnapshotTick                   int64             `json:"snapshot_tick"`
 	BasedOnRevision                int64             `json:"based_on_revision"`
 	HorizonGameDays                int               `json:"horizon_game_days"`
 	BaselineEndingStocks           StockProjection   `json:"baseline_ending_stocks"`
@@ -37,6 +38,7 @@ type HouseholdForecast struct {
 	FirstShortageAt                *calendar.Moment  `json:"first_shortage_at,omitempty"`
 	ProposedFirstShortageAt        *calendar.Moment  `json:"proposed_first_shortage_at,omitempty"`
 	Warnings                       []ForecastWarning `json:"warnings"`
+	Assumptions                    []string          `json:"assumptions"`
 }
 
 // ForecastHousehold runs the same bounded hourly rules as execution. The
@@ -46,7 +48,7 @@ func ForecastHousehold(snapshot port.HouseholdSnapshot, proposedChange *Occupati
 	if horizonGameDays <= 0 || horizonGameDays > 7 {
 		return HouseholdForecast{}, fmt.Errorf("forecast horizon must be between 1 and 7 game days")
 	}
-	if snapshot.DailyLabor == nil {
+	if snapshot.DailyLabor == nil || !snapshot.SimulationModel.UsesHourlyLabor() {
 		return HouseholdForecast{}, ErrUnsupportedSimulationModel
 	}
 	base := cloneDailyState(*snapshot.DailyLabor)
@@ -64,15 +66,30 @@ func ForecastHousehold(snapshot port.HouseholdSnapshot, proposedChange *Occupati
 			if next == proposed.Characters[i].Occupation.Activity {
 				proposed.Characters[i].Occupation.PendingActivity = nil
 				proposed.Characters[i].Occupation.EffectiveDay = nil
+				proposed.Characters[i].Occupation.EffectiveHour = nil
 			} else {
 				proposed.Characters[i].Occupation.PendingActivity = &next
 				clock := calendar.ClockState{Day: snapshot.DailyLabor.CurrentGameDay, Remainder: snapshot.CalendarRemainder, GameDaysPerTickNum: snapshot.GameDaysPerTickNum, GameDaysPerTickDen: snapshot.GameDaysPerTickDen}
-				effective, err := calendar.NextWorkStart(clock)
+				current, err := calendar.MomentAtClock(clock)
+				if err != nil {
+					return HouseholdForecast{}, err
+				}
+				var effective calendar.Moment
+				if snapshot.SimulationModel == port.ModelMonthlySeasons {
+					if snapshot.CalendarAnchorAt == nil || snapshot.WorldUTCOffsetMinutes == nil {
+						return HouseholdForecast{}, ErrUnsupportedSimulationModel
+					}
+					effective, err = calendar.NextWorkStartForWorld(*snapshot.CalendarAnchorAt, *snapshot.WorldUTCOffsetMinutes, current, calendar.DefaultDaylightConfig())
+				} else {
+					effective, err = calendar.NextWorkStart(clock)
+				}
 				if err != nil {
 					return HouseholdForecast{}, err
 				}
 				day := effective.Day
+				hour := effective.Hour
 				proposed.Characters[i].Occupation.EffectiveDay = &day
+				proposed.Characters[i].Occupation.EffectiveHour = &hour
 			}
 			changed = true
 			break
@@ -96,7 +113,8 @@ func ForecastHousehold(snapshot port.HouseholdSnapshot, proposedChange *Occupati
 	if proposedShortage != nil {
 		warnings = append(warnings, ForecastWarning{Code: "proposed_shortage", Message: "This occupation change reaches a food shortage before the preview horizon."})
 	}
-	return HouseholdForecast{BasedOnRevision: forecastRevision(*snapshot.DailyLabor), HorizonGameDays: horizonGameDays, BaselineEndingStocks: baseStocks, ProposedEndingStocks: proposedStocks, MinimumProvisionsMilli: baseMin, ProposedMinimumProvisionsMilli: proposedMin, FirstShortageAt: baseShortage, ProposedFirstShortageAt: proposedShortage, Warnings: warnings}, nil
+	return HouseholdForecast{SnapshotTick: snapshot.CurrentTick, BasedOnRevision: forecastRevision(*snapshot.DailyLabor), HorizonGameDays: horizonGameDays, BaselineEndingStocks: baseStocks, ProposedEndingStocks: proposedStocks, MinimumProvisionsMilli: baseMin, ProposedMinimumProvisionsMilli: proposedMin, FirstShortageAt: baseShortage, ProposedFirstShortageAt: proposedShortage, Warnings: warnings,
+		Assumptions: []string{"confirmed incoming shipments arrive at their scheduled tick", "known temporary commitments continue as scheduled", "no unconfirmed trades or future events are assumed"}}, nil
 }
 
 func forecastState(state simulation.DailyLaborState, snapshot port.HouseholdSnapshot, days int) (StockProjection, int64, *calendar.Moment, error) {
@@ -108,7 +126,31 @@ func forecastState(state simulation.DailyLaborState, snapshot port.HouseholdSnap
 	var first *calendar.Moment
 	for hour := 0; hour < days*24; hour++ {
 		begin := calendar.AdvanceMoment(start, hour)
-		result, err := simulation.ProcessHour(state, simulation.HourInterval{Start: begin, End: calendar.AdvanceMoment(begin, 1)}, balance.DailyLaborV1())
+		nextTick := state.Tick + 1
+		for _, shipment := range snapshot.IncomingShipments {
+			if shipment.Status != "in_transit" || shipment.ExpectedArrivalTick != nextTick {
+				continue
+			}
+			switch shipment.ResourceType {
+			case "provisions":
+				state.ProvisionsMilli += shipment.QuantityMilli
+			case "wood":
+				state.WoodMilli += shipment.QuantityMilli
+			case "trade_goods":
+				state.TradeGoodsMilli += shipment.QuantityMilli
+			case "silver":
+				state.SilverMilli += shipment.QuantityMilli
+			}
+		}
+		temporal, err := temporalContext(snapshot.SimulationModel, snapshot.CalendarAnchorAt, snapshot.WorldUTCOffsetMinutes, begin)
+		if err != nil {
+			return StockProjection{}, 0, nil, err
+		}
+		cfg := balance.DailyLaborV1()
+		if snapshot.SimulationModel == port.ModelMonthlySeasons {
+			cfg = balance.MonthlySeasonsV1()
+		}
+		result, err := simulation.ProcessHourWithContext(state, simulation.HourInterval{Start: begin, End: calendar.AdvanceMoment(begin, 1)}, temporal.Context, cfg)
 		if err != nil {
 			return StockProjection{}, 0, nil, err
 		}
@@ -137,6 +179,18 @@ func cloneDailyState(input simulation.DailyLaborState) simulation.DailyLaborStat
 	out.Characters = append([]simulation.DailyCharacter(nil), input.Characters...)
 	for i := range out.Characters {
 		out.Characters[i].TemporaryDuties = append([]workdomain.TemporaryDuty(nil), input.Characters[i].TemporaryDuties...)
+		if input.Characters[i].Occupation.PendingActivity != nil {
+			value := *input.Characters[i].Occupation.PendingActivity
+			out.Characters[i].Occupation.PendingActivity = &value
+		}
+		if input.Characters[i].Occupation.EffectiveDay != nil {
+			value := *input.Characters[i].Occupation.EffectiveDay
+			out.Characters[i].Occupation.EffectiveDay = &value
+		}
+		if input.Characters[i].Occupation.EffectiveHour != nil {
+			value := *input.Characters[i].Occupation.EffectiveHour
+			out.Characters[i].Occupation.EffectiveHour = &value
+		}
 	}
 	if input.LastSettlementDay != nil {
 		value := *input.LastSettlementDay

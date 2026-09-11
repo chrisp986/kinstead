@@ -38,6 +38,22 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
 
 ## Production clock semantics
 
+New development worlds use `monthly_seasons_v1`: one real hour is one
+simulation tick and one game hour. A persisted world-owned midnight anchor and
+fixed UTC offset map game moments to scheduling dates. Each calendar month is
+one season; spring, summer, autumn, and winter repeat three times per real
+calendar year. Month length, including leap-year February, controls the season
+length. Historical labels and character aging remain separate.
+
+Outdoor work uses deterministic daylight calculated for each anchored date.
+After one preparation hour, a character works up to eight hours or until
+sunset, whichever comes first. Output accrues in integer milli-unit shares and
+settles automatically at that day's calculated work end. The worker polls
+independently and advances `next_tick_at` from its previous scheduled value so
+an outage is caught up sequentially.
+
+The rules below describe compatibility models retained for existing worlds.
+
 The v0.3 48-tick balancing year is **not** the production season calendar.
 Production uses four distinct concepts: wall-clock scheduling, sequential
 simulation ticks, a rational tick-to-historical-day conversion, and historical
@@ -47,12 +63,10 @@ dates/seasons.
 - By default, 48 production ticks advance 364 game days (`91 / 12` per tick).
 - Production season comes from the resulting 364-day game calendar, not `tick % 48`.
 - The isolated v0.3 simulator still uses 12 balancing ticks per synthetic season.
-- Target pace: one game year in about 8 real days.
-- Therefore the daily-labor development seed uses one hourly tick about every
-  **1,894 real seconds**, or approximately eight real days per game year.
-  Override `DEV_TICK_DURATION_SECONDS` when a faster local test loop is useful.
-  by default. Local playtest resets can override only the wall-clock duration with
-  `DEV_TICK_DURATION_SECONDS`.
+- `daily_labor_v1` historically targeted one game year in about eight real
+  days, using an approximately 1,894-second development interval.
+- `DEV_TICK_DURATION_SECONDS` is retained for older local profiles. It does not
+  override the fixed 3,600-second schedule of a monthly-season world.
 
 The database stores the conversion as `game_days_per_tick_num /
 game_days_per_tick_den` (default `91 / 12`). Characters store an absolute

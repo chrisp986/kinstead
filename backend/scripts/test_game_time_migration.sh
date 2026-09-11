@@ -65,7 +65,7 @@ create_database "$fresh_db"
 
 # Build a pre-game-time schema from the immutable migration history, then add
 # a legacy Bjornvik world/characters and shipment. The current development
-# seed intentionally opts into daily_labor_v1, so upgrade and fresh values
+# seed intentionally opts into monthly_seasons_v1, so upgrade and fresh values
 # must be checked separately rather than treated as interchangeable worlds.
 for migration in "$BACKEND_DIR"/db/migrations/0000{01..13}_*.sql; do
   cp "$migration" "$legacy_dir/"
@@ -114,11 +114,14 @@ upgrade_world="$(psql_for_url "$upgrade_url" -Atqc '
   FROM worlds WHERE id = '\''00000000-0000-0000-0000-000000000001'\'';
 ')"
 fresh_world="$(psql_for_url "$fresh_url" -Atqc '
-  SELECT concat_ws(chr(124), current_game_day, calendar_remainder, game_days_per_tick_num, game_days_per_tick_den, setting_start_year)
+	SELECT concat_ws(chr(124), current_game_day, calendar_remainder, game_days_per_tick_num, game_days_per_tick_den,
+	  setting_start_year, tick_duration_seconds, simulation_model,
+	  EXTRACT(HOUR FROM calendar_anchor_at + make_interval(mins => world_utc_offset_minutes)) = 0
+	  AND EXTRACT(MINUTE FROM calendar_anchor_at + make_interval(mins => world_utc_offset_minutes)) = 0)
   FROM worlds WHERE id = '\''00000000-0000-0000-0000-000000000001'\'';
 ')"
 test "$upgrade_world" = '0|0|91|12|980'
-test "$fresh_world" = '0|0|1|24|980'
+[[ "$fresh_world" =~ ^0\|([0-9]|1[0-9]|2[0-3])\|1\|24\|980\|3600\|monthly_seasons_v1\|t$ ]]
 
 upgrade_characters="$(psql_for_url "$upgrade_url" -Atqc '
   SELECT name || chr(124) || birth_game_day FROM characters ORDER BY name;
@@ -133,10 +136,11 @@ upgrade_shipments="$(psql_for_url "$upgrade_url" -Atqc '
   FROM shipments ORDER BY id;
 ')"
 fresh_shipments="$(psql_for_url "$fresh_url" -Atqc '
-  SELECT id || chr(124) || departure_game_day || chr(124) || expected_arrival_game_day
-  FROM shipments ORDER BY id;
+	SELECT s.id || chr(124) || s.departure_game_day || chr(124) ||
+	       (s.expected_arrival_game_day = ((w.calendar_remainder + 2) / 24))
+	FROM shipments s JOIN worlds w ON w.id=s.world_id ORDER BY s.id;
 ')"
 test "$upgrade_shipments" = '00000000-0000-0000-0000-000000000301|0|15'
-test "$fresh_shipments" = '00000000-0000-0000-0000-000000000301|0|0'
+test "$fresh_shipments" = '00000000-0000-0000-0000-000000000301|0|true'
 
 echo "legacy/fresh game-time model checks passed"

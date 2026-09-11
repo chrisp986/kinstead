@@ -36,13 +36,17 @@ func (t *occupationTx) LoadOccupationChangeContext(ctx context.Context, househol
 	var model string
 	var pending pgtype.Text
 	var effective pgtype.Int8
+	var effectiveHour pgtype.Int4
+	var anchor pgtype.Timestamptz
+	var offset pgtype.Int4
 	if err := t.tx.QueryRow(ctx, `
 		SELECT h.id::text, h.world_id::text, w.simulation_model, w.current_tick,
 		       w.current_game_day, w.calendar_remainder, w.game_days_per_tick_num,
-		       w.game_days_per_tick_den, c.id::text, c.name, c.status,
+		       w.game_days_per_tick_den, w.calendar_anchor_at, w.world_utc_offset_minutes,
+		       c.id::text, c.name, c.status,
 		       c.labor_capacity_milli, COALESCE(o.activity,
 		          CASE h.specialization WHEN 'forest' THEN 'woodcutting' ELSE COALESCE(h.specialization, 'agriculture') END),
-		       o.pending_activity, o.effective_game_day, COALESCE(o.revision, 1)
+		       o.pending_activity, o.effective_game_day, o.effective_hour, COALESCE(o.revision, 1)
 		FROM households h
 		JOIN worlds w ON w.id = h.world_id
 		JOIN characters c ON c.household_id = h.id AND c.id = $2::uuid
@@ -52,13 +56,19 @@ func (t *occupationTx) LoadOccupationChangeContext(ctx context.Context, househol
 	`, householdID, characterID).Scan(
 		&out.HouseholdID, &out.WorldID, &model, &out.CurrentTick,
 		&out.Clock.Day, &out.Clock.Remainder, &out.Clock.GameDaysPerTickNum,
-		&out.Clock.GameDaysPerTickDen, &out.CharacterID, &out.CharacterName,
+		&out.Clock.GameDaysPerTickDen, &anchor, &offset, &out.CharacterID, &out.CharacterName,
 		&out.CharacterStatus, &out.LaborPermille, &out.Occupation.Activity,
-		&pending, &effective, &out.Occupation.Revision,
+		&pending, &effective, &effectiveHour, &out.Occupation.Revision,
 	); err != nil {
 		return out, err
 	}
 	out.Model = port.SimulationModel(model)
+	if anchor.Valid {
+		out.CalendarAnchorAt = anchor.Time
+	}
+	if offset.Valid {
+		out.WorldUTCOffsetMinutes = int(offset.Int32)
+	}
 	out.Occupation.CharacterID = out.CharacterID
 	if pending.Valid {
 		value := workdomain.Activity(pending.String)
@@ -68,24 +78,28 @@ func (t *occupationTx) LoadOccupationChangeContext(ctx context.Context, househol
 		value := calendar.GameDay(effective.Int64)
 		out.Occupation.EffectiveDay = &value
 	}
+	if effectiveHour.Valid {
+		value := int(effectiveHour.Int32)
+		out.Occupation.EffectiveHour = &value
+	}
 	return out, nil
 }
 
 func (t *occupationTx) SaveOccupation(ctx context.Context, occupation workdomain.Occupation) error {
 	_, err := t.tx.Exec(ctx, `
-		INSERT INTO character_occupations(character_id, activity, pending_activity, effective_game_day, revision)
-		VALUES ($1::uuid, $2, $3, $4, $5)
+		INSERT INTO character_occupations(character_id, activity, pending_activity, effective_game_day, effective_hour, revision)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6)
 		ON CONFLICT (character_id) DO UPDATE SET activity=EXCLUDED.activity,
-		 pending_activity=EXCLUDED.pending_activity, effective_game_day=EXCLUDED.effective_game_day,
+		 pending_activity=EXCLUDED.pending_activity, effective_game_day=EXCLUDED.effective_game_day, effective_hour=EXCLUDED.effective_hour,
 		 revision=EXCLUDED.revision
-	`, occupation.CharacterID, occupation.Activity, nullableActivity(occupation.PendingActivity), nullableGameDay(occupation.EffectiveDay), occupation.Revision)
+	`, occupation.CharacterID, occupation.Activity, nullableActivity(occupation.PendingActivity), nullableGameDay(occupation.EffectiveDay), nullableInt(occupation.EffectiveHour), occupation.Revision)
 	return err
 }
 
 func (t *occupationTx) InsertOccupationChronicle(ctx context.Context, entryType string, tick, gameDay int64, characterID string, occupation workdomain.Occupation) error {
 	data, _ := json.Marshal(map[string]any{
 		"activity": occupation.Activity, "pending_activity": occupation.PendingActivity,
-		"effective_game_day": occupation.EffectiveDay, "revision": occupation.Revision,
+		"effective_game_day": occupation.EffectiveDay, "effective_hour": occupation.EffectiveHour, "revision": occupation.Revision,
 	})
 	_, err := t.tx.Exec(ctx, `
 		INSERT INTO chronicle_entries(household_id, occurred_tick, occurred_game_day, entry_type, subject_character_id, data)
@@ -113,6 +127,13 @@ func nullableGameDay(value *calendar.GameDay) any {
 		return nil
 	}
 	return int64(*value)
+}
+
+func nullableInt(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func (s *Store) GetWorkPlan(ctx context.Context, householdID string) (port.WorkPlan, error) {
@@ -195,17 +216,19 @@ func (s *Store) SaveHouseholdDailyTick(ctx context.Context, tx pgx.Tx, household
 		var inserted int64
 		err := tx.QueryRow(ctx, `
 			INSERT INTO household_daily_settlements(household_id,game_day,provisions_milli,wood_milli,summary)
-			VALUES ($1::uuid,$2,$3,$4,jsonb_build_object('produced_provisions_milli',$5::bigint,'produced_wood_milli',$6::bigint))
+			VALUES ($1::uuid,$2,$3,$4,jsonb_build_object(
+			 'produced_provisions_milli',$5::bigint,'produced_wood_milli',$6::bigint,
+			 'consumed_provisions_milli',$7::bigint,'consumed_wood_milli',$8::bigint))
 			ON CONFLICT (household_id,game_day) DO NOTHING
 			RETURNING game_day
-		`, householdID, day, result.State.ProvisionsMilli, result.State.WoodMilli, result.ProducedProvisionsMilli, result.ProducedWoodMilli).Scan(&inserted)
+		`, householdID, day, result.SettledProvisionsMilli, result.SettledWoodMilli, result.SettledProvisionsMilli, result.SettledWoodMilli, result.SettledConsumedProvisionsMilli, result.SettledConsumedWoodMilli).Scan(&inserted)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		data, _ := json.Marshal(map[string]any{"game_day": day, "produced_provisions_milli": result.ProducedProvisionsMilli, "produced_wood_milli": result.ProducedWoodMilli})
+		data, _ := json.Marshal(map[string]any{"game_day": day, "produced_provisions_milli": result.SettledProvisionsMilli, "produced_wood_milli": result.SettledWoodMilli, "consumed_provisions_milli": result.SettledConsumedProvisionsMilli, "consumed_wood_milli": result.SettledConsumedWoodMilli})
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO chronicle_entries(household_id,occurred_tick,occurred_game_day,entry_type,data)
 			VALUES ($1::uuid,$2,$3,$4,$5::jsonb)
@@ -225,12 +248,12 @@ func upsertOccupation(ctx context.Context, tx pgx.Tx, occupation workdomain.Occu
 		return nil
 	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO character_occupations(character_id,activity,pending_activity,effective_game_day,revision)
-		VALUES ($1::uuid,$2,$3,$4,$5)
+		INSERT INTO character_occupations(character_id,activity,pending_activity,effective_game_day,effective_hour,revision)
+		VALUES ($1::uuid,$2,$3,$4,$5,$6)
 		ON CONFLICT (character_id) DO UPDATE SET activity=EXCLUDED.activity,
-		pending_activity=EXCLUDED.pending_activity,effective_game_day=EXCLUDED.effective_game_day,
+		pending_activity=EXCLUDED.pending_activity,effective_game_day=EXCLUDED.effective_game_day,effective_hour=EXCLUDED.effective_hour,
 		revision=EXCLUDED.revision
-	`, occupation.CharacterID, occupation.Activity, nullableActivity(occupation.PendingActivity), nullableGameDay(occupation.EffectiveDay), occupation.Revision)
+	`, occupation.CharacterID, occupation.Activity, nullableActivity(occupation.PendingActivity), nullableGameDay(occupation.EffectiveDay), nullableInt(occupation.EffectiveHour), occupation.Revision)
 	return err
 }
 
@@ -238,11 +261,14 @@ func (s *Store) loadWorkPlan(ctx context.Context, tx pgx.Tx, householdID string)
 	var plan port.WorkPlan
 	var model string
 	var clock calendar.ClockState
+	var anchor pgtype.Timestamptz
+	var offset pgtype.Int4
 	if err := tx.QueryRow(ctx, `
 		SELECT h.id::text, w.current_tick, w.current_game_day, w.calendar_remainder,
-		       w.game_days_per_tick_num, w.game_days_per_tick_den, w.simulation_model
+		       w.game_days_per_tick_num, w.game_days_per_tick_den, w.simulation_model,
+		       w.calendar_anchor_at, w.world_utc_offset_minutes
 		FROM households h JOIN worlds w ON w.id=h.world_id WHERE h.id=$1::uuid
-	`, householdID).Scan(&plan.HouseholdID, &plan.CurrentTick, &clock.Day, &clock.Remainder, &clock.GameDaysPerTickNum, &clock.GameDaysPerTickDen, &model); err != nil {
+	`, householdID).Scan(&plan.HouseholdID, &plan.CurrentTick, &clock.Day, &clock.Remainder, &clock.GameDaysPerTickNum, &clock.GameDaysPerTickDen, &model, &anchor, &offset); err != nil {
 		return plan, err
 	}
 	plan.CurrentGameDay = int64(clock.Day)
@@ -251,13 +277,61 @@ func (s *Store) loadWorkPlan(ctx context.Context, tx pgx.Tx, householdID string)
 		return plan, err
 	}
 	plan.CurrentMoment = currentMoment
-	if port.SimulationModel(model) != port.ModelDailyLabor {
+	simulationModel := port.SimulationModel(model)
+	if !simulationModel.UsesHourlyLabor() {
 		return plan, fmt.Errorf("work plan is unavailable for simulation model %q", model)
+	}
+	if simulationModel == port.ModelMonthlySeasons {
+		if !anchor.Valid || !offset.Valid {
+			return plan, fmt.Errorf("monthly world has no scheduling anchor")
+		}
+		plan.WorldUTCOffsetMinutes = int(offset.Int32)
+		date, err := calendar.SchedulingDate(anchor.Time, plan.WorldUTCOffsetMinutes, currentMoment)
+		if err != nil {
+			return plan, err
+		}
+		position, err := calendar.SeasonalPositionForDate(date)
+		if err != nil {
+			return plan, err
+		}
+		plan.Season, plan.SeasonDay, plan.SeasonLengthDays = position.Season, position.Day, position.LengthDays
+		plan.Workday, err = calendar.WorkdayForDate(date, calendar.DefaultDaylightConfig())
+		if err != nil {
+			return plan, err
+		}
+		plan.NextWorkingPeriod, err = calendar.NextWorkStartForWorld(anchor.Time, plan.WorldUTCOffsetMinutes, currentMoment, calendar.DefaultDaylightConfig())
+		if err != nil {
+			return plan, err
+		}
+	} else {
+		contextValue := simulation.DailyLaborWorkContext(currentMoment.Day)
+		plan.Season, plan.Workday = contextValue.Season, contextValue.Workday
+		plan.NextWorkingPeriod, err = calendar.NextWorkStart(clock)
+		if err != nil {
+			return plan, err
+		}
+	}
+	plan.NextSettlement = calendar.Moment{Day: currentMoment.Day, Hour: plan.Workday.EndHour}
+	if currentMoment.Hour >= plan.Workday.EndHour {
+		tomorrow := calendar.Moment{Day: currentMoment.Day + 1, Hour: 0}
+		if simulationModel == port.ModelMonthlySeasons {
+			date, dateErr := calendar.SchedulingDate(anchor.Time, plan.WorldUTCOffsetMinutes, tomorrow)
+			if dateErr != nil {
+				return plan, dateErr
+			}
+			tomorrowWorkday, workErr := calendar.WorkdayForDate(date, calendar.DefaultDaylightConfig())
+			if workErr != nil {
+				return plan, workErr
+			}
+			plan.NextSettlement = calendar.Moment{Day: tomorrow.Day, Hour: tomorrowWorkday.EndHour}
+		} else {
+			plan.NextSettlement = calendar.Moment{Day: tomorrow.Day, Hour: 17}
+		}
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT c.id::text, COALESCE(o.activity,
 		 CASE h.specialization WHEN 'forest' THEN 'woodcutting' ELSE COALESCE(h.specialization, 'agriculture') END),
-		 o.pending_activity, o.effective_game_day, COALESCE(o.revision, 1)
+		 o.pending_activity, o.effective_game_day, o.effective_hour, COALESCE(o.revision, 1)
 		FROM characters c JOIN households h ON h.id=c.household_id
 		LEFT JOIN character_occupations o ON o.character_id=c.id
 		WHERE c.household_id=$1::uuid AND c.status <> 'dead' ORDER BY c.created_at,c.id
@@ -271,7 +345,8 @@ func (s *Store) loadWorkPlan(ctx context.Context, tx pgx.Tx, householdID string)
 		var id, activity string
 		var pending pgtype.Text
 		var effective pgtype.Int8
-		if err := rows.Scan(&id, &activity, &pending, &effective, &occupation.Revision); err != nil {
+		var effectiveHour pgtype.Int4
+		if err := rows.Scan(&id, &activity, &pending, &effective, &effectiveHour, &occupation.Revision); err != nil {
 			return plan, err
 		}
 		occupation.CharacterID, occupation.Activity = id, workdomain.Activity(activity)
@@ -283,6 +358,10 @@ func (s *Store) loadWorkPlan(ctx context.Context, tx pgx.Tx, householdID string)
 			value := calendar.GameDay(effective.Int64)
 			occupation.EffectiveDay = &value
 		}
+		if effectiveHour.Valid {
+			value := int(effectiveHour.Int32)
+			occupation.EffectiveHour = &value
+		}
 		plan.Occupations = append(plan.Occupations, occupation)
 	}
 	if err := rows.Err(); err != nil {
@@ -293,16 +372,28 @@ func (s *Store) loadWorkPlan(ctx context.Context, tx pgx.Tx, householdID string)
 		FROM assignments a WHERE a.household_id=$1::uuid AND a.activity_type='ruler_service'
 		  AND a.status IN ('planned','active') AND a.ends_tick >= $2 ORDER BY a.starts_tick,a.id
 	`, householdID, plan.CurrentTick)
-	if err != nil { return plan, err }
+	if err != nil {
+		return plan, err
+	}
 	defer dutyRows.Close()
 	for dutyRows.Next() {
 		var id, characterID string
 		var startsTick, endsTick int64
-		if err := dutyRows.Scan(&id, &characterID, &startsTick, &endsTick); err != nil { return plan, err }
-		start := calendar.AdvanceMoment(plan.CurrentMoment, int(startsTick-plan.CurrentTick))
-		end := calendar.AdvanceMoment(start, int(endsTick-startsTick+1))
-		plan.TemporaryDuties = append(plan.TemporaryDuties, workdomain.TemporaryDuty{ID: id, Activity: workdomain.RulerService, Starts: start, Ends: end, Description: "temporary Jarl service"})
+		if err := dutyRows.Scan(&id, &characterID, &startsTick, &endsTick); err != nil {
+			return plan, err
+		}
+		start, err := calendar.ShiftMoment(plan.CurrentMoment, startsTick-plan.CurrentTick-1)
+		if err != nil {
+			return plan, err
+		}
+		end, err := calendar.ShiftMoment(plan.CurrentMoment, endsTick-plan.CurrentTick)
+		if err != nil {
+			return plan, err
+		}
+		plan.TemporaryDuties = append(plan.TemporaryDuties, workdomain.TemporaryDuty{ID: id, CharacterID: characterID, Activity: workdomain.RulerService, Starts: start, Ends: end, Description: "temporary Jarl service"})
 	}
-	if err := dutyRows.Err(); err != nil { return plan, err }
+	if err := dutyRows.Err(); err != nil {
+		return plan, err
+	}
 	return plan, nil
 }

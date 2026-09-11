@@ -20,18 +20,32 @@ type HourInterval struct {
 	End   calendar.Moment
 }
 
+// WorkContext is calculated once from the authoritative world interval and is
+// shared by execution, previews, and work resolution. Simulation code never
+// consults the host clock or invents a daylight rule.
+type WorkContext struct {
+	Season  calendar.ProductionSeason
+	Workday calendar.Workday
+}
+
 type DomainFact struct {
 	Type string
 	Data map[string]any
 }
 
 type HourResult struct {
-	State                   DailyLaborState
-	ProducedProvisionsMilli int64
-	ProducedWoodMilli       int64
-	FoodShortageMilli       int64
-	Settled                 bool
-	Facts                   []DomainFact
+	State                          DailyLaborState
+	ProducedProvisionsMilli        int64
+	ProducedWoodMilli              int64
+	FoodShortageMilli              int64
+	Settled                        bool
+	SettledProvisionsMilli         int64
+	SettledWoodMilli               int64
+	ConsumedProvisionsMilli        int64
+	ConsumedWoodMilli              int64
+	SettledConsumedProvisionsMilli int64
+	SettledConsumedWoodMilli       int64
+	Facts                          []DomainFact
 }
 
 type DailyLaborResult struct {
@@ -102,14 +116,19 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 // ProcessHour advances one [start,end) interval for a daily-labor household.
 // It has no dependency on persistence and is therefore also used by bounded
 // forecasts and deterministic balance scenarios.
+// ProcessHour retains the daily_labor_v1 fixed-workday compatibility API.
 func ProcessHour(state DailyLaborState, interval HourInterval, cfg DailyLaborConfig) (HourResult, error) {
+	return ProcessHourWithContext(state, interval, DailyLaborWorkContext(interval.Start.Day), cfg)
+}
+
+func ProcessHourWithContext(state DailyLaborState, interval HourInterval, workContext WorkContext, cfg DailyLaborConfig) (HourResult, error) {
 	if interval.End != calendar.AdvanceMoment(interval.Start, 1) {
 		return HourResult{}, fmt.Errorf("hour interval must be one hour and end-exclusive")
 	}
 	if state.Tick < 0 || state.ProvisionsMilli < 0 || state.WoodMilli < 0 {
 		return HourResult{}, fmt.Errorf("invalid daily labor state")
 	}
-	if cfg.WorkdayHours != 9 || cfg.ConsumptionRules.PerAdultPerDayMilli <= 0 || cfg.RecoveryRules.Min < 0 {
+	if cfg.MaximumNormalWorkHours <= 0 || cfg.ConsumptionRules.PerAdultPerDayMilli <= 0 || cfg.RecoveryRules.Min < 0 || workContext.Season == "" || workContext.Workday.EndHour < workContext.Workday.StartHour {
 		return HourResult{}, fmt.Errorf("invalid daily labor configuration")
 	}
 	if state.ProductionRemainders == nil {
@@ -120,10 +139,13 @@ func ProcessHour(state DailyLaborState, interval HourInterval, cfg DailyLaborCon
 	}
 	applyOccupationChanges(&state, interval.Start)
 	previousPolicyReason := state.PolicyReason
-	policy := ResolveReservePolicy(state, cfg)
+	policy := WorkPolicyDecision{}
+	if cfg.AllowReserveRedirects {
+		policy = ResolveReservePolicy(state, cfg)
+	}
 	state.PolicyReason = policy.Reason
 	facts := make([]DomainFact, 0)
-	if interval.Start.Hour == 8 && policy.Reason != "" && policy.Reason != previousPolicyReason {
+	if interval.Start.Hour == workContext.Workday.StartHour && policy.Reason != "" && policy.Reason != previousPolicyReason {
 		facts = append(facts, DomainFact{Type: "household_protection_changed", Data: map[string]any{"reason": policy.Reason}})
 	}
 	var producedFood, producedWood int64
@@ -139,7 +161,7 @@ func ProcessHour(state DailyLaborState, interval HourInterval, cfg DailyLaborCon
 		}
 		policyActivity, policyReason := policy.ActivityFor(c)
 		resolved, err := workdomain.ResolveEffectiveWork(workdomain.WorkResolutionInput{
-			Moment: interval.Start, Status: c.Status, LaborPermille: c.LaborPermille,
+			Moment: interval.Start, Workday: workContext.Workday, Status: c.Status, LaborPermille: c.LaborPermille,
 			Occupation: c.Occupation, TemporaryDuties: c.TemporaryDuties,
 			PolicyActivity: policyActivity, PolicyReason: policyReason,
 		})
@@ -155,9 +177,9 @@ func ProcessHour(state DailyLaborState, interval HourInterval, cfg DailyLaborCon
 			continue
 		}
 		if resolved.Working {
-			amount := EstimateHourlyProduction(*c, resolved.Activity, seasonForDay(interval.Start.Day), state.FarmSpecialization, cfg)
+			amount := EstimateHourlyProduction(*c, resolved.Activity, Season(workContext.Season), state.FarmSpecialization, cfg)
 			key := c.ID + ":" + string(resolved.Activity)
-			amount, state.ProductionRemainders[key] = splitRate(amount, state.ProductionRemainders[key], int64(cfg.WorkdayHours))
+			amount, state.ProductionRemainders[key] = splitRate(amount, state.ProductionRemainders[key], int64(cfg.MaximumNormalWorkHours))
 			switch resolved.Activity {
 			case workdomain.Agriculture, workdomain.Fishing:
 				state.PendingProvisionsMilli += amount
@@ -170,6 +192,26 @@ func ProcessHour(state DailyLaborState, interval HourInterval, cfg DailyLaborCon
 		} else {
 			c.Fatigue = recoverFatigue(c.Fatigue, cfg.RecoveryRules)
 		}
+	}
+
+	settlesToday := interval.Start.Day == interval.End.Day && interval.End.Hour == workContext.Workday.EndHour
+	var settledFood, settledWood int64
+	settle := func() {
+		if !settlesToday || (state.LastSettlementDay != nil && *state.LastSettlementDay == interval.Start.Day) {
+			return
+		}
+		settledFood, settledWood = state.PendingProvisionsMilli, state.PendingWoodMilli
+		state.ProvisionsMilli += settledFood
+		state.WoodMilli += settledWood
+		state.PendingProvisionsMilli = 0
+		state.PendingWoodMilli = 0
+		day := interval.Start.Day
+		state.LastSettlementDay = &day
+	}
+	if cfg.SettleBeforeConsumption {
+		// The monthly model deposits due output before consumption at this
+		// boundary; daily_labor_v1 retains its original compatibility ordering.
+		settle()
 	}
 
 	consumption := dailyConsumption(state, cfg)
@@ -189,31 +231,34 @@ func ProcessHour(state DailyLaborState, interval HourInterval, cfg DailyLaborCon
 	} else {
 		state.WoodMilli -= upkeep
 	}
-
-	settled := calendar.CrossesSettlement(interval.Start, interval.End)
-	if settled {
-		state.ProvisionsMilli += state.PendingProvisionsMilli
-		state.WoodMilli += state.PendingWoodMilli
-		state.PendingProvisionsMilli = 0
-		state.PendingWoodMilli = 0
-		day := interval.Start.Day
-		state.LastSettlementDay = &day
+	if !cfg.SettleBeforeConsumption {
+		settle()
 	}
+
 	state.CurrentGameDay = interval.End.Day
 	state.Tick++
-	return HourResult{State: state, ProducedProvisionsMilli: producedFood, ProducedWoodMilli: producedWood, FoodShortageMilli: shortage, Settled: settled, Facts: facts}, nil
+	var settledConsumedFood, settledConsumedWood int64
+	if settlesToday {
+		settledConsumedFood, settledConsumedWood = consumption, cfg.WoodUpkeepPerDayMilli
+	}
+	return HourResult{State: state, ProducedProvisionsMilli: producedFood, ProducedWoodMilli: producedWood, FoodShortageMilli: shortage,
+		Settled: settlesToday, SettledProvisionsMilli: settledFood, SettledWoodMilli: settledWood,
+		ConsumedProvisionsMilli: consumed, ConsumedWoodMilli: upkeep,
+		SettledConsumedProvisionsMilli: settledConsumedFood, SettledConsumedWoodMilli: settledConsumedWood, Facts: facts}, nil
 }
 
 func applyOccupationChanges(state *DailyLaborState, start calendar.Moment) {
-	if start.Hour != 8 {
-		return
-	}
 	for i := range state.Characters {
 		o := &state.Characters[i].Occupation
-		if o.PendingActivity != nil && o.EffectiveDay != nil && start.Day >= *o.EffectiveDay {
+		effectiveHour := 8 // compatibility for pre-migration daily_labor_v1 rows
+		if o.EffectiveHour != nil {
+			effectiveHour = *o.EffectiveHour
+		}
+		if o.PendingActivity != nil && o.EffectiveDay != nil && (start.Day > *o.EffectiveDay || (start.Day == *o.EffectiveDay && start.Hour >= effectiveHour)) {
 			o.Activity = *o.PendingActivity
 			o.PendingActivity = nil
 			o.EffectiveDay = nil
+			o.EffectiveHour = nil
 		}
 	}
 }
@@ -244,6 +289,6 @@ func recoverFatigue(value int, cfg RecoveryConfig) int {
 	return clampFatigue(value)
 }
 
-func seasonForDay(day calendar.GameDay) Season {
-	return Season(calendar.DailyLaborDefinition.ProductionSeasonAt(day))
+func DailyLaborWorkContext(day calendar.GameDay) WorkContext {
+	return WorkContext{Season: calendar.DailyLaborDefinition.ProductionSeasonAt(day), Workday: calendar.Workday{SunriseHour: 8, SunsetHour: 17, StartHour: 8, EndHour: 17}}
 }

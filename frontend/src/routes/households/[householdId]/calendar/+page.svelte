@@ -17,6 +17,7 @@
 	let { data } = $props();
 	let filter = $state('all');
 	let view = $state<'upcoming' | 'cycle'>('upcoming');
+	let isMonthly = $derived(data.report.simulation_model === 'monthly_seasons_v1');
 	const filters = [
 		['all', 'All'],
 		['season', 'Seasons'],
@@ -40,8 +41,8 @@
 		today: 'Today',
 		this_week: 'This week',
 		next_week: 'Next week',
-		later_current_half: 'Later this half-year',
-		next_half: 'Next half-year',
+		later_current_half: 'Later this season',
+		next_half: 'Next season',
 		later: 'Later'
 	};
 
@@ -68,11 +69,11 @@
 		const groups = new SvelteMap<CalendarGroup, CalendarEvent[]>();
 		for (const event of filteredEvents) {
 			const group = calendarGroupForEvent(
-				 data.calendar.current_game_day,
+				data.calendar.current_game_day,
 				event.game_day,
 				event.action_required,
 				event.importance,
-				undefined,
+				data.calendar.next_season?.game_day,
 				data.report.simulation_model
 			);
 			const events = groups.get(group) ?? [];
@@ -159,47 +160,57 @@
 			<p class="eyebrow" id="current-heading">Today</p>
 			<h2>
 				{settingYear(data.calendar.setting_start_year, data.calendar.calendar)} CE ·
-				{formatCalendarPosition(
-					data.calendar.calendar.phase ||
-						data.calendar.calendar.seasonal_phase ||
-						data.calendar.calendar.production_season,
-					data.calendar.calendar.week_of_half
-				)}
+				{isMonthly
+					? `${formatPhaseName(data.report.season ?? data.calendar.calendar.production_season)} · day ${data.report.season_day} of ${data.report.season_length_days}`
+					: formatCalendarPosition(
+							data.calendar.calendar.phase ||
+								data.calendar.calendar.seasonal_phase ||
+								data.calendar.calendar.production_season,
+							data.calendar.calendar.week_of_half
+						)}
 			</h2>
 			<p>
-				{formatPhaseName(data.calendar.calendar.production_season)} · {formatPhaseName(
-					data.calendar.calendar.half_year
-				)} half
+				{#if isMonthly}Seasons follow calendar months and repeat every four months.{:else}
+					{formatPhaseName(data.calendar.calendar.production_season)} · {formatPhaseName(
+						data.calendar.calendar.half_year
+					)} half{/if}
 			</p>
 		</div>
 		<div class="cycle-summary">
 			<span>Next boundary</span>
-			<strong>{formatPhaseName(data.calendar.next_half_year.type)} half</strong>
-			<small
-				>{formatRelativeGameDay(
-					data.calendar.current_game_day,
-					data.calendar.next_half_year.game_day
-				)}
-				until it begins</small
-			>
+			{#if data.calendar.next_season}<strong
+					>{formatPhaseName(data.calendar.next_season.type)}</strong
+				><small
+					>{formatRelativeGameDay(
+						data.calendar.current_game_day,
+						data.calendar.next_season.game_day
+					)} until it begins</small
+				>{:else if data.calendar.next_half_year}<strong
+					>{formatPhaseName(data.calendar.next_half_year.type)} half</strong
+				><small
+					>{formatRelativeGameDay(
+						data.calendar.current_game_day,
+						data.calendar.next_half_year.game_day
+					)} until it begins</small
+				>{/if}
 		</div>
 	</section>
 
 	<div class="view-tabs" role="tablist" aria-label="Calendar views">
-		<button
-			class:active={view === 'upcoming'}
-			role="tab"
-			type="button"
-			aria-selected={view === 'upcoming'}
-			onclick={() => (view = 'upcoming')}>Upcoming</button
-		>
-		<button
-			class:active={view === 'cycle'}
-			role="tab"
-			type="button"
-			aria-selected={view === 'cycle'}
-			onclick={() => (view = 'cycle')}>Year cycle</button
-		>
+		{#if !isMonthly}<button
+				class:active={view === 'upcoming'}
+				role="tab"
+				type="button"
+				aria-selected={view === 'upcoming'}
+				onclick={() => (view = 'upcoming')}>Upcoming</button
+			>
+			<button
+				class:active={view === 'cycle'}
+				role="tab"
+				type="button"
+				aria-selected={view === 'cycle'}
+				onclick={() => (view = 'cycle')}>Year cycle</button
+			>{/if}
 	</div>
 
 	{#if view === 'upcoming'}

@@ -40,6 +40,9 @@ type Input struct {
 	CurrentGameDay      int64
 	SupplyGameDays      int64
 	FoodShortageMilli   int64
+	// ReliableFoodReplenishment means the bounded authoritative forecast stays
+	// above zero and contains known production or a confirmed arrival.
+	ReliableFoodReplenishment bool
 	Characters          []Character
 	PoliticalDemands    []PoliticalDemand
 	ContractObligations []ContractObligation

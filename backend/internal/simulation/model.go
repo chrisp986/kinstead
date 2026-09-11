@@ -48,9 +48,10 @@ type Character struct {
 	Status         string
 }
 
-// DailyLaborState is the authoritative household state for the hourly model.
+// DailyLaborState is the authoritative household state for hourly models.
 // Spendable stocks are deliberately separate from earned pending output so
-// production cannot be consumed, sold, dispatched, or levied before 17:00.
+// production cannot be consumed, sold, dispatched, or levied before the
+// model's calculated settlement boundary.
 type DailyLaborState struct {
 	Tick                   int64
 	CurrentGameDay         calendar.GameDay

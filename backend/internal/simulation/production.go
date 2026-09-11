@@ -52,8 +52,9 @@ func EstimateProduction(c Character, a Assignment, farmSpecialization Activity, 
 	return result
 }
 
-// EstimateHourlyProduction derives an hourly amount from a complete nine-hour
-// workday rate. It intentionally does not copy legacy per-tick coefficients.
+// EstimateHourlyProduction returns a complete normal-workday rate before the
+// engine divides it into fixed-point hourly shares. Short winter days remain
+// partial instead of awarding a full day's output in fewer hours.
 func EstimateHourlyProduction(c DailyCharacter, activity workdomain.Activity, season Season, farmSpecialization Activity, cfg DailyLaborConfig) int64 {
 	if c.LaborPermille <= 0 || c.Status == "dead" {
 		return 0

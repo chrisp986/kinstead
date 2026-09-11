@@ -1,10 +1,14 @@
 -- Development-only Bjornvik seed. Run after all migrations.
 BEGIN;
 
-INSERT INTO worlds (id, name, historical_start_date, current_tick, tick_duration_seconds, next_tick_at,
-                    simulation_model, game_days_per_tick_num, game_days_per_tick_den)
-VALUES ('00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0,
-        COALESCE(:tick_duration_seconds, 1894), now(), 'daily_labor_v1', 1, 24);
+INSERT INTO worlds (id, name, historical_start_date, current_tick, current_game_day, calendar_remainder,
+					tick_duration_seconds, next_tick_at, simulation_model,
+					game_days_per_tick_num, game_days_per_tick_den,
+					calendar_anchor_at, world_utc_offset_minutes)
+SELECT '00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0, 0,
+		EXTRACT(HOUR FROM now() + interval '60 minutes')::bigint,
+		3600, date_trunc('hour', now()) + interval '1 hour', 'monthly_seasons_v1', 1, 24,
+		date_trunc('day', now() + interval '60 minutes') - interval '60 minutes', 60;
 
 INSERT INTO locations (id, world_id, name, location_type) VALUES
 ('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000001','Bjornvik','farm'),
@@ -71,9 +75,10 @@ INSERT INTO shipments (
     '00000000-0000-0000-0000-000000000020',
     '00000000-0000-0000-0000-000000000011',
     '00000000-0000-0000-0000-000000000010',
-    -- The demo world uses daily_labor_v1 (1/24 game-day per tick), so
-    -- arrival at tick 2 is still on absolute game-day 0.
-    'provisions', 30000, 0, 2, 0, 0, 1000, 'in_transit'
+	-- A shipment due two hourly intervals later can cross world midnight.
+	'provisions', 30000, 0, 2, 0,
+	((EXTRACT(HOUR FROM now() + interval '60 minutes')::bigint + 2) / 24),
+	1000, 'in_transit'
 );
 
 INSERT INTO market_offers (

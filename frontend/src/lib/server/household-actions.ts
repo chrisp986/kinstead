@@ -91,30 +91,69 @@ export async function changeOccupation({ fetch, params, request }: ActionContext
 	const expectedRevision = Number(formData.get('expected_revision'));
 	const intent: ChangeOccupationIntent = { activity, expected_revision: expectedRevision };
 	const characterId = String(formData.get('character_id') ?? '');
-	if (!characterId || !['agriculture', 'fishing', 'woodcutting'].includes(activity) || !Number.isInteger(expectedRevision) || expectedRevision < 1)
-		return fail(400, { action: 'changeOccupation', message: 'Choose a valid occupation and current plan revision.' });
+	if (
+		!characterId ||
+		!['agriculture', 'fishing', 'woodcutting'].includes(activity) ||
+		!Number.isInteger(expectedRevision) ||
+		expectedRevision < 1
+	)
+		return fail(400, {
+			action: 'changeOccupation',
+			message: 'Choose a valid occupation and current plan revision.'
+		});
 	try {
 		const result = await changeHouseholdOccupation({
-			client: createServerApi(fetch), path: { householdId: params.householdId, characterId }, body: intent
+			client: createServerApi(fetch),
+			path: { householdId: params.householdId, characterId },
+			body: intent
 		});
-		if (!result.data) return fail(result.response?.status ?? 502, { action: 'changeOccupation', message: apiErrorMessage(result.error, 'The occupation could not be changed.') });
-		return { success: true, action: 'changeOccupation', message: result.data.changed ? 'Occupation plan updated for the next workday.' : 'No occupation change was needed.' };
+		if (!result.data)
+			return fail(result.response?.status ?? 502, {
+				action: 'changeOccupation',
+				message: apiErrorMessage(result.error, 'The occupation could not be changed.')
+			});
+		return {
+			success: true,
+			action: 'changeOccupation',
+			message: result.data.changed
+				? 'Occupation plan updated for the next workday.'
+				: 'No occupation change was needed.'
+		};
 	} catch {
-		return fail(503, { action: 'changeOccupation', message: 'The simulation backend is unavailable.' });
+		return fail(503, {
+			action: 'changeOccupation',
+			message: 'The simulation backend is unavailable.'
+		});
 	}
 }
 
 export async function occupationPreview({ fetch, params, request }: ActionContext) {
 	const formData = await request.formData();
 	const characterId = String(formData.get('character_id') ?? '');
-	const activity = String(formData.get('activity') ?? '') as 'agriculture' | 'fishing' | 'woodcutting';
-	if (!characterId || !['agriculture', 'fishing', 'woodcutting'].includes(activity)) return fail(400, { action: 'occupationPreview', message: 'Choose a valid character and occupation.' });
+	const activity = String(formData.get('activity') ?? '') as
+		'agriculture' | 'fishing' | 'woodcutting';
+	if (!characterId || !['agriculture', 'fishing', 'woodcutting'].includes(activity))
+		return fail(400, {
+			action: 'occupationPreview',
+			message: 'Choose a valid character and occupation.'
+		});
 	try {
-		const result = await previewHouseholdWorkPlan({ client: createServerApi(fetch), path: { householdId: params.householdId }, body: { character_id: characterId, activity } });
-		if (!result.data) return fail(result.response?.status ?? 502, { action: 'occupationPreview', message: apiErrorMessage(result.error, 'The household forecast is unavailable.') });
+		const result = await previewHouseholdWorkPlan({
+			client: createServerApi(fetch),
+			path: { householdId: params.householdId },
+			body: { character_id: characterId, activity }
+		});
+		if (!result.data)
+			return fail(result.response?.status ?? 502, {
+				action: 'occupationPreview',
+				message: apiErrorMessage(result.error, 'The household forecast is unavailable.')
+			});
 		return { success: true, action: 'occupationPreview', preview: result.data };
 	} catch {
-		return fail(503, { action: 'occupationPreview', message: 'The simulation backend is unavailable.' });
+		return fail(503, {
+			action: 'occupationPreview',
+			message: 'The simulation backend is unavailable.'
+		});
 	}
 }
 

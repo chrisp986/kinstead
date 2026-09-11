@@ -33,11 +33,13 @@ type Occupation struct {
 	Activity        Activity          `json:"activity"`
 	PendingActivity *Activity         `json:"pending_activity,omitempty"`
 	EffectiveDay    *calendar.GameDay `json:"effective_game_day,omitempty"`
+	EffectiveHour   *int              `json:"effective_hour,omitempty"`
 	Revision        int64             `json:"revision"`
 }
 
 type TemporaryDuty struct {
 	ID          string          `json:"id"`
+	CharacterID string          `json:"character_id"`
 	Activity    Activity        `json:"activity"`
 	Starts      calendar.Moment `json:"starts"`
 	Ends        calendar.Moment `json:"ends"` // end-exclusive
@@ -51,6 +53,7 @@ func (d TemporaryDuty) ActiveAt(moment calendar.Moment) bool {
 
 type WorkResolutionInput struct {
 	Moment          calendar.Moment
+	Workday         calendar.Workday
 	Status          string
 	LaborPermille   int64
 	Occupation      Occupation
@@ -87,7 +90,7 @@ func ResolveEffectiveWork(input WorkResolutionInput) (EffectiveWork, error) {
 			return EffectiveWork{Eligible: true, BlockedByDuty: true, Recovering: false, Activity: duty.Activity, Reason: duty.Description, DutyID: duty.ID}, nil
 		}
 	}
-	if !calendar.IsWorkingHour(input.Moment.Hour) {
+	if !input.Workday.IsWorkingHour(input.Moment.Hour) {
 		return EffectiveWork{Eligible: true, Recovering: true, Activity: Rest, Reason: "outside working hours"}, nil
 	}
 	activity := input.Occupation.Activity

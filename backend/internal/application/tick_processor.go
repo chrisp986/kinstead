@@ -47,7 +47,14 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("world %s tick %d already processed while current_tick is %d", world.ID, tick, world.CurrentTick)
 	}
 	startGameDay := calendar.GameDay(world.CurrentGameDay)
-	productionSeason := calendar.ProductionSeasonAt(startGameDay)
+	if !world.SimulationModel.Valid() {
+		return false, fmt.Errorf("unsupported simulation model %q", world.SimulationModel)
+	}
+	historicalDefinition, err := calendar.DefinitionForModel(string(world.SimulationModel))
+	if err != nil {
+		return false, err
+	}
+	productionSeason := historicalDefinition.ProductionSeasonAt(startGameDay)
 	nextGameDay, nextRemainder, err := calendar.Advance(
 		startGameDay, world.CalendarRemainder,
 		world.GameDaysPerTickNum, world.GameDaysPerTickDen,
@@ -79,7 +86,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("load household %s: %w", householdID, err)
 		}
-		if world.SimulationModel == port.ModelDailyLabor {
+		if world.SimulationModel.UsesHourlyLabor() {
 			if snap.DailyLabor == nil {
 				return false, fmt.Errorf("daily-labor household %s has no daily state", householdID)
 			}
@@ -87,7 +94,28 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 			if err != nil {
 				return false, fmt.Errorf("resolve daily clock: %w", err)
 			}
-			hour, err := simulation.ProcessHour(*snap.DailyLabor, simulation.HourInterval{Start: start, End: calendar.AdvanceMoment(start, 1)}, balance.DailyLaborV1())
+			workContext := simulation.DailyLaborWorkContext(start.Day)
+			hourlyBalance := balance.DailyLaborV1()
+			if world.SimulationModel == port.ModelMonthlySeasons {
+				if world.CalendarAnchorAt == nil || world.WorldUTCOffsetMinutes == nil {
+					return false, fmt.Errorf("monthly world %s has no scheduling anchor", world.ID)
+				}
+				date, dateErr := calendar.SchedulingDate(*world.CalendarAnchorAt, *world.WorldUTCOffsetMinutes, start)
+				if dateErr != nil {
+					return false, fmt.Errorf("resolve monthly scheduling date: %w", dateErr)
+				}
+				position, positionErr := calendar.SeasonalPositionForDate(date)
+				if positionErr != nil {
+					return false, positionErr
+				}
+				workday, workdayErr := calendar.WorkdayForDate(date, calendar.DefaultDaylightConfig())
+				if workdayErr != nil {
+					return false, workdayErr
+				}
+				workContext = simulation.WorkContext{Season: position.Season, Workday: workday}
+				hourlyBalance = balance.MonthlySeasonsV1()
+			}
+			hour, err := simulation.ProcessHourWithContext(*snap.DailyLabor, simulation.HourInterval{Start: start, End: calendar.AdvanceMoment(start, 1)}, workContext, hourlyBalance)
 			if err != nil {
 				return false, fmt.Errorf("simulate daily household %s: %w", householdID, err)
 			}
@@ -115,7 +143,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	// Canonical tick step 8: conservative emergency supply protection after
 	// all events and political consequences have been applied.
 	for _, householdID := range householdIDs {
-		if world.SimulationModel == port.ModelDailyLabor {
+		if world.SimulationModel.UsesHourlyLabor() {
 			continue
 		}
 		if err := p.processEmergencyFoodWork(ctx, tx, householdID, results[householdID], tick, int64(nextGameDay), world.GameDaysPerTickNum, world.GameDaysPerTickDen); err != nil {

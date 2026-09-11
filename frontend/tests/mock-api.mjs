@@ -130,16 +130,44 @@ const characters = [
 		name: 'Bjorn',
 		labor_permille: 1000,
 		fatigue: 12,
-		specialization: 'agriculture'
+		specialization: 'agriculture',
+		status: 'active',
+		birth_game_day: -11680,
+		age: 32,
+		current_activity: 'rest',
+		current_activity_reason: 'outside today’s working period',
+		occupation: {
+			character_id: '00000000-0000-0000-0000-000000000101',
+			activity: 'agriculture',
+			revision: 1
+		}
 	},
 	{
 		id: '00000000-0000-0000-0000-000000000102',
 		name: 'Astrid',
 		labor_permille: 1000,
 		fatigue: 8,
-		specialization: 'fishing'
+		specialization: 'fishing',
+		status: 'active',
+		birth_game_day: -10585,
+		age: 29,
+		current_activity: 'rest',
+		current_activity_reason: 'outside today’s working period',
+		occupation: {
+			character_id: '00000000-0000-0000-0000-000000000102',
+			activity: 'fishing',
+			revision: 1
+		}
 	},
-	{ id: '00000000-0000-0000-0000-000000000105', name: 'Sven', labor_permille: 0, fatigue: 0 }
+	{
+		id: '00000000-0000-0000-0000-000000000105',
+		name: 'Sven',
+		labor_permille: 0,
+		fatigue: 0,
+		status: 'active',
+		birth_game_day: -2190,
+		age: 6
+	}
 ];
 const politicalResponses = new Map();
 
@@ -255,16 +283,25 @@ createServer(async (request, response) => {
 		const responseCalendar = url.pathname.includes(rolloverHouseholdId)
 			? rolloverCalendar
 			: calendar;
+		const monthly = !url.pathname.includes(rolloverHouseholdId);
 		return send(response, 200, {
 			household_id: householdId,
 			household_name: 'Bjornvik',
 			world_id: worldId,
 			setting_start_year: 980,
+			simulation_model: monthly ? 'monthly_seasons_v1' : 'legacy',
 			tick: 0,
 			game_day: responseCalendar.game_day,
+			current_moment: { day: responseCalendar.game_day, hour: 8 },
 			calendar: responseCalendar,
 			historical_date: '0980-01-01',
-			season: 'winter',
+			season: 'spring',
+			season_day: 1,
+			season_length_days: 31,
+			world_utc_offset_minutes: 60,
+			workday: { sunrise_hour: 8, sunset_hour: 18, start_hour: 9, end_hour: 17 },
+			next_working_period: { day: responseCalendar.game_day, hour: 9 },
+			next_settlement: { day: responseCalendar.game_day, hour: 17 },
 			supply_game_days: 30,
 			supply_status: 'strained',
 			resources: { provisions: 150, wood: 20, trade_goods: 4, silver: 30 },
@@ -272,6 +309,7 @@ createServer(async (request, response) => {
 			assignments,
 			alerts: [],
 			change_window: { from_tick: 0, to_tick: 0 },
+			chronicle_cursor: 1,
 			recent_changes: chronicleEntries,
 			since_you_were_away: [
 				{
@@ -321,6 +359,23 @@ createServer(async (request, response) => {
 					data: { supply_game_days: 6 }
 				}
 			]
+		});
+	}
+	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/work-plan`) {
+		return send(response, 200, {
+			household_id: householdId,
+			current_game_day: 0,
+			current_tick: 0,
+			current_moment: { day: 0, hour: 8 },
+			season: 'spring',
+			season_day: 1,
+			season_length_days: 31,
+			world_utc_offset_minutes: 60,
+			workday: { sunrise_hour: 8, sunset_hour: 18, start_hour: 9, end_hour: 17 },
+			next_working_period: { day: 0, hour: 9 },
+			next_settlement: { day: 0, hour: 17 },
+			occupations: characters.filter((value) => value.occupation).map((value) => value.occupation),
+			temporary_duties: []
 		});
 	}
 	if (request.method === 'GET' && url.pathname === `/api/households/${householdId}/shipments`) {
@@ -506,6 +561,52 @@ createServer(async (request, response) => {
 			duration_game_days: Math.floor((body.duration_ticks * 91) / 12),
 			assignment_conflicts: [],
 			warnings: []
+		});
+	}
+	if (
+		request.method === 'POST' &&
+		url.pathname === `/api/households/${householdId}/work-plan/preview`
+	) {
+		return send(response, 200, {
+			snapshot_tick: 0,
+			based_on_revision: 1,
+			horizon_game_days: 7,
+			baseline_ending_stocks: {
+				provisions_milli: 150000,
+				wood_milli: 20000,
+				pending_provisions_milli: 0,
+				pending_wood_milli: 0
+			},
+			proposed_ending_stocks: {
+				provisions_milli: 154000,
+				wood_milli: 20000,
+				pending_provisions_milli: 0,
+				pending_wood_milli: 0
+			},
+			minimum_provisions_milli: 148000,
+			proposed_minimum_provisions_milli: 148000,
+			warnings: [],
+			assumptions: ['confirmed shipments arrive on schedule']
+		});
+	}
+	if (
+		request.method === 'PUT' &&
+		url.pathname.startsWith(`/api/households/${householdId}/characters/`) &&
+		url.pathname.endsWith('/occupation')
+	) {
+		const characterId = url.pathname.split('/')[5];
+		const body = await readBody(request);
+		const character = characters.find((value) => value.id === characterId);
+		if (character?.occupation) {
+			character.occupation.pending_activity = body.activity;
+			character.occupation.effective_game_day = 0;
+			character.occupation.effective_hour = 9;
+			character.occupation.revision += 1;
+		}
+		return send(response, 200, {
+			occupation: character?.occupation,
+			effective: { day: 0, hour: 9 },
+			changed: true
 		});
 	}
 	if (request.method === 'POST' && url.pathname === `/api/market/offers/${offerId}/quote`) {

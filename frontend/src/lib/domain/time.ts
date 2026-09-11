@@ -18,15 +18,23 @@ export function settingYear(startYear: number, calendar: Pick<CalendarView, 'yea
 	return startYear + calendar.year_index;
 }
 
-export function calendarForGameDay(gameDay: number, model: 'legacy' | 'daily_labor_v1' = 'legacy'): CalendarView {
-	const daysPerYear = model === 'daily_labor_v1' ? 365 : 364;
-	const summerEnd = model === 'daily_labor_v1' ? 183 : 182;
-	const autumnEnd = model === 'daily_labor_v1' ? 274 : 273;
+type TimeModel = 'legacy' | 'daily_labor_v1' | 'monthly_seasons_v1';
+
+export function calendarForGameDay(gameDay: number, model: TimeModel = 'legacy'): CalendarView {
+	const daysPerYear = model === 'legacy' ? 364 : 365;
+	const summerEnd = model === 'legacy' ? 182 : 183;
+	const autumnEnd = model === 'legacy' ? 273 : 274;
 	const yearIndex = Math.floor(gameDay / daysPerYear);
 	const dayOfYear = ((gameDay % daysPerYear) + daysPerYear) % daysPerYear;
 	const halfYear = dayOfYear < summerEnd ? 'summer' : 'winter';
 	const productionSeason =
-		dayOfYear < 91 ? 'spring' : dayOfYear < summerEnd ? 'summer' : dayOfYear < autumnEnd ? 'autumn' : 'winter';
+		dayOfYear < 91
+			? 'spring'
+			: dayOfYear < summerEnd
+				? 'summer'
+				: dayOfYear < autumnEnd
+					? 'autumn'
+					: 'winter';
 	const phase =
 		dayOfYear >= 91 && dayOfYear < 121
 			? 'early_summer'
@@ -34,11 +42,11 @@ export function calendarForGameDay(gameDay: number, model: 'legacy' | 'daily_lab
 				? 'high_summer'
 				: dayOfYear >= 152 && dayOfYear < summerEnd
 					? 'late_summer'
-				: dayOfYear >= autumnEnd && dayOfYear < autumnEnd + 30
+					: dayOfYear >= autumnEnd && dayOfYear < autumnEnd + 30
 						? 'early_winter'
 						: dayOfYear >= 304 && dayOfYear < 334
 							? 'midwinter'
-						: dayOfYear >= autumnEnd + 60
+							: dayOfYear >= autumnEnd + 60
 								? 'late_winter'
 								: '';
 	return {
@@ -46,7 +54,7 @@ export function calendarForGameDay(gameDay: number, model: 'legacy' | 'daily_lab
 		year_index: yearIndex,
 		day_of_year: dayOfYear,
 		week_of_year: Math.floor(dayOfYear / 7) + 1,
-		day_of_week: ((gameDay % 7) + 7) % 7 + 1,
+		day_of_week: (((gameDay % 7) + 7) % 7) + 1,
 		production_season: productionSeason,
 		half_year: halfYear,
 		seasonal_phase: phase,
@@ -88,9 +96,9 @@ export function formatCalendarPosition(phase: string, weekOfHalf: number): strin
 	return `${formatPhaseName(phase)} · ${ordinal(weekOfHalf)} week`;
 }
 
-export function nextHalfYearStart(gameDay: number, model: 'legacy' | 'daily_labor_v1' = 'legacy'): number {
-	const daysPerYear = model === 'daily_labor_v1' ? 365 : 364;
-	const half = model === 'daily_labor_v1' ? 183 : 182;
+export function nextHalfYearStart(gameDay: number, model: TimeModel = 'legacy'): number {
+	const daysPerYear = model === 'legacy' ? 364 : 365;
+	const half = model === 'legacy' ? 182 : 183;
 	const year = Math.floor(gameDay / daysPerYear);
 	const dayOfYear = ((gameDay % daysPerYear) + daysPerYear) % daysPerYear;
 	return dayOfYear < half ? year * daysPerYear + half : (year + 1) * daysPerYear;
@@ -102,7 +110,7 @@ export function calendarGroupForEvent(
 	actionRequired: boolean,
 	importance: string,
 	nextHalfStart = nextHalfYearStart(currentGameDay),
-	model: 'legacy' | 'daily_labor_v1' = 'legacy'
+	model: TimeModel = 'legacy'
 ): CalendarGroup {
 	const days = targetGameDay - currentGameDay;
 	if (days === 0) return 'today';
@@ -110,7 +118,7 @@ export function calendarGroupForEvent(
 	if (days > 0 && days <= 7) return 'this_week';
 	if (days > 7 && days <= 14) return 'next_week';
 	if (targetGameDay < nextHalfStart) return 'later_current_half';
-	const halfLength = model === 'daily_labor_v1' ? 365 - 183 : 364 - 182;
+	const halfLength = model === 'legacy' ? 364 - 182 : 365 - 183;
 	if (targetGameDay < nextHalfStart + halfLength) return 'next_half';
 	return 'later';
 }
@@ -138,6 +146,20 @@ export function formatInterval(days: number): string {
 
 export function formatGameDayDuration(current: number, target: number): string {
 	return formatRelativeGameDay(current, target);
+}
+
+export function formatHour(hour: number): string {
+	return `${String(hour).padStart(2, '0')}:00`;
+}
+
+export function formatMoment(moment: { day: number; hour: number }, currentDay: number): string {
+	return `${formatRelativeGameDay(currentDay, moment.day)} at ${formatHour(moment.hour)}`;
+}
+
+export function formatUTCOffset(minutes: number): string {
+	const sign = minutes >= 0 ? '+' : '-';
+	const absolute = Math.abs(minutes);
+	return `UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
 }
 
 function ordinal(value: number): string {

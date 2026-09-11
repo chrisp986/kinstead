@@ -25,7 +25,10 @@
 		).size;
 	});
 	let assignedCount = $derived.by(() => {
-		if (report.simulation_model === 'daily_labor_v1') {
+		if (
+			report.simulation_model === 'daily_labor_v1' ||
+			report.simulation_model === 'monthly_seasons_v1'
+		) {
 			const serviceIds = new Set(
 				report.assignments
 					.filter((assignment) => assignment.activity === 'ruler_service')
@@ -70,16 +73,23 @@
 		<p class="eyebrow">Household seat</p>
 		<h1>{report.household_name}</h1>
 		<p class="date">
-			{settingYear(report.setting_start_year, report.calendar)} CE · {formatCalendarPosition(
-				report.calendar.phase ||
-					report.calendar.seasonal_phase ||
-					report.calendar.production_season,
-				report.calendar.week_of_half
-			)}
+			{settingYear(report.setting_start_year, report.calendar)} CE · {report.simulation_model ===
+			'monthly_seasons_v1'
+				? `${report.season} · day ${report.season_day} of ${report.season_length_days}`
+				: formatCalendarPosition(
+						report.calendar.phase ||
+							report.calendar.seasonal_phase ||
+							report.calendar.production_season,
+						report.calendar.week_of_half
+					)}
 		</p>
 		<p class="next-half">
-			{formatRelativeGameDay(report.calendar.game_day, nextHalfYearStart(report.calendar.game_day, report.simulation_model))} until
-			{report.calendar.half_year === 'summer' ? 'winter' : 'summer'} begins
+			{#if report.simulation_model === 'monthly_seasons_v1'}{(report.season_length_days ?? 0) -
+					(report.season_day ?? 0) +
+					1} days until the next season{:else}{formatRelativeGameDay(
+					report.calendar.game_day,
+					nextHalfYearStart(report.calendar.game_day, report.simulation_model)
+				)} until {report.calendar.half_year === 'summer' ? 'winter' : 'summer'} begins{/if}
 		</p>
 	</div>
 
@@ -92,7 +102,9 @@
 		<a class="status" href={resolve(householdPath('/work'))}>
 			<span>Labor</span>
 			<strong>{assignedCount}/{workerCount}</strong>
-			<small>{report.simulation_model === 'daily_labor_v1' ? 'home labor available' : 'workers planned'}</small>
+			<small
+				>{report.simulation_model === 'legacy' ? 'workers planned' : 'home labor available'}</small
+			>
 		</a>
 		<a class:tired={tiredCount > 0} class="status" href={resolve(householdPath('/work'))}>
 			<span>Fatigue</span>

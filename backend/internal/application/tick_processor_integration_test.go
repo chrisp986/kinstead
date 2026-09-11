@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -152,6 +153,69 @@ func TestDailyLaborTickSettlesOnlyAtSeventeenAndIsIdempotent(t *testing.T) {
 	}
 	if settlements != 1 {
 		t.Fatalf("settlement count after next hour=%d", settlements)
+	}
+}
+
+func TestMonthlyTickUsesAnchoredDaylightAndFullSettlement(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	store, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	tx, err := store.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	var worldID, locationID, householdID, characterID string
+	var initialDue time.Time
+	if err := tx.QueryRow(ctx, `INSERT INTO worlds(name,historical_start_date,current_tick,current_game_day,calendar_remainder,tick_duration_seconds,next_tick_at,simulation_model,game_days_per_tick_num,game_days_per_tick_den,calendar_anchor_at,world_utc_offset_minutes) VALUES('monthly integration',DATE '0980-01-01',0,0,8,3600,now()-interval '10 hours','monthly_seasons_v1',1,24,TIMESTAMPTZ '2028-01-01 00:00:00+00',0) RETURNING id::text,next_tick_at`).Scan(&worldID, &initialDue); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO locations(world_id,name,location_type) VALUES($1::uuid,'monthly farm','farm') RETURNING id::text`, worldID).Scan(&locationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO households(world_id,location_id,name,created_tick,specialization) VALUES($1::uuid,$2::uuid,'monthly household',0,'fishing') RETURNING id::text`, worldID, locationID).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO characters(household_id,name,birth_date,birth_game_day,labor_capacity_milli) VALUES($1::uuid,'Monthly worker',DATE '0960-01-01',-7300,1000) RETURNING id::text`, householdID).Scan(&characterID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO character_occupations(character_id,activity) VALUES($1::uuid,'fishing')`, characterID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO household_daily_labor_state(household_id) VALUES($1::uuid)`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO resource_stocks(household_id,resource_code,quantity_milli) VALUES($1::uuid,'provisions',17000),($1::uuid,'wood',100000)`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = store.Pool.Exec(ctx, `DELETE FROM worlds WHERE id=$1::uuid`, worldID) })
+	processor := NewTickProcessor(store)
+	for tick := 1; tick <= 9; tick++ {
+		processed, processErr := processDueWorldWithRetry(ctx, processor)
+		if processErr != nil || !processed {
+			t.Fatalf("monthly tick %d processed=%v err=%v", tick, processed, processErr)
+		}
+	}
+	var pending, settledFood, settlementCount int64
+	var nextDue time.Time
+	if err := store.Pool.QueryRow(ctx, `SELECT s.pending_provisions_milli,d.provisions_milli,COUNT(*) OVER(),w.next_tick_at FROM household_daily_labor_state s JOIN household_daily_settlements d ON d.household_id=s.household_id JOIN households h ON h.id=s.household_id JOIN worlds w ON w.id=h.world_id WHERE s.household_id=$1::uuid`, householdID).Scan(&pending, &settledFood, &settlementCount, &nextDue); err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 || settlementCount != 1 || settledFood <= 0 {
+		t.Fatalf("pending=%d settled=%d count=%d", pending, settledFood, settlementCount)
+	}
+	if !nextDue.Equal(initialDue.Add(9 * time.Hour)) {
+		t.Fatalf("next due=%s want %s", nextDue, initialDue.Add(9*time.Hour))
 	}
 }
 

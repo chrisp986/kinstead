@@ -183,7 +183,13 @@ SQL
 }
 
 update_tick_schedule() {
-  echo "Setting development world to $TICK_DURATION_SECONDS seconds/tick"
+	local simulation_model
+	simulation_model="$(psql_exec -Atqc "SELECT simulation_model FROM worlds WHERE id='$WORLD_ID';")"
+	if [[ "$simulation_model" == "monthly_seasons_v1" ]]; then
+		echo "Using monthly-season world clock at 3600 seconds/tick"
+		return 0
+	fi
+	echo "Setting compatibility world to $TICK_DURATION_SECONDS seconds/tick"
   psql_exec \
     -v tick_duration_seconds="$TICK_DURATION_SECONDS" \
     <<SQL

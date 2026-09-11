@@ -41,6 +41,8 @@ export type Character = {
 	status: string;
 	specialization?: string;
 	occupation?: Occupation;
+	current_activity?: string;
+	current_activity_reason?: string;
 };
 
 export type Assignment = {
@@ -58,12 +60,19 @@ export type HouseholdReport = {
 	household_id: string;
 	household_name: string;
 	world_id: string;
-	simulation_model: 'legacy' | 'daily_labor_v1';
+	simulation_model: 'legacy' | 'daily_labor_v1' | 'monthly_seasons_v1';
 	setting_start_year: number;
 	tick: number;
 	game_day: number;
 	calendar: CalendarBreakdown;
 	season?: string;
+	season_day?: number;
+	season_length_days?: number;
+	current_moment?: Moment;
+	world_utc_offset_minutes?: number;
+	workday?: Workday;
+	next_working_period?: Moment;
+	next_production_settlement?: Moment;
 	supply_game_days: number;
 	supply_status: 'safe' | 'strained' | 'critical' | 'emergency';
 	resources: {
@@ -132,8 +141,13 @@ export type CalendarProjection = {
 	setting_start_year: number;
 	current_game_day: number;
 	calendar: CalendarBreakdown;
-	next_half_year: {
+	next_half_year?: {
 		type: 'summer' | 'winter';
+		game_day: number;
+		days_until: number;
+	};
+	next_season?: {
+		type: 'spring' | 'summer' | 'autumn' | 'winter';
 		game_day: number;
 		days_until: number;
 	};
@@ -385,12 +399,14 @@ export type Occupation = {
 	character_id: string;
 	activity: 'agriculture' | 'fishing' | 'woodcutting';
 	pending_activity?: 'agriculture' | 'fishing' | 'woodcutting';
-	effective_day?: number;
+	effective_game_day?: number;
+	effective_hour?: number;
 	revision: number;
 };
 
 export type TemporaryDuty = {
 	id: string;
+	character_id: string;
 	activity: string;
 	starts: Moment;
 	ends: Moment;
@@ -402,11 +418,25 @@ export type Moment = {
 	hour: number;
 };
 
+export type Workday = {
+	sunrise_hour: number;
+	sunset_hour: number;
+	start_hour: number;
+	end_hour: number;
+};
+
 export type WorkPlan = {
 	household_id: string;
 	current_game_day: number;
 	current_tick: number;
 	current_moment: Moment;
+	season: 'spring' | 'summer' | 'autumn' | 'winter';
+	season_day?: number;
+	season_length_days?: number;
+	world_utc_offset_minutes: number;
+	workday: Workday;
+	next_working_period: Moment;
+	next_settlement: Moment;
 	occupations: Array<Occupation>;
 	temporary_duties: Array<TemporaryDuty>;
 };
@@ -440,6 +470,7 @@ export type ForecastWarning = {
 };
 
 export type HouseholdForecast = {
+	snapshot_tick: number;
 	based_on_revision: number;
 	horizon_game_days: number;
 	baseline_ending_stocks: StockProjection;
@@ -449,6 +480,7 @@ export type HouseholdForecast = {
 	first_shortage_at?: Moment;
 	proposed_first_shortage_at?: Moment;
 	warnings: Array<ForecastWarning>;
+	assumptions: Array<string>;
 };
 
 export type AcknowledgeReportIntent = {

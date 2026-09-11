@@ -42,6 +42,7 @@ type CharacterOccupation struct {
 	PendingActivity  pgtype.Text
 	EffectiveGameDay pgtype.Int8
 	Revision         int64
+	EffectiveHour    pgtype.Int4
 }
 
 type CharacterSkill struct {
@@ -330,6 +331,8 @@ type World struct {
 	GameDaysPerTickDen       int64
 	SettingStartYear         int32
 	SimulationModel          string
+	CalendarAnchorAt         pgtype.Timestamptz
+	WorldUtcOffsetMinutes    pgtype.Int4
 }
 
 type WorldEvent struct {

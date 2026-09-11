@@ -2,7 +2,7 @@
 SELECT id::text AS id, current_tick, tick_duration_seconds, next_tick_at,
        current_game_day, calendar_remainder,
        game_days_per_tick_num, game_days_per_tick_den, setting_start_year,
-       simulation_model
+       simulation_model, calendar_anchor_at, world_utc_offset_minutes
 FROM worlds
 WHERE next_tick_at <= now()
 ORDER BY next_tick_at

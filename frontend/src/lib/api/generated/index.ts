@@ -193,6 +193,7 @@ export type {
 	Shipment,
 	StockProjection,
 	TemporaryDuty,
+	Workday,
 	WorkPlan,
 	WorkPreview
 } from './types.gen';

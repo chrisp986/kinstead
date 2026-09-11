@@ -32,26 +32,28 @@ the SvelteKit frontend together:
 # Fast debugging: 15 seconds/tick
 ./scripts/dev.sh fast
 
-# Custom wall-clock duration
+# Custom wall-clock duration for legacy development profiles
 ./scripts/dev.sh 30
 
 # Recreate the disposable local database first
 ./scripts/dev.sh playtest --reset
 ```
 
-Without `--reset`, the existing Bjornvik world and its state are preserved;
-the selected duration is applied and `next_tick_at` is rescheduled. With
-`--reset`, the local PostgreSQL volume is recreated and the development seed
-is applied from scratch. PostgreSQL remains running when the launcher exits.
+Without `--reset`, the existing Bjornvik world and its state are preserved.
+Duration overrides continue to apply to older development profiles; the
+`monthly_seasons_v1` seed always remains at one 3,600-second tick and keeps its
+anchored due-time sequence. With `--reset`, the local PostgreSQL volume is
+recreated and the development seed is applied from scratch. PostgreSQL remains
+running when the launcher exits.
 
 Tick speed changes only real-world scheduling. It does not change historical
 days per tick, historical dates/seasons, or the frozen v0.3 balancing calendar.
 
 The household Calendar screen is the player-facing planning view. `Upcoming`
-groups deadlines and events by urgency and half-year; `Year cycle` shows the
-summer/winter rhythm, seasonal phases, harvest, gatherings, and recurring
-anchors. It uses relative game-day language and does not expose technical tick
-or civil-date values in normal gameplay screens.
+groups deadlines and events by urgency and season. Monthly-season worlds show
+the current season, its remaining days, and the next seasonal boundary without
+presenting modern dates as the historical year. Older worlds retain their
+year-cycle view.
 
 Local launcher requirements:
 

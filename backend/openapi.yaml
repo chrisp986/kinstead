@@ -547,6 +547,8 @@ components:
         status: { type: string }
         specialization: { type: string }
         occupation: { $ref: '#/components/schemas/Occupation' }
+        current_activity: { type: string }
+        current_activity_reason: { type: string }
     Assignment:
       type: object
       required: [id, character_id, character, activity, intensity, status]
@@ -567,12 +569,19 @@ components:
         household_id: { type: string, format: uuid }
         household_name: { type: string }
         world_id: { type: string, format: uuid }
-        simulation_model: { type: string, enum: [legacy, daily_labor_v1] }
+        simulation_model: { type: string, enum: [legacy, daily_labor_v1, monthly_seasons_v1] }
         setting_start_year: { type: integer }
         tick: { type: integer, format: int64 }
         game_day: { type: integer, format: int64 }
         calendar: { $ref: '#/components/schemas/CalendarBreakdown' }
         season: { type: string }
+        season_day: { type: integer, minimum: 1, maximum: 31 }
+        season_length_days: { type: integer, minimum: 28, maximum: 31 }
+        current_moment: { $ref: '#/components/schemas/Moment' }
+        world_utc_offset_minutes: { type: integer, minimum: -840, maximum: 840 }
+        workday: { $ref: '#/components/schemas/Workday' }
+        next_working_period: { $ref: '#/components/schemas/Moment' }
+        next_production_settlement: { $ref: '#/components/schemas/Moment' }
         supply_game_days: { type: integer, format: int64 }
         supply_status: { type: string, enum: [safe, strained, critical, emergency] }
         resources:
@@ -644,7 +653,7 @@ components:
         status: { type: string }
     CalendarProjection:
       type: object
-      required: [household_id, world_id, setting_start_year, current_game_day, calendar, next_half_year, from_game_day, to_game_day, events]
+      required: [household_id, world_id, setting_start_year, current_game_day, calendar, from_game_day, to_game_day, events]
       properties:
         household_id: { type: string, format: uuid }
         world_id: { type: string, format: uuid }
@@ -656,6 +665,13 @@ components:
           required: [type, game_day, days_until]
           properties:
             type: { type: string, enum: [summer, winter] }
+            game_day: { type: integer, format: int64 }
+            days_until: { type: integer, format: int64 }
+        next_season:
+          type: object
+          required: [type, game_day, days_until]
+          properties:
+            type: { type: string, enum: [spring, summer, autumn, winter] }
             game_day: { type: integer, format: int64 }
             days_until: { type: integer, format: int64 }
         from_game_day: { type: integer, format: int64 }
@@ -939,13 +955,15 @@ components:
         character_id: { type: string, format: uuid }
         activity: { type: string, enum: [agriculture, fishing, woodcutting] }
         pending_activity: { type: string, enum: [agriculture, fishing, woodcutting] }
-        effective_day: { type: integer, format: int64 }
+        effective_game_day: { type: integer, format: int64 }
+        effective_hour: { type: integer, minimum: 0, maximum: 23 }
         revision: { type: integer, format: int64 }
     TemporaryDuty:
       type: object
-      required: [id, activity, starts, ends]
+      required: [id, character_id, activity, starts, ends]
       properties:
         id: { type: string, format: uuid }
+        character_id: { type: string, format: uuid }
         activity: { type: string }
         starts: { $ref: '#/components/schemas/Moment' }
         ends: { $ref: '#/components/schemas/Moment' }
@@ -956,14 +974,29 @@ components:
       properties:
         day: { type: integer, format: int64 }
         hour: { type: integer, minimum: 0, maximum: 23 }
+    Workday:
+      type: object
+      required: [sunrise_hour, sunset_hour, start_hour, end_hour]
+      properties:
+        sunrise_hour: { type: integer, minimum: 0, maximum: 23 }
+        sunset_hour: { type: integer, minimum: 0, maximum: 24 }
+        start_hour: { type: integer, minimum: 0, maximum: 23 }
+        end_hour: { type: integer, minimum: 0, maximum: 24 }
     WorkPlan:
       type: object
-      required: [household_id, current_game_day, current_tick, current_moment, occupations, temporary_duties]
+      required: [household_id, current_game_day, current_tick, current_moment, season, workday, next_working_period, next_settlement, world_utc_offset_minutes, occupations, temporary_duties]
       properties:
         household_id: { type: string, format: uuid }
         current_game_day: { type: integer, format: int64 }
         current_tick: { type: integer, format: int64 }
         current_moment: { $ref: '#/components/schemas/Moment' }
+        season: { type: string, enum: [spring, summer, autumn, winter] }
+        season_day: { type: integer }
+        season_length_days: { type: integer }
+        world_utc_offset_minutes: { type: integer, minimum: -840, maximum: 840 }
+        workday: { $ref: '#/components/schemas/Workday' }
+        next_working_period: { $ref: '#/components/schemas/Moment' }
+        next_settlement: { $ref: '#/components/schemas/Moment' }
         occupations:
           type: array
           items: { $ref: '#/components/schemas/Occupation' }
@@ -1005,8 +1038,9 @@ components:
         message: { type: string }
     HouseholdForecast:
       type: object
-      required: [based_on_revision, horizon_game_days, baseline_ending_stocks, proposed_ending_stocks, minimum_provisions_milli, proposed_minimum_provisions_milli, warnings]
+      required: [snapshot_tick, based_on_revision, horizon_game_days, baseline_ending_stocks, proposed_ending_stocks, minimum_provisions_milli, proposed_minimum_provisions_milli, warnings, assumptions]
       properties:
+        snapshot_tick: { type: integer, format: int64 }
         based_on_revision: { type: integer, format: int64 }
         horizon_game_days: { type: integer, minimum: 1, maximum: 7 }
         baseline_ending_stocks: { $ref: '#/components/schemas/StockProjection' }
@@ -1018,6 +1052,9 @@ components:
         warnings:
           type: array
           items: { $ref: '#/components/schemas/ForecastWarning' }
+        assumptions:
+          type: array
+          items: { type: string }
     AcknowledgeReportIntent:
       type: object
       required: [game_day]

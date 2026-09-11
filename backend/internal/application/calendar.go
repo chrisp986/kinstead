@@ -64,13 +64,20 @@ type NextHalfYear struct {
 	DaysUntil int64             `json:"days_until"`
 }
 
+type NextSeason struct {
+	Type      calendar.ProductionSeason `json:"type"`
+	GameDay   int64                     `json:"game_day"`
+	DaysUntil int64                     `json:"days_until"`
+}
+
 type CalendarProjection struct {
 	HouseholdID    string          `json:"household_id"`
 	WorldID        string          `json:"world_id"`
 	StartYear      int32           `json:"setting_start_year"`
 	CurrentGameDay int64           `json:"current_game_day"`
 	Current        calendar.Date   `json:"calendar"`
-	NextHalfYear   NextHalfYear    `json:"next_half_year"`
+	NextHalfYear   *NextHalfYear   `json:"next_half_year,omitempty"`
+	NextSeason     *NextSeason     `json:"next_season,omitempty"`
 	FromGameDay    int64           `json:"from_game_day"`
 	ToGameDay      int64           `json:"to_game_day"`
 	Events         []CalendarEvent `json:"events"`
@@ -104,7 +111,22 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	if err != nil {
 		return CalendarProjection{}, err
 	}
-	definition := calendar.DefinitionForModel(string(snap.SimulationModel))
+	definition, err := calendar.DefinitionForModel(string(snap.SimulationModel))
+	if err != nil {
+		return CalendarProjection{}, err
+	}
+	monthlySpan := int64(0)
+	if snap.SimulationModel == port.ModelMonthlySeasons {
+		moment, momentErr := calendar.MomentAtClock(calendar.ClockState{Day: calendar.GameDay(snap.CurrentGameDay), Remainder: snap.CalendarRemainder, GameDaysPerTickNum: snap.GameDaysPerTickNum, GameDaysPerTickDen: snap.GameDaysPerTickDen})
+		if momentErr != nil {
+			return CalendarProjection{}, momentErr
+		}
+		temporal, temporalErr := temporalContext(snap.SimulationModel, snap.CalendarAnchorAt, snap.WorldUTCOffsetMinutes, moment)
+		if temporalErr != nil {
+			return CalendarProjection{}, temporalErr
+		}
+		monthlySpan = int64(temporal.Position.LengthDays - temporal.Position.Day + 1)
+	}
 	if !validCalendarCategory(category) {
 		return CalendarProjection{}, ErrInvalidCalendarCategory
 	}
@@ -112,15 +134,23 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	switch {
 	case useDefault:
 		from = snap.CurrentGameDay
+		span := definition.HalfYearStart
+		if snap.SimulationModel == port.ModelMonthlySeasons {
+			span = monthlySpan
+		}
 		var ok bool
-		to, ok = addCalendarDays(from, definition.HalfYearStart)
+		to, ok = addCalendarDays(from, span)
 		if !ok {
 			return CalendarProjection{}, fmt.Errorf("%w: range is too large", ErrInvalidCalendarRange)
 		}
 	case fromValue != nil && toValue == nil:
 		from = *fromValue
+		span := definition.HalfYearStart
+		if snap.SimulationModel == port.ModelMonthlySeasons {
+			span = monthlySpan
+		}
 		var ok bool
-		to, ok = addCalendarDays(from, definition.HalfYearStart)
+		to, ok = addCalendarDays(from, span)
 		if !ok {
 			return CalendarProjection{}, fmt.Errorf("%w: range is too large", ErrInvalidCalendarRange)
 		}
@@ -129,7 +159,11 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	default:
 		return CalendarProjection{}, ErrCalendarFromRequired
 	}
-	if from < 0 || to < from || to-from > definition.DaysPerYear {
+	maxRange := definition.DaysPerYear
+	if snap.SimulationModel == port.ModelMonthlySeasons {
+		maxRange = 366
+	}
+	if from < 0 || to < from || to-from > maxRange {
 		return CalendarProjection{}, fmt.Errorf("%w: range must be ordered and no longer than one year", ErrInvalidCalendarRange)
 	}
 	contextValue := port.CalendarContext{Snapshot: snap}
@@ -142,7 +176,14 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 	}
 	current := calendar.GameDay(snap.CurrentGameDay)
 	events := seasonalEvents(from, to, definition)
-	events = append(events, anchorEvents(from, to, definition)...)
+	if snap.SimulationModel == port.ModelMonthlySeasons {
+		events, err = monthlySeasonalEvents(snap, from, to)
+		if err != nil {
+			return CalendarProjection{}, err
+		}
+	} else {
+		events = append(events, anchorEvents(from, to, definition)...)
+	}
 	if s.Reader != nil {
 		sourcedEvents, err := sourceEvents(contextValue, from, to)
 		if err != nil {
@@ -163,16 +204,62 @@ func (s *CalendarService) householdRange(ctx context.Context, householdID string
 		}
 		return events[i].ID < events[j].ID
 	})
-	next, ok := nextHalfYearGameDay(current, definition)
-	if !ok {
-		return CalendarProjection{}, fmt.Errorf("%w: next half-year is outside the supported range", ErrInvalidCalendarRange)
+	var nextHalf *NextHalfYear
+	var nextSeason *NextSeason
+	breakdown := definition.Breakdown(current)
+	if snap.SimulationModel == port.ModelMonthlySeasons {
+		moment, _ := calendar.MomentAtClock(calendar.ClockState{Day: current, Remainder: snap.CalendarRemainder, GameDaysPerTickNum: snap.GameDaysPerTickNum, GameDaysPerTickDen: snap.GameDaysPerTickDen})
+		temporal, temporalErr := temporalContext(snap.SimulationModel, snap.CalendarAnchorAt, snap.WorldUTCOffsetMinutes, moment)
+		if temporalErr != nil {
+			return CalendarProjection{}, temporalErr
+		}
+		days := int64(temporal.Position.LengthDays - temporal.Position.Day + 1)
+		boundaryDay, valid := addCalendarDays(snap.CurrentGameDay, days)
+		if !valid {
+			return CalendarProjection{}, ErrInvalidCalendarRange
+		}
+		nextType, _ := calendar.SeasonForMonth(temporal.Position.NextBoundary.Month())
+		nextSeason = &NextSeason{Type: nextType, GameDay: boundaryDay, DaysUntil: days}
+		breakdown.ProductionSeason = temporal.Position.Season
+	} else {
+		next, valid := nextHalfYearGameDay(current, definition)
+		if !valid {
+			return CalendarProjection{}, fmt.Errorf("%w: next half-year is outside the supported range", ErrInvalidCalendarRange)
+		}
+		value := NextHalfYear{Type: definition.HalfYearAt(next), GameDay: int64(next), DaysUntil: calendar.DaysUntil(current, next)}
+		nextHalf = &value
 	}
 	return CalendarProjection{
 		HouseholdID: householdID, WorldID: snap.WorldID, StartYear: snap.SettingStartYear,
-		CurrentGameDay: snap.CurrentGameDay, Current: definition.Breakdown(current),
-		NextHalfYear: NextHalfYear{Type: definition.HalfYearAt(next), GameDay: int64(next), DaysUntil: calendar.DaysUntil(current, next)},
-		FromGameDay:  from, ToGameDay: to, Events: events,
+		CurrentGameDay: snap.CurrentGameDay, Current: breakdown,
+		NextHalfYear: nextHalf, NextSeason: nextSeason,
+		FromGameDay: from, ToGameDay: to, Events: events,
 	}, nil
+}
+
+func monthlySeasonalEvents(snap port.HouseholdSnapshot, from, to int64) ([]CalendarEvent, error) {
+	if snap.CalendarAnchorAt == nil || snap.WorldUTCOffsetMinutes == nil {
+		return nil, ErrUnsupportedSimulationModel
+	}
+	events := make([]CalendarEvent, 0, 12)
+	for day := from; day <= to; day++ {
+		date, err := calendar.SchedulingDate(*snap.CalendarAnchorAt, *snap.WorldUTCOffsetMinutes, calendar.Moment{Day: calendar.GameDay(day), Hour: 0})
+		if err != nil {
+			return nil, err
+		}
+		if date.Day() != 1 {
+			continue
+		}
+		season, err := calendar.SeasonForMonth(date.Month())
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, CalendarEvent{ID: fmt.Sprintf("season-%d", day), Kind: CalendarSeasonStart, Category: CalendarCategorySeason, GameDay: day, Importance: "important", Code: string(season)})
+		if day == math.MaxInt64 {
+			break
+		}
+	}
+	return events, nil
 }
 
 func seasonalEvents(from, to int64, definition calendar.CalendarDefinition) []CalendarEvent {
