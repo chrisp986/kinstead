@@ -151,6 +151,7 @@ apply_database_migrations() {
 ensure_development_world() {
   if development_world_exists; then
     echo "Using existing development world"
+    repair_development_shipment_calendar
     return 0
   fi
 
@@ -158,6 +159,27 @@ ensure_development_world() {
   DEV_TICK_DURATION_SECONDS="$TICK_DURATION_SECONDS" COMPOSE_FILE="$COMPOSE_FILE" \
     DB_USER="$DB_USER" DB_NAME="$DB_NAME" DATABASE_URL="$DATABASE_URL" \
     "$BACKEND_DIR/scripts/bootstrap_db.sh" --seed-only
+}
+
+repair_development_shipment_calendar() {
+  # The demo world switched from the legacy 91/12 calendar to daily_labor_v1.
+  # Repair only the original, still-in-transit demo shipment so an existing
+  # local database does not retain the old tick-2 game-day snapshot.
+  psql_exec <<SQL >/dev/null
+UPDATE shipments AS s
+SET expected_arrival_game_day = 0
+FROM worlds AS w
+WHERE s.id = '00000000-0000-0000-0000-000000000301'
+  AND s.world_id = w.id
+  AND w.id = '$WORLD_ID'
+  AND w.simulation_model = 'daily_labor_v1'
+  AND s.departure_tick = 0
+  AND s.expected_arrival_tick = 2
+  AND s.departure_game_day = 0
+  AND s.expected_arrival_game_day = 15
+  AND s.status = 'in_transit'
+  AND s.actual_arrival_tick IS NULL;
+SQL
 }
 
 update_tick_schedule() {

@@ -64,7 +64,9 @@ create_database "$upgrade_db"
 create_database "$fresh_db"
 
 # Build a pre-game-time schema from the immutable migration history, then add
-# the same logical Bjornvik world/characters that the current seed creates.
+# a legacy Bjornvik world/characters and shipment. The current development
+# seed intentionally opts into daily_labor_v1, so upgrade and fresh values
+# must be checked separately rather than treated as interchangeable worlds.
 for migration in "$BACKEND_DIR"/db/migrations/0000{01..13}_*.sql; do
   cp "$migration" "$legacy_dir/"
 done
@@ -115,7 +117,8 @@ fresh_world="$(psql_for_url "$fresh_url" -Atqc '
   SELECT concat_ws(chr(124), current_game_day, calendar_remainder, game_days_per_tick_num, game_days_per_tick_den, setting_start_year)
   FROM worlds WHERE id = '\''00000000-0000-0000-0000-000000000001'\'';
 ')"
-test "$upgrade_world" = "$fresh_world"
+test "$upgrade_world" = '0|0|91|12|980'
+test "$fresh_world" = '0|0|1|24|980'
 
 upgrade_characters="$(psql_for_url "$upgrade_url" -Atqc '
   SELECT name || chr(124) || birth_game_day FROM characters ORDER BY name;
@@ -133,6 +136,7 @@ fresh_shipments="$(psql_for_url "$fresh_url" -Atqc '
   SELECT id || chr(124) || departure_game_day || chr(124) || expected_arrival_game_day
   FROM shipments ORDER BY id;
 ')"
-test "$upgrade_shipments" = "$fresh_shipments"
+test "$upgrade_shipments" = '00000000-0000-0000-0000-000000000301|0|15'
+test "$fresh_shipments" = '00000000-0000-0000-0000-000000000301|0|0'
 
-echo "legacy/fresh game-time migration equivalence passed"
+echo "legacy/fresh game-time model checks passed"

@@ -71,7 +71,9 @@ INSERT INTO shipments (
     '00000000-0000-0000-0000-000000000020',
     '00000000-0000-0000-0000-000000000011',
     '00000000-0000-0000-0000-000000000010',
-    'provisions', 30000, 0, 2, 0, 15, 1000, 'in_transit'
+    -- The demo world uses daily_labor_v1 (1/24 game-day per tick), so
+    -- arrival at tick 2 is still on absolute game-day 0.
+    'provisions', 30000, 0, 2, 0, 0, 1000, 'in_transit'
 );
 
 INSERT INTO market_offers (
