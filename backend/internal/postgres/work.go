@@ -258,7 +258,13 @@ func upsertOccupation(ctx context.Context, tx pgx.Tx, occupation workdomain.Occu
 }
 
 func (s *Store) loadWorkPlan(ctx context.Context, tx pgx.Tx, householdID string) (port.WorkPlan, error) {
-	var plan port.WorkPlan
+	// Keep collection fields as JSON arrays even when the household has no
+	// temporary commitments. The API contract exposes arrays, and the browser
+	// work planner relies on being able to call array methods on them.
+	plan := port.WorkPlan{
+		Occupations:     make([]workdomain.Occupation, 0),
+		TemporaryDuties: make([]workdomain.TemporaryDuty, 0),
+	}
 	var model string
 	var clock calendar.ClockState
 	var anchor pgtype.Timestamptz
