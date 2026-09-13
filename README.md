@@ -23,7 +23,7 @@ From the repository root, start PostgreSQL, the backend API, the worker, and
 the SvelteKit frontend together:
 
 ```bash
-# Recommended playtest environment: 60 seconds/tick (the default)
+# Recommended playtest environment: 10 seconds/tick (the default)
 ./scripts/dev.sh playtest
 
 # Normal development world: 4 hours/tick
@@ -40,9 +40,9 @@ the SvelteKit frontend together:
 ```
 
 Without `--reset`, the existing Bjornvik world and its state are preserved.
-Duration overrides continue to apply to older development profiles; the
-`monthly_seasons_v1` seed always remains at one 3,600-second tick and keeps its
-anchored due-time sequence. With `--reset`, the local PostgreSQL volume is
+Duration overrides apply to the development world, including the
+`monthly_seasons_v1` playtest clock, while its game time remains 24 ticks per
+day. With `--reset`, the local PostgreSQL volume is
 recreated and the development seed is applied from scratch. PostgreSQL remains
 running when the launcher exits.
 

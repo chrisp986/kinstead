@@ -202,8 +202,11 @@ func buildTickDiagnostic(world port.WorldClaim, householdID string, tick int64, 
 	if world.SimulationModel.UsesHourlyLabor() {
 		details["earned_production_milli"] = map[string]int64{"provisions": hourly.ProducedProvisionsMilli, "wood": hourly.ProducedWoodMilli}
 		details["deposited_production_milli"] = map[string]int64{"provisions": hourly.SettledProvisionsMilli, "wood": hourly.SettledWoodMilli}
-		details["actual_consumption_milli"] = map[string]int64{"provisions": hourly.ConsumedProvisionsMilli, "wood": hourly.ConsumedWoodMilli}
-		details["requested_consumption_milli"] = map[string]int64{"provisions": hourly.ConsumedProvisionsMilli + hourly.FoodShortageMilli, "wood": hourly.ConsumedWoodMilli + hourly.WoodShortageMilli}
+		details["actual_consumption_milli"] = map[string]int64{
+			"provisions": actualConsumed(hourly.ConsumedProvisionsMilli, hourly.FoodShortageMilli),
+			"wood":       actualConsumed(hourly.ConsumedWoodMilli, hourly.WoodShortageMilli),
+		}
+		details["requested_consumption_milli"] = map[string]int64{"provisions": hourly.ConsumedProvisionsMilli, "wood": hourly.ConsumedWoodMilli}
 		characters = hourly.CharacterDiagnostics
 	} else {
 		actualFood := cfg.ConsumptionPerTickMilli - legacy.FoodShortageMilli
@@ -227,7 +230,13 @@ func buildTickDiagnostic(world port.WorldClaim, householdID string, tick int64, 
 	expectedStored := copyInt64Map(opening.StoredMilli)
 	if world.SimulationModel.UsesHourlyLabor() {
 		deposits := map[string]int64{"provisions": hourly.SettledProvisionsMilli, "wood": hourly.SettledWoodMilli}
-		actual := map[string]int64{"provisions": hourly.ConsumedProvisionsMilli, "wood": hourly.ConsumedWoodMilli}
+		// Consumed*Milli is the requested amount. When a household is short,
+		// ProcessHour floors the stored stock at zero and reports the unpaid
+		// portion as a shortage, so only the paid portion leaves storage.
+		actual := map[string]int64{
+			"provisions": actualConsumed(hourly.ConsumedProvisionsMilli, hourly.FoodShortageMilli),
+			"wood":       actualConsumed(hourly.ConsumedWoodMilli, hourly.WoodShortageMilli),
+		}
 		for resource, amount := range arrivalsForResource {
 			expectedStored[resource] += amount
 		}
@@ -279,6 +288,14 @@ func copyInt64Map(value map[string]int64) map[string]int64 {
 		copyValue[key] = amount
 	}
 	return copyValue
+}
+
+func actualConsumed(requested, shortage int64) int64 {
+	actual := requested - shortage
+	if actual < 0 {
+		return 0
+	}
+	return actual
 }
 
 func sameInt64MapValues(expected, actual map[string]int64) bool {

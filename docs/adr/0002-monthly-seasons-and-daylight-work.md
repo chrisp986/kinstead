@@ -24,8 +24,8 @@ historical year or used to accelerate character aging.
 
 New worlds explicitly created with `monthly_seasons_v1` use:
 
-- one 3,600-second real interval per simulation tick;
-- one game hour per tick and 24 ticks per game day;
+- one game hour per simulation tick and 24 ticks per game day; the local
+  playtest runs each tick every 10 real seconds;
 - a persisted `calendar_anchor_at` representing game day 0, hour 0 at midnight
   in the world's persisted fixed UTC offset;
 - one scheduling-calendar month per season, with January/May/September as
@@ -71,10 +71,9 @@ effects and a retry cannot deposit twice.
 
 Occupations are persistent. Temporary commitments replace effective activity
 for their bounded interval without erasing the occupation. A change requested
-before today's work starts activates at today's start; a request at or after a
-work-start boundary already represented by committed state activates at
-tomorrow's independently calculated start. Choosing the current occupation
-cancels a pending change.
+at any time keeps the current role through the next tick and activates the new
+role immediately afterward. Choosing the current occupation cancels a pending
+change.
 
 ## Compatibility and conversion
 

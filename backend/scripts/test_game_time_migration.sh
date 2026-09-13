@@ -106,7 +106,7 @@ SQL
 run_migrations "$upgrade_url" "$BACKEND_DIR/db/migrations"
 
 run_migrations "$fresh_url" "$BACKEND_DIR/db/migrations"
-psql_for_url "$fresh_url" -v tick_duration_seconds=60 \
+psql_for_url "$fresh_url" -v tick_duration_seconds=10 \
   -f "$BACKEND_DIR/db/seeds/dev_bjornvik.sql" >/dev/null
 
 upgrade_world="$(psql_for_url "$upgrade_url" -Atqc '
@@ -121,7 +121,7 @@ fresh_world="$(psql_for_url "$fresh_url" -Atqc '
   FROM worlds WHERE id = '\''00000000-0000-0000-0000-000000000001'\'';
 ')"
 test "$upgrade_world" = '0|0|91|12|980'
-[[ "$fresh_world" =~ ^0\|([0-9]|1[0-9]|2[0-3])\|1\|24\|980\|3600\|monthly_seasons_v1\|t$ ]]
+[[ "$fresh_world" =~ ^0\|([0-9]|1[0-9]|2[0-3])\|1\|24\|980\|10\|monthly_seasons_v1\|t$ ]]
 
 upgrade_characters="$(psql_for_url "$upgrade_url" -Atqc '
   SELECT name || chr(124) || birth_game_day FROM characters ORDER BY name;

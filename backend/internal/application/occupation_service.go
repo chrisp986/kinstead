@@ -64,19 +64,15 @@ func (s *OccupationService) Change(ctx context.Context, command ChangeOccupation
 	if command.ExpectedRevision != loaded.Occupation.Revision {
 		return OccupationChangeResult{}, fmt.Errorf("%w: expected %d, current %d", ErrOccupationRevisionConflict, command.ExpectedRevision, loaded.Occupation.Revision)
 	}
-	var effective calendar.Moment
-	if loaded.Model == port.ModelMonthlySeasons {
-		now, clockErr := calendar.MomentAtClock(loaded.Clock)
-		if clockErr != nil {
-			return OccupationChangeResult{}, clockErr
-		}
-		effective, err = calendar.NextWorkStartForWorld(loaded.CalendarAnchorAt, loaded.WorldUTCOffsetMinutes, now, calendar.DefaultDaylightConfig())
-	} else {
-		effective, err = calendar.NextWorkStart(loaded.Clock)
-	}
+	now, err := calendar.MomentAtClock(loaded.Clock)
 	if err != nil {
 		return OccupationChangeResult{}, err
 	}
+	// The current tick is already committed. Keep the current occupation for
+	// the next tick, then activate the requested occupation at its end. This
+	// makes changes available at any time of day without letting a command
+	// rewrite work that is already being simulated.
+	effective := calendar.AdvanceMoment(now, 1)
 	updated := loaded.Occupation
 	changed := false
 	if command.Activity == updated.Activity {

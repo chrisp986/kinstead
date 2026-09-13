@@ -178,12 +178,13 @@ remain intentionally deferred.
 
 ### 11. Monthly seasons and daylight Work Plan --- implemented, review pending
 
-Explicit new development and test worlds use `monthly_seasons_v1`: one real
-hour is one game hour, each calendar month is a season, and a fixed world-time
+Explicit new development and test worlds use `monthly_seasons_v1`: one
+simulation tick is one game hour, the playtest runs every 10 real seconds,
+each calendar month is a season, and a fixed world-time
 anchor makes every day exactly 24 hours. Characters keep an agriculture,
 fishing, or woodcutting occupation. Outdoor work follows interpolated daylight
 for up to eight hours; output settles automatically at the calculated end; and
-occupation changes take effect at the next daylight work start. Forecasts and
+occupation changes take effect after the next tick. Forecasts and
 reports share those server rules and include confirmed arrivals. Existing
 worlds retain their original model until an explicit reviewed conversion can
 preserve clocks, stocks, service terms, ages, deadlines, shipments, and history.

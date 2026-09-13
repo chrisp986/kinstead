@@ -38,8 +38,8 @@ This milestone wires the deterministic Go simulation core into PostgreSQL and ex
 
 ## Production clock semantics
 
-New development worlds use `monthly_seasons_v1`: one real hour is one
-simulation tick and one game hour. A persisted world-owned midnight anchor and
+New development worlds use `monthly_seasons_v1`: one simulation tick is one
+game hour, and the playtest runs one tick every 10 real seconds. A persisted world-owned midnight anchor and
 fixed UTC offset map game moments to scheduling dates. Each calendar month is
 one season; spring, summer, autumn, and winter repeat three times per real
 calendar year. Month length, including leap-year February, controls the season
@@ -65,8 +65,8 @@ dates/seasons.
 - The isolated v0.3 simulator still uses 12 balancing ticks per synthetic season.
 - `daily_labor_v1` historically targeted one game year in about eight real
   days, using an approximately 1,894-second development interval.
-- `DEV_TICK_DURATION_SECONDS` is retained for older local profiles. It does not
-  override the fixed 3,600-second schedule of a monthly-season world.
+- `DEV_TICK_DURATION_SECONDS` controls the real-time interval between ticks.
+  It does not change the fixed 24-ticks-per-game-day calendar.
 
 The database stores the conversion as `game_days_per_tick_num /
 game_days_per_tick_den` (default `91 / 12`). Characters store an absolute

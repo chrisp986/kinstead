@@ -74,18 +74,9 @@ func ForecastHousehold(snapshot port.HouseholdSnapshot, proposedChange *Occupati
 				if err != nil {
 					return HouseholdForecast{}, err
 				}
-				var effective calendar.Moment
-				if snapshot.SimulationModel == port.ModelMonthlySeasons {
-					if snapshot.CalendarAnchorAt == nil || snapshot.WorldUTCOffsetMinutes == nil {
-						return HouseholdForecast{}, ErrUnsupportedSimulationModel
-					}
-					effective, err = calendar.NextWorkStartForWorld(*snapshot.CalendarAnchorAt, *snapshot.WorldUTCOffsetMinutes, current, calendar.DefaultDaylightConfig())
-				} else {
-					effective, err = calendar.NextWorkStart(clock)
-				}
-				if err != nil {
-					return HouseholdForecast{}, err
-				}
+				// Match execution: the current occupation runs through the next
+				// tick and the new one starts immediately afterward.
+				effective := calendar.AdvanceMoment(current, 1)
 				day := effective.Day
 				hour := effective.Hour
 				proposed.Characters[i].Occupation.EffectiveDay = &day

@@ -22,8 +22,10 @@ func TestStartingHouseholdSurvivesMultipleYears(t *testing.T) {
 	if summary.EndingFoodMilli < 0 || summary.EndingWoodMilli < 0 {
 		t.Fatalf("negative ending stocks: %+v", summary)
 	}
-	if summary.EndingFoodMilli > 500_000 || summary.EndingWoodMilli > 600_000 {
-		t.Fatalf("starting plan accumulates implausibly large reserves: %+v", summary)
+	// The playtest baseline now yields one resource per working tick, so a
+	// productive household intentionally accumulates multi-year reserves.
+	if summary.EndingFoodMilli > 20_000_000 || summary.EndingWoodMilli > 3_000_000 {
+		t.Fatalf("starting plan accumulates unexpectedly large reserves: %+v", summary)
 	}
 	t.Logf("three-year baseline: %+v", summary)
 }

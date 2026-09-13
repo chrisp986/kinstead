@@ -174,7 +174,7 @@ func TestMonthlyTickUsesAnchoredDaylightAndFullSettlement(t *testing.T) {
 	defer tx.Rollback(ctx)
 	var worldID, locationID, householdID, characterID string
 	var initialDue time.Time
-	if err := tx.QueryRow(ctx, `INSERT INTO worlds(name,historical_start_date,current_tick,current_game_day,calendar_remainder,tick_duration_seconds,next_tick_at,simulation_model,game_days_per_tick_num,game_days_per_tick_den,calendar_anchor_at,world_utc_offset_minutes) VALUES('monthly integration',DATE '0980-01-01',0,0,8,3600,now()-interval '10 hours','monthly_seasons_v1',1,24,TIMESTAMPTZ '2028-01-01 00:00:00+00',0) RETURNING id::text,next_tick_at`).Scan(&worldID, &initialDue); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO worlds(name,historical_start_date,current_tick,current_game_day,calendar_remainder,tick_duration_seconds,next_tick_at,simulation_model,game_days_per_tick_num,game_days_per_tick_den,calendar_anchor_at,world_utc_offset_minutes) VALUES('monthly integration',DATE '0980-01-01',0,0,8,10,now()-interval '10 hours','monthly_seasons_v1',1,24,TIMESTAMPTZ '2028-01-01 00:00:00+00',0) RETURNING id::text,next_tick_at`).Scan(&worldID, &initialDue); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.QueryRow(ctx, `INSERT INTO locations(world_id,name,location_type) VALUES($1::uuid,'monthly farm','farm') RETURNING id::text`, worldID).Scan(&locationID); err != nil {
@@ -214,8 +214,8 @@ func TestMonthlyTickUsesAnchoredDaylightAndFullSettlement(t *testing.T) {
 	if pending != 0 || settlementCount != 1 || settledFood <= 0 {
 		t.Fatalf("pending=%d settled=%d count=%d", pending, settledFood, settlementCount)
 	}
-	if !nextDue.Equal(initialDue.Add(9 * time.Hour)) {
-		t.Fatalf("next due=%s want %s", nextDue, initialDue.Add(9*time.Hour))
+	if !nextDue.Equal(initialDue.Add(90 * time.Second)) {
+		t.Fatalf("next due=%s want %s", nextDue, initialDue.Add(90*time.Second))
 	}
 }
 

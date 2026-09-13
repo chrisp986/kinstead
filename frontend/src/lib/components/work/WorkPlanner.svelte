@@ -80,6 +80,9 @@
 				)}. Production deposits automatically when the workday ends.
 			</p>
 			<p class="section-copy">
+				Baseline rate: 1 resource per worker per work tick; each family member uses 1 food per day.
+			</p>
+			<p class="section-copy">
 				World time uses fixed {formatUTCOffset(workPlan.world_utc_offset_minutes)}; your local
 				daylight-saving changes do not alter game outcomes.
 			</p>
@@ -184,8 +187,8 @@
 				{feedback.message}
 			</p>{/if}
 		<p class="decision-note">
-			Choose the regular role that prepares the household for the next season. Temporary commitments
-			pause home production without replacing this occupation.
+			Choose the regular role for the next tick. Temporary commitments pause home production without
+			replacing this occupation.
 		</p>
 		<ActionFeedback feedback={feedback?.action === 'changeOccupation' ? feedback : null} /><button
 			class="primary-action"

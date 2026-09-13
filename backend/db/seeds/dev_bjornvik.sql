@@ -7,7 +7,7 @@ INSERT INTO worlds (id, name, historical_start_date, current_tick, current_game_
 					calendar_anchor_at, world_utc_offset_minutes)
 SELECT '00000000-0000-0000-0000-000000000001', 'Development World', DATE '0980-01-01', 0, 0,
 		EXTRACT(HOUR FROM now() + interval '60 minutes')::bigint,
-		3600, date_trunc('hour', now()) + interval '1 hour', 'monthly_seasons_v1', 1, 24,
+		:tick_duration_seconds, now() + make_interval(secs => :tick_duration_seconds), 'monthly_seasons_v1', 1, 24,
 		date_trunc('day', now() + interval '60 minutes') - interval '60 minutes', 60;
 
 INSERT INTO locations (id, world_id, name, location_type) VALUES

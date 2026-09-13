@@ -44,19 +44,20 @@ func monthlyOccupationContext(hour int) port.OccupationChangeContext {
 	return port.OccupationChangeContext{Model: port.ModelMonthlySeasons, Clock: calendar.ClockState{Day: 0, Remainder: int64(hour), GameDaysPerTickNum: 1, GameDaysPerTickDen: 24}, CalendarAnchorAt: anchor, CharacterStatus: "active", LaborPermille: 1000, Occupation: workdomain.Occupation{CharacterID: "worker", Activity: workdomain.Fishing, Revision: 2}}
 }
 
-func TestMonthlyOccupationChangeBeforeAndAtWorkStart(t *testing.T) {
+func TestOccupationChangeTakesEffectAfterTheNextTickAtAnyHour(t *testing.T) {
 	for _, tt := range []struct {
-		name    string
-		hour    int
-		wantDay calendar.GameDay
-	}{{"before", 8, 0}, {"at committed boundary", 9, 1}} {
+		name     string
+		hour     int
+		wantDay  calendar.GameDay
+		wantHour int
+	}{{"before work", 8, 0, 9}, {"at work start", 9, 0, 10}, {"after work", 17, 0, 18}} {
 		t.Run(tt.name, func(t *testing.T) {
 			tx := &occupationTxStub{loaded: monthlyOccupationContext(tt.hour)}
 			result, err := NewOccupationService(occupationRepoStub{tx}).Change(context.Background(), ChangeOccupationCommand{CharacterID: "worker", Activity: workdomain.Agriculture, ExpectedRevision: 2})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !result.Changed || result.Effective.Day != tt.wantDay || result.Effective.Hour != 9 || tx.saved == nil || !tx.committed {
+			if !result.Changed || result.Effective.Day != tt.wantDay || result.Effective.Hour != tt.wantHour || tx.saved == nil || !tx.committed {
 				t.Fatalf("result=%+v saved=%+v", result, tx.saved)
 			}
 		})

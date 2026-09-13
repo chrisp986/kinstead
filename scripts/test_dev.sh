@@ -13,14 +13,14 @@ assert_config() {
 }
 
 assert_config normal normal 14400
-assert_config playtest playtest 60
+assert_config playtest playtest 10
 assert_config fast fast 15
 assert_config 30 custom 30
 assert_config 120 custom 120
 
 default_output="$("$DEV_SCRIPT" --print-config)"
 grep -Fx 'mode=playtest' <<<"$default_output" >/dev/null
-grep -Fx 'tick_duration_seconds=60' <<<"$default_output" >/dev/null
+grep -Fx 'tick_duration_seconds=10' <<<"$default_output" >/dev/null
 
 for invalid in 0 -1 abc 1.5 unknown; do
   if "$DEV_SCRIPT" "$invalid" --print-config >/dev/null 2>&1; then

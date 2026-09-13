@@ -116,7 +116,7 @@ export async function changeOccupation({ fetch, params, request }: ActionContext
 			success: true,
 			action: 'changeOccupation',
 			message: result.data.changed
-				? 'Occupation plan updated for the next workday.'
+				? 'Occupation plan updated after the next tick.'
 				: 'No occupation change was needed.'
 		};
 	} catch {

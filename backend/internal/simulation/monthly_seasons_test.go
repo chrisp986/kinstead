@@ -37,6 +37,53 @@ func TestMonthlySettlementUsesFullPendingTotalsBeforeConsumption(t *testing.T) {
 	}
 }
 
+func TestMonthlyPlaytestWorkTickProducesOneResourcePerFullWorker(t *testing.T) {
+	state := dailyTestState()
+	ctx := monthlyContext(t, time.Date(2028, time.January, 1, 0, 0, 0, 0, time.UTC))
+	start := calendar.Moment{Day: 0, Hour: ctx.Workday.StartHour}
+	result, err := simulation.ProcessHourWithContext(state, simulation.HourInterval{Start: start, End: calendar.AdvanceMoment(start, 1)}, ctx, balance.MonthlySeasonsV1())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ProducedProvisionsMilli != 1000 {
+		t.Fatalf("one work tick produced %d milli-units, want 1000", result.ProducedProvisionsMilli)
+	}
+}
+
+func TestMonthlyPlaytestFamilyMemberConsumesOneFoodPerDay(t *testing.T) {
+	cfg := balance.MonthlySeasonsV1()
+	for _, birthDay := range []int64{-20 * 365, -6 * 365} {
+		state := simulation.DailyLaborState{CurrentGameDay: 0, Characters: []simulation.DailyCharacter{{BirthGameDay: birthDay, Status: "active"}}}
+		if got := simulation.DailyConsumptionPerDay(state, cfg); got != 1000 {
+			t.Fatalf("family member born on day %d consumes %d milli-units/day, want 1000", birthDay, got)
+		}
+	}
+}
+
+func TestMonthlyOccupationChangeStartsAfterTheNextTick(t *testing.T) {
+	state := dailyTestState()
+	pending := workdomain.Agriculture
+	effectiveDay, effectiveHour := calendar.GameDay(0), 9
+	state.Characters[0].Occupation.PendingActivity = &pending
+	state.Characters[0].Occupation.EffectiveDay = &effectiveDay
+	state.Characters[0].Occupation.EffectiveHour = &effectiveHour
+	ctx := monthlyContext(t, time.Date(2028, time.January, 1, 0, 0, 0, 0, time.UTC))
+	first, err := simulation.ProcessHourWithContext(state, simulation.HourInterval{Start: calendar.Moment{Day: 0, Hour: 8}, End: calendar.Moment{Day: 0, Hour: 9}}, ctx, balance.MonthlySeasonsV1())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.State.Characters[0].Occupation.Activity != workdomain.Fishing {
+		t.Fatal("occupation changed during the next tick")
+	}
+	second, err := simulation.ProcessHourWithContext(first.State, simulation.HourInterval{Start: calendar.Moment{Day: 0, Hour: 9}, End: calendar.Moment{Day: 0, Hour: 10}}, ctx, balance.MonthlySeasonsV1())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.State.Characters[0].Occupation.Activity != workdomain.Agriculture || second.State.Characters[0].Occupation.PendingActivity != nil {
+		t.Fatalf("occupation after next tick=%+v", second.State.Characters[0].Occupation)
+	}
+}
+
 func TestMonthlyWinterShortDayEarnsHourlyShares(t *testing.T) {
 	state := dailyTestState()
 	ctx := monthlyContext(t, time.Date(2028, time.April, 1, 0, 0, 0, 0, time.UTC))

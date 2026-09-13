@@ -37,7 +37,8 @@ Sigtuna can rise. Christianization and stronger royal power are visible
 but incomplete. Historical tendencies should create gameplay
 opportunities rather than rigid scripting.
 
-In new worlds, one real hour is one game hour. A four-month scheduling-season
+In new worlds, one simulation tick is one game hour; the playtest advances a
+tick every 10 real seconds. A four-month scheduling-season
 cycle is deliberately separate from the historical year used for character
 ages; repeating spring through winter must not accelerate a generation.
 
@@ -64,16 +65,19 @@ ticks are execution cadence and must not become calendar semantics. The
 v0.3 balancing model's `48 ticks/year, 12/season` remains synthetic
 balancing data and must not define the production calendar.
 
-Monthly-season worlds use one game day per 24 hourly ticks. Worker polling is
-separate from the fixed 3,600-second due interval, and missed intervals are
+Monthly-season worlds use one game day per 24 hourly ticks. The playtest uses a
+10-second due interval, and missed intervals are
 processed in order from their preceding scheduled due times. Characters have
 persistent occupations rather than renewed daily assignments. Outdoor work
 starts one hour after interpolated sunrise and ends after at most eight hours
 or at sunset. The interval is `[start,end)`; output settles automatically at
 `end`, before that interval's consumption. Pending output cannot be consumed,
-traded, dispatched, or levied. Occupation changes activate at the next
-calculated daylight work start, with an already-committed start boundary
-rolling to tomorrow.
+traded, dispatched, or levied. Occupation changes are accepted at any time and
+activate immediately after the next tick.
+
+The playtest baseline produces one resource per full-capacity worker per work
+tick. Each living family member consumes one food per game day; fixed-point
+quantities continue to use `1000 = 1 unit`.
 
 At the default `91 / 12` pacing, production on ticks 1--12 uses spring,
 13--24 summer, 25--36 autumn, and 37--48 winter. Tick 12 commits day 91, so

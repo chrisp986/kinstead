@@ -27,7 +27,7 @@ Usage: ./scripts/dev.sh [normal|playtest|fast|SECONDS] [--reset] [--print-config
 
 Profiles:
   normal    14400 seconds/tick
-  playtest  60 seconds/tick (default)
+  playtest  10 seconds/tick (default)
   fast      15 seconds/tick
   SECONDS   any positive integer duration
 
@@ -44,7 +44,7 @@ fail_usage() {
 }
 
 MODE="playtest"
-TICK_DURATION_SECONDS=60
+TICK_DURATION_SECONDS=10
 RESET=0
 MODE_SET=0
 PRINT_CONFIG=0
@@ -76,7 +76,7 @@ for arg in "$@"; do
     playtest)
       (( MODE_SET == 0 )) || fail_usage "only one tick profile may be provided"
       MODE="playtest"
-      TICK_DURATION_SECONDS=60
+      TICK_DURATION_SECONDS=10
       MODE_SET=1
       ;;
     fast)
@@ -183,13 +183,7 @@ SQL
 }
 
 update_tick_schedule() {
-	local simulation_model
-	simulation_model="$(psql_exec -Atqc "SELECT simulation_model FROM worlds WHERE id='$WORLD_ID';")"
-	if [[ "$simulation_model" == "monthly_seasons_v1" ]]; then
-		echo "Using monthly-season world clock at 3600 seconds/tick"
-		return 0
-	fi
-	echo "Setting compatibility world to $TICK_DURATION_SECONDS seconds/tick"
+  echo "Setting world tick schedule to $TICK_DURATION_SECONDS seconds/tick"
   psql_exec \
     -v tick_duration_seconds="$TICK_DURATION_SECONDS" \
     <<SQL
