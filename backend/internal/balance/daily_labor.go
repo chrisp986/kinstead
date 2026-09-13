@@ -37,10 +37,12 @@ func DailyLaborV1() simulation.DailyLaborConfig {
 func MonthlySeasonsV1() simulation.DailyLaborConfig {
 	cfg := DailyLaborV1()
 	cfg.MaximumNormalWorkHours = 8
+	cfg.FixedOutputPerWorkingTickMilli = 1000
+	cfg.ApplyOccupationsAtTickEnd = true
 	cfg.AllowReserveRedirects = false
 	cfg.SettleBeforeConsumption = true
 	cfg.ConsumptionRules = simulation.ConsumptionConfig{PerAdultPerDayMilli: 1000, PerChildPerDayMilli: 1000, ChildAgeYears: 14}
-	// Eight hourly work ticks make one resource. Winter remains productive,
+	// Eight hourly work ticks make eight resources. Winter remains productive,
 	// while its shorter daylight window still lowers the amount earned per day.
 	cfg.ProductionPerWorkday = map[simulation.Season]map[workdomain.Activity]int64{
 		simulation.Spring: {workdomain.Agriculture: 8000, workdomain.Fishing: 8000, workdomain.Woodcutting: 8000},

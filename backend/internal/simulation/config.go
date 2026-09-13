@@ -46,6 +46,8 @@ type ReservePolicyConfig struct {
 }
 
 type DailyLaborConfig struct {
+	FixedOutputPerWorkingTickMilli int64 // positive values bypass production modifiers for eligible workers
+	ApplyOccupationsAtTickEnd bool
 	MaximumNormalWorkHours  int
 	ProductionPerWorkday    map[Season]map[workdomain.Activity]int64
 	ConsumptionRules        ConsumptionConfig

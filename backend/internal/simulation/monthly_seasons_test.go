@@ -60,9 +60,9 @@ func TestMonthlyPlaytestFamilyMemberConsumesOneFoodPerDay(t *testing.T) {
 	}
 }
 
-func TestMonthlyOccupationChangeStartsAfterTheNextTick(t *testing.T) {
+func TestMonthlyOccupationChangeCommitsAtNextTickBoundary(t *testing.T) {
 	state := dailyTestState()
-	pending := workdomain.Agriculture
+	pending := workdomain.Woodcutting
 	effectiveDay, effectiveHour := calendar.GameDay(0), 9
 	state.Characters[0].Occupation.PendingActivity = &pending
 	state.Characters[0].Occupation.EffectiveDay = &effectiveDay
@@ -72,15 +72,21 @@ func TestMonthlyOccupationChangeStartsAfterTheNextTick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.State.Characters[0].Occupation.Activity != workdomain.Fishing {
-		t.Fatal("occupation changed during the next tick")
+	if first.State.Characters[0].Occupation.Activity != pending || first.State.Characters[0].Occupation.PendingActivity != nil {
+		t.Fatal("occupation did not activate at the tick boundary")
+	}
+	if first.ProducedProvisionsMilli != 1000 || first.ProducedWoodMilli != 0 {
+		t.Fatal("completed interval must retain old occupation output")
 	}
 	second, err := simulation.ProcessHourWithContext(first.State, simulation.HourInterval{Start: calendar.Moment{Day: 0, Hour: 9}, End: calendar.Moment{Day: 0, Hour: 10}}, ctx, balance.MonthlySeasonsV1())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.State.Characters[0].Occupation.Activity != workdomain.Agriculture || second.State.Characters[0].Occupation.PendingActivity != nil {
+	if second.State.Characters[0].Occupation.Activity != pending || second.State.Characters[0].Occupation.PendingActivity != nil {
 		t.Fatalf("occupation after next tick=%+v", second.State.Characters[0].Occupation)
+	}
+	if second.ProducedWoodMilli != 1000 || second.ProducedProvisionsMilli != 0 {
+		t.Fatal("following interval must use new occupation output")
 	}
 }
 
@@ -151,4 +157,41 @@ func TestMonthlyOccupationAppliesAtCalculatedHour(t *testing.T) {
 	if result.State.Characters[0].Occupation.Activity != pending || result.State.Characters[0].Occupation.PendingActivity != nil {
 		t.Fatalf("occupation=%+v", result.State.Characters[0].Occupation)
 	}
+}
+
+func TestMonthlyFixedOutputIgnoresWorkerModifiers(t *testing.T) {
+	for _, activity := range []workdomain.Activity{workdomain.Agriculture, workdomain.Fishing, workdomain.Woodcutting} {
+		for _, labor := range []int64{500, 1000} {
+			state := dailyTestState()
+			state.Characters[0].LaborPermille = labor
+			state.Characters[0].Fatigue = 90
+			state.Characters[0].Specialization = simulation.Activity(activity)
+			state.Characters[0].Occupation.Activity = activity
+			state.FarmSpecialization = simulation.Activity(activity)
+			ctx := monthlyContext(t, time.Date(2028, time.January, 1, 0, 0, 0, 0, time.UTC))
+			start := calendar.Moment{Day: 0, Hour: ctx.Workday.StartHour}
+			result, err := simulation.ProcessHourWithContext(state, simulation.HourInterval{Start: start, End: calendar.AdvanceMoment(start, 1)}, ctx, balance.MonthlySeasonsV1())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := result.ProducedProvisionsMilli + result.ProducedWoodMilli; got != 1000 { t.Fatalf("activity=%s labor=%d output=%d", activity, labor, got) }
+		}
+	}
+}
+
+func TestMonthlyConsumptionTotalsOneProvisionAcross24Ticks(t *testing.T) {
+	state := dailyTestState()
+	state.Characters[0].Occupation.Activity = workdomain.Rest
+	ctx := monthlyContext(t, time.Date(2028, time.January, 1, 0, 0, 0, 0, time.UTC))
+	var consumed int64
+	for hour := 0; hour < 24; hour++ {
+		start := calendar.Moment{Day: 0, Hour: hour}
+		result, err := simulation.ProcessHourWithContext(state, simulation.HourInterval{Start: start, End: calendar.AdvanceMoment(start, 1)}, ctx, balance.MonthlySeasonsV1())
+		if err != nil {
+				t.Fatal(err)
+			}
+		consumed += result.ConsumedProvisionsMilli
+		state = result.State
+	}
+	if consumed != 1000 { t.Fatalf("consumed=%d", consumed) }
 }

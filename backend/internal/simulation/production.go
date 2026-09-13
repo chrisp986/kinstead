@@ -63,6 +63,9 @@ func EstimateHourlyProduction(c DailyCharacter, activity workdomain.Activity, se
 	if base <= 0 {
 		return 0
 	}
+	if cfg.FixedOutputPerWorkingTickMilli > 0 {
+		return cfg.FixedOutputPerWorkingTickMilli * int64(cfg.MaximumNormalWorkHours)
+	}
 	result := base * c.LaborPermille / 1000
 	result = result * dailyFatigueProductionPermille(c.Fatigue) / 1000
 	if cfg.SkillModifierPermille > 0 && string(c.Specialization) == string(activity) {

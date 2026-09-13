@@ -282,6 +282,11 @@ func ProcessHourWithContext(state DailyLaborState, interval HourInterval, workCo
 		settle()
 	}
 
+	if cfg.ApplyOccupationsAtTickEnd {
+		// Commit the newly effective role at this boundary, without rewriting
+		// production already earned during the completed interval.
+		applyOccupationChanges(&state, interval.End)
+	}
 	state.CurrentGameDay = interval.End.Day
 	state.Tick++
 	var settledConsumedFood, settledConsumedWood int64
