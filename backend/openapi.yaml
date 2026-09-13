@@ -13,13 +13,15 @@ paths:
       operationId: getSession
       responses:
         '200':
-          description: Authenticated player's households
+          description: Authenticated player's safe session projection
           content:
             application/json:
               schema:
                 type: object
-                required: [households]
+                required: [player_id, is_admin, households]
                 properties:
+                  player_id: { type: string, format: uuid }
+                  is_admin: { type: boolean, description: Navigation hint only; every admin request is authorized server-side. }
                   households:
                     type: array
                     items:
@@ -30,6 +32,219 @@ paths:
                         name: { type: string }
         '401':
           description: Missing, expired, or revoked session
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/worlds:
+    get:
+      operationId: listAdminWorlds
+      description: Read-only world health projections. Requires administrator membership.
+      parameters:
+        - $ref: '#/components/parameters/AdminCursor'
+        - $ref: '#/components/parameters/AdminLimit'
+      responses:
+        '200':
+          description: Bounded world list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [worlds, next_cursor]
+                properties:
+                  worlds: { type: array, items: { $ref: '#/components/schemas/AdminWorld' } }
+                  next_cursor: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/worlds/{id}:
+    get:
+      operationId: getAdminWorld
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: World health, content: { application/json: { schema: { $ref: '#/components/schemas/AdminWorld' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/households:
+    get:
+      operationId: listAdminHouseholds
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 120 }
+        - $ref: '#/components/parameters/AdminCursor'
+        - $ref: '#/components/parameters/AdminLimit'
+      responses:
+        '200':
+          description: Bounded household search
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [households, next_cursor]
+                properties:
+                  households: { type: array, items: { $ref: '#/components/schemas/AdminHousehold' } }
+                  next_cursor: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/households/{id}:
+    get:
+      operationId: getAdminHousehold
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Consistent read-only household snapshot, content: { application/json: { schema: { $ref: '#/components/schemas/AdminHousehold' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/households/{id}/ticks:
+    get:
+      operationId: listAdminHouseholdTicks
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: before_tick
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - $ref: '#/components/parameters/AdminLimit'
+      responses:
+        '200':
+          description: Recorded diagnostic history with bounded retention
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [diagnostics, retained_days]
+                properties:
+                  diagnostics: { type: array, items: { $ref: '#/components/schemas/AdminTickDiagnostic' } }
+                  retained_days: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/households/{id}/ticks/{tick}:
+    get:
+      operationId: getAdminHouseholdTick
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: tick
+          in: path
+          required: true
+          schema: { type: integer, format: int64, minimum: 0 }
+      responses:
+        '200': { description: Recorded tick diagnostic, content: { application/json: { schema: { $ref: '#/components/schemas/AdminTickDiagnostic' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/errors:
+    get:
+      operationId: listAdminErrors
+      parameters:
+        - { name: world_id, in: query, schema: { type: string, format: uuid } }
+        - { name: household_id, in: query, schema: { type: string, format: uuid } }
+        - { name: tick, in: query, schema: { type: integer, format: int64 } }
+        - { name: source, in: query, schema: { type: string, enum: [api, worker] } }
+        - { name: request_id, in: query, schema: { type: string, maxLength: 128 } }
+        - $ref: '#/components/parameters/AdminCursor'
+        - $ref: '#/components/parameters/AdminLimit'
+      responses:
+        '200':
+          description: Bounded sanitized operational errors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errors, next_cursor]
+                properties:
+                  errors: { type: array, items: { $ref: '#/components/schemas/AdminError' } }
+                  next_cursor: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/accounts:
+    get:
+      operationId: listAdminAccounts
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 120 }
+        - $ref: '#/components/parameters/AdminCursor'
+        - $ref: '#/components/parameters/AdminLimit'
+      responses:
+        '200':
+          description: Bounded safe account projections
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accounts, next_cursor]
+                properties:
+                  accounts: { type: array, items: { $ref: '#/components/schemas/AdminAccount' } }
+                  next_cursor: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/accounts/{id}:
+    get:
+      operationId: getAdminAccount
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Safe account projection, content: { application/json: { schema: { $ref: '#/components/schemas/AdminAccount' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/accounts/{id}/sessions:
+    get:
+      operationId: listAdminSessions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/AdminCursor'
+        - $ref: '#/components/parameters/AdminLimit'
+      responses:
+        '200':
+          description: Safe session metadata; token hashes and tokens are never exposed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions, next_cursor]
+                properties:
+                  sessions: { type: array, items: { $ref: '#/components/schemas/AdminSession' } }
+                  next_cursor: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /healthz:
     get:
       security: []
@@ -483,6 +698,15 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    AdminCursor:
+      name: cursor
+      in: query
+      schema: { type: string, maxLength: 512 }
+      description: Opaque stable cursor. Invalid cursors return 400.
+    AdminLimit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
   responses:
     BadRequest:
       description: Invalid intent
@@ -504,6 +728,16 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
+    Unauthorized:
+      description: Missing, invalid, expired, or revoked session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Unavailable:
+      description: Authentication, authorization, or diagnostic storage unavailable
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
   schemas:
     ApiError:
       type: object
@@ -511,6 +745,138 @@ components:
       properties:
         error: { type: string }
         message: { type: string }
+    AdminHeartbeat:
+      type: object
+      required: [instance_id, started_at, last_seen_at]
+      properties:
+        instance_id: { type: string, format: uuid }
+        started_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+    AdminWorld:
+      type: object
+      required: [id, name, current_tick, current_game_day, simulation_model, tick_duration_seconds, next_tick_at, due_tick_count, status, status_facts, heartbeats, recent_failures]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        current_tick: { type: integer, format: int64 }
+        current_game_day: { type: integer, format: int64 }
+        simulation_model: { type: string, enum: [legacy, daily_labor_v1, monthly_seasons_v1] }
+        tick_duration_seconds: { type: integer, format: int32 }
+        next_tick_at: { type: string, format: date-time }
+        last_committed_at: { type: string, format: date-time, nullable: true }
+        due_tick_count: { type: integer, format: int64 }
+        status: { type: string, enum: [waiting, catching_up, delayed, worker_unavailable, unknown] }
+        status_facts: { type: array, items: { type: string } }
+        heartbeats: { type: array, items: { $ref: '#/components/schemas/AdminHeartbeat' } }
+        latest_heartbeat: { $ref: '#/components/schemas/AdminHeartbeat' }
+        recent_failures: { type: array, items: { $ref: '#/components/schemas/AdminError' } }
+        calendar_anchor_at: { type: string, format: date-time, nullable: true }
+        world_utc_offset_minutes: { type: integer, nullable: true }
+    AdminCharacter:
+      type: object
+      required: [id, name, status, labor_permille, fatigue, age, current_activity, activity_reason_code, activity_reason, temporary_duty_ids]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string }
+        labor_permille: { type: integer, format: int64 }
+        fatigue: { type: integer }
+        age: { type: integer }
+        persistent_occupation: { $ref: '#/components/schemas/Occupation' }
+        current_activity: { type: string }
+        activity_reason_code: { type: string }
+        activity_reason: { type: string }
+        explanation_moment: { $ref: '#/components/schemas/Moment', nullable: true, description: Unavailable for legacy models that have no hourly simulation boundary. }
+        temporary_duty_ids: { type: array, items: { type: string, format: uuid } }
+    AdminHousehold:
+      type: object
+      required: [id, name, world_id, world_name, snapshot_captured_at, current_committed_tick, simulation_model, season, resources_milli, pending_output_milli, characters, occupations, temporary_duties, incoming_shipments, outgoing_shipments, history_coverage]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        owner_player_id: { type: string, format: uuid, nullable: true }
+        world_id: { type: string, format: uuid }
+        world_name: { type: string }
+        snapshot_captured_at: { type: string, format: date-time }
+        current_committed_tick: { type: integer, format: int64 }
+        game_moment: { $ref: '#/components/schemas/Moment' }
+        simulation_model: { type: string }
+        season: { type: string }
+        workday: { $ref: '#/components/schemas/Workday' }
+        resources_milli: { type: object, additionalProperties: { type: integer, format: int64 } }
+        pending_output_milli: { type: object, additionalProperties: { type: integer, format: int64 } }
+        next_settlement: { $ref: '#/components/schemas/Moment' }
+        characters: { type: array, items: { $ref: '#/components/schemas/AdminCharacter' } }
+        occupations: { type: array, items: { $ref: '#/components/schemas/Occupation' } }
+        temporary_duties: { type: array, items: { $ref: '#/components/schemas/TemporaryDuty' } }
+        incoming_shipments: { type: array, items: { $ref: '#/components/schemas/Shipment' } }
+        outgoing_shipments: { type: array, items: { $ref: '#/components/schemas/Shipment' } }
+        history_coverage: { $ref: '#/components/schemas/AdminHistoryCoverage' }
+    AdminHistoryCoverage:
+      type: object
+      required: [retained_days, statement]
+      properties:
+        diagnostics_recorded_from: { type: string, format: date-time, nullable: true }
+        retained_days: { type: integer }
+        statement: { type: string }
+    AdminTickDiagnostic:
+      type: object
+      required: [world_id, household_id, tick, interval_start_day, interval_end_day, simulation_model, diagnostic_schema_version, recorded_at, details]
+      properties:
+        world_id: { type: string, format: uuid }
+        household_id: { type: string, format: uuid }
+        tick: { type: integer, format: int64 }
+        interval_start_day: { type: integer, format: int64 }
+        interval_start_hour: { type: integer, nullable: true }
+        interval_end_day: { type: integer, format: int64 }
+        interval_end_hour: { type: integer, nullable: true }
+        simulation_model: { type: string }
+        diagnostic_schema_version: { type: integer }
+        recorded_at: { type: string, format: date-time }
+        details: { type: object, additionalProperties: true }
+    AdminError:
+      type: object
+      required: [id, occurred_at, source, error_code, message, occurrence_count, first_observed_at, last_observed_at]
+      properties:
+        id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        source: { type: string, enum: [api, worker] }
+        error_code: { type: string }
+        message: { type: string }
+        request_id: { type: string, nullable: true }
+        worker_instance_id: { type: string, format: uuid, nullable: true }
+        world_id: { type: string, format: uuid, nullable: true }
+        household_id: { type: string, format: uuid, nullable: true }
+        tick: { type: integer, format: int64, nullable: true }
+        stage: { type: string, nullable: true }
+        occurrence_count: { type: integer, format: int64 }
+        first_observed_at: { type: string, format: date-time }
+        last_observed_at: { type: string, format: date-time }
+    AdminAccount:
+      type: object
+      required: [player_id, external_auth_subject, created_at, updated_at, households]
+      properties:
+        player_id: { type: string, format: uuid }
+        external_auth_subject: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        households:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties: { id: { type: string, format: uuid }, name: { type: string } }
+    AdminSession:
+      type: object
+      required: [id, player_id, created_at, expires_at, status]
+      properties:
+        id: { type: string, format: uuid }
+        player_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time, nullable: true }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [valid, expired, revoked] }
     Alert:
       type: object
       required: [level, code, message]

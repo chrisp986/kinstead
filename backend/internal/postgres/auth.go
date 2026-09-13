@@ -32,8 +32,11 @@ func (s *Store) IssuePlayerSession(ctx context.Context, playerID string, lifetim
 
 func (s *Store) AuthenticateSession(ctx context.Context, token string) (string, error) {
 	hash := sha256.Sum256([]byte(token))
-	var playerID string
-	err := s.Pool.QueryRow(ctx, `SELECT player_id::text FROM player_sessions WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now()`, hash[:]).Scan(&playerID)
+	var playerID, sessionID string
+	err := s.Pool.QueryRow(ctx, `SELECT player_id::text,id::text FROM player_sessions WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now()`, hash[:]).Scan(&playerID, &sessionID)
+	if err == nil {
+		_, _ = s.Pool.Exec(ctx, `UPDATE player_sessions SET last_seen_at=now() WHERE id=$1::uuid AND (last_seen_at IS NULL OR last_seen_at <= now()-interval '5 minutes')`, sessionID)
+	}
 	return playerID, err
 }
 
@@ -53,6 +56,37 @@ func (s *Store) PlayerHasWorld(ctx context.Context, playerID, worldID string) (b
 	var owns bool
 	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM households WHERE world_id=$1::uuid AND owner_player_id=$2::uuid)`, worldID, playerID).Scan(&owns)
 	return owns, err
+}
+
+func (s *Store) PlayerIsAdmin(ctx context.Context, playerID string) (bool, error) {
+	if _, err := uuidParam(playerID); err != nil {
+		return false, nil
+	}
+	var isAdmin bool
+	err := s.Pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM admin_memberships WHERE player_id=$1::uuid)
+	`, playerID).Scan(&isAdmin)
+	return isAdmin, err
+}
+
+// GrantAdminMembership provisions read-only developer-console access. It is
+// intentionally a store operation used by the operator CLI, not an HTTP API.
+func (s *Store) GrantAdminMembership(ctx context.Context, playerID string) (bool, error) {
+	if _, err := uuidParam(playerID); err != nil {
+		return false, err
+	}
+	var exists bool
+	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM players WHERE id=$1::uuid)`, playerID).Scan(&exists); err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, errors.New("player not found")
+	}
+	tag, err := s.Pool.Exec(ctx, `
+		INSERT INTO admin_memberships(player_id) VALUES($1::uuid)
+		ON CONFLICT (player_id) DO NOTHING
+	`, playerID)
+	return tag.RowsAffected() == 1, err
 }
 
 type OwnedHousehold struct {

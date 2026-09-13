@@ -68,6 +68,7 @@ type EffectiveWork struct {
 	Recovering    bool
 	BlockedByDuty bool
 	Activity      Activity
+	ReasonCode    string
 	Reason        string
 	DutyID        string
 }
@@ -80,18 +81,22 @@ func ResolveEffectiveWork(input WorkResolutionInput) (EffectiveWork, error) {
 		return EffectiveWork{}, err
 	}
 	if input.LaborPermille <= 0 || input.Status == "dead" {
-		return EffectiveWork{Reason: "not eligible for home work"}, nil
+		return EffectiveWork{Activity: Rest, ReasonCode: "ineligible", Reason: "not eligible for home work"}, nil
 	}
 	if input.Status != "active" {
-		return EffectiveWork{Eligible: true, Recovering: true, Reason: "unavailable character recovers"}, nil
+		return EffectiveWork{Eligible: true, Recovering: true, Activity: Rest, ReasonCode: "unavailable", Reason: "unavailable character recovers"}, nil
 	}
 	for _, duty := range input.TemporaryDuties {
 		if duty.ActiveAt(input.Moment) {
-			return EffectiveWork{Eligible: true, BlockedByDuty: true, Recovering: false, Activity: duty.Activity, Reason: duty.Description, DutyID: duty.ID}, nil
+			reason := duty.Description
+			if reason == "" {
+				reason = "temporary duty"
+			}
+			return EffectiveWork{Eligible: true, BlockedByDuty: true, Recovering: false, Activity: duty.Activity, ReasonCode: "temporary_duty", Reason: reason, DutyID: duty.ID}, nil
 		}
 	}
 	if !input.Workday.IsWorkingHour(input.Moment.Hour) {
-		return EffectiveWork{Eligible: true, Recovering: true, Activity: Rest, Reason: "outside working hours"}, nil
+		return EffectiveWork{Eligible: true, Recovering: true, Activity: Rest, ReasonCode: "outside_work_window", Reason: "outside working hours"}, nil
 	}
 	activity := input.Occupation.Activity
 	reason := "persistent occupation"
@@ -102,5 +107,9 @@ func ResolveEffectiveWork(input WorkResolutionInput) (EffectiveWork, error) {
 			reason = "reserve policy"
 		}
 	}
-	return EffectiveWork{Eligible: true, Working: activity != Rest, Activity: activity, Reason: reason}, nil
+	reasonCode := "persistent_occupation"
+	if activity == Rest {
+		reasonCode = "rest"
+	}
+	return EffectiveWork{Eligible: true, Working: activity != Rest, Activity: activity, ReasonCode: reasonCode, Reason: reason}, nil
 }

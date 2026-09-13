@@ -9,6 +9,136 @@ export type ApiError = {
 	message?: string;
 };
 
+export type AdminHeartbeat = {
+	instance_id: string;
+	started_at: string;
+	last_seen_at: string;
+};
+
+export type AdminWorld = {
+	id: string;
+	name: string;
+	current_tick: number;
+	current_game_day: number;
+	simulation_model: 'legacy' | 'daily_labor_v1' | 'monthly_seasons_v1';
+	tick_duration_seconds: number;
+	next_tick_at: string;
+	last_committed_at?: string;
+	due_tick_count: number;
+	status: 'waiting' | 'catching_up' | 'delayed' | 'worker_unavailable' | 'unknown';
+	status_facts: Array<string>;
+	heartbeats: Array<AdminHeartbeat>;
+	latest_heartbeat?: AdminHeartbeat;
+	recent_failures: Array<AdminError>;
+	calendar_anchor_at?: string;
+	world_utc_offset_minutes?: number;
+};
+
+export type AdminCharacter = {
+	id: string;
+	name: string;
+	status: string;
+	labor_permille: number;
+	fatigue: number;
+	age: number;
+	persistent_occupation?: Occupation;
+	current_activity: string;
+	activity_reason_code: string;
+	activity_reason: string;
+	/**
+	 * Unavailable for legacy models that have no hourly simulation boundary.
+	 */
+	explanation_moment?: Moment;
+	temporary_duty_ids: Array<string>;
+};
+
+export type AdminHousehold = {
+	id: string;
+	name: string;
+	owner_player_id?: string;
+	world_id: string;
+	world_name: string;
+	snapshot_captured_at: string;
+	current_committed_tick: number;
+	game_moment?: Moment;
+	simulation_model: string;
+	season: string;
+	workday?: Workday;
+	resources_milli: {
+		[key: string]: number;
+	};
+	pending_output_milli: {
+		[key: string]: number;
+	};
+	next_settlement?: Moment;
+	characters: Array<AdminCharacter>;
+	occupations: Array<Occupation>;
+	temporary_duties: Array<TemporaryDuty>;
+	incoming_shipments: Array<Shipment>;
+	outgoing_shipments: Array<Shipment>;
+	history_coverage: AdminHistoryCoverage;
+};
+
+export type AdminHistoryCoverage = {
+	diagnostics_recorded_from?: string;
+	retained_days: number;
+	statement: string;
+};
+
+export type AdminTickDiagnostic = {
+	world_id: string;
+	household_id: string;
+	tick: number;
+	interval_start_day: number;
+	interval_start_hour?: number;
+	interval_end_day: number;
+	interval_end_hour?: number;
+	simulation_model: string;
+	diagnostic_schema_version: number;
+	recorded_at: string;
+	details: {
+		[key: string]: unknown;
+	};
+};
+
+export type AdminError = {
+	id: string;
+	occurred_at: string;
+	source: 'api' | 'worker';
+	error_code: string;
+	message: string;
+	request_id?: string;
+	worker_instance_id?: string;
+	world_id?: string;
+	household_id?: string;
+	tick?: number;
+	stage?: string;
+	occurrence_count: number;
+	first_observed_at: string;
+	last_observed_at: string;
+};
+
+export type AdminAccount = {
+	player_id: string;
+	external_auth_subject: string;
+	created_at: string;
+	updated_at: string;
+	households: Array<{
+		id: string;
+		name: string;
+	}>;
+};
+
+export type AdminSession = {
+	id: string;
+	player_id: string;
+	created_at: string;
+	expires_at: string;
+	revoked_at?: string;
+	last_seen_at?: string;
+	status: 'valid' | 'expired' | 'revoked';
+};
+
 export type Alert = {
 	level: string;
 	code: string;
@@ -526,6 +656,13 @@ export type PurchaseResult = {
 
 export type HouseholdId = string;
 
+/**
+ * Opaque stable cursor. Invalid cursors return 400.
+ */
+export type AdminCursor = string;
+
+export type AdminLimit = number;
+
 export type GetSessionData = {
 	body?: never;
 	path?: never;
@@ -538,13 +675,24 @@ export type GetSessionErrors = {
 	 * Missing, expired, or revoked session
 	 */
 	401: unknown;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
 };
+
+export type GetSessionError = GetSessionErrors[keyof GetSessionErrors];
 
 export type GetSessionResponses = {
 	/**
-	 * Authenticated player's households
+	 * Authenticated player's safe session projection
 	 */
 	200: {
+		player_id: string;
+		/**
+		 * Navigation hint only; every admin request is authorized server-side.
+		 */
+		is_admin: boolean;
 		households: Array<{
 			id: string;
 			name: string;
@@ -553,6 +701,471 @@ export type GetSessionResponses = {
 };
 
 export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
+
+export type ListAdminWorldsData = {
+	body?: never;
+	path?: never;
+	query?: {
+		/**
+		 * Opaque stable cursor. Invalid cursors return 400.
+		 */
+		cursor?: string;
+		limit?: number;
+	};
+	url: '/api/admin/worlds';
+};
+
+export type ListAdminWorldsErrors = {
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type ListAdminWorldsError = ListAdminWorldsErrors[keyof ListAdminWorldsErrors];
+
+export type ListAdminWorldsResponses = {
+	/**
+	 * Bounded world list
+	 */
+	200: {
+		worlds: Array<AdminWorld>;
+		next_cursor: string;
+	};
+};
+
+export type ListAdminWorldsResponse = ListAdminWorldsResponses[keyof ListAdminWorldsResponses];
+
+export type GetAdminWorldData = {
+	body?: never;
+	path: {
+		id: string;
+	};
+	query?: never;
+	url: '/api/admin/worlds/{id}';
+};
+
+export type GetAdminWorldErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type GetAdminWorldError = GetAdminWorldErrors[keyof GetAdminWorldErrors];
+
+export type GetAdminWorldResponses = {
+	/**
+	 * World health
+	 */
+	200: AdminWorld;
+};
+
+export type GetAdminWorldResponse = GetAdminWorldResponses[keyof GetAdminWorldResponses];
+
+export type ListAdminHouseholdsData = {
+	body?: never;
+	path?: never;
+	query?: {
+		q?: string;
+		/**
+		 * Opaque stable cursor. Invalid cursors return 400.
+		 */
+		cursor?: string;
+		limit?: number;
+	};
+	url: '/api/admin/households';
+};
+
+export type ListAdminHouseholdsErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type ListAdminHouseholdsError = ListAdminHouseholdsErrors[keyof ListAdminHouseholdsErrors];
+
+export type ListAdminHouseholdsResponses = {
+	/**
+	 * Bounded household search
+	 */
+	200: {
+		households: Array<AdminHousehold>;
+		next_cursor: string;
+	};
+};
+
+export type ListAdminHouseholdsResponse =
+	ListAdminHouseholdsResponses[keyof ListAdminHouseholdsResponses];
+
+export type GetAdminHouseholdData = {
+	body?: never;
+	path: {
+		id: string;
+	};
+	query?: never;
+	url: '/api/admin/households/{id}';
+};
+
+export type GetAdminHouseholdErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type GetAdminHouseholdError = GetAdminHouseholdErrors[keyof GetAdminHouseholdErrors];
+
+export type GetAdminHouseholdResponses = {
+	/**
+	 * Consistent read-only household snapshot
+	 */
+	200: AdminHousehold;
+};
+
+export type GetAdminHouseholdResponse =
+	GetAdminHouseholdResponses[keyof GetAdminHouseholdResponses];
+
+export type ListAdminHouseholdTicksData = {
+	body?: never;
+	path: {
+		id: string;
+	};
+	query?: {
+		before_tick?: number;
+		limit?: number;
+	};
+	url: '/api/admin/households/{id}/ticks';
+};
+
+export type ListAdminHouseholdTicksErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type ListAdminHouseholdTicksError =
+	ListAdminHouseholdTicksErrors[keyof ListAdminHouseholdTicksErrors];
+
+export type ListAdminHouseholdTicksResponses = {
+	/**
+	 * Recorded diagnostic history with bounded retention
+	 */
+	200: {
+		diagnostics: Array<AdminTickDiagnostic>;
+		retained_days: number;
+	};
+};
+
+export type ListAdminHouseholdTicksResponse =
+	ListAdminHouseholdTicksResponses[keyof ListAdminHouseholdTicksResponses];
+
+export type GetAdminHouseholdTickData = {
+	body?: never;
+	path: {
+		id: string;
+		tick: number;
+	};
+	query?: never;
+	url: '/api/admin/households/{id}/ticks/{tick}';
+};
+
+export type GetAdminHouseholdTickErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type GetAdminHouseholdTickError =
+	GetAdminHouseholdTickErrors[keyof GetAdminHouseholdTickErrors];
+
+export type GetAdminHouseholdTickResponses = {
+	/**
+	 * Recorded tick diagnostic
+	 */
+	200: AdminTickDiagnostic;
+};
+
+export type GetAdminHouseholdTickResponse =
+	GetAdminHouseholdTickResponses[keyof GetAdminHouseholdTickResponses];
+
+export type ListAdminErrorsData = {
+	body?: never;
+	path?: never;
+	query?: {
+		world_id?: string;
+		household_id?: string;
+		tick?: number;
+		source?: 'api' | 'worker';
+		request_id?: string;
+		/**
+		 * Opaque stable cursor. Invalid cursors return 400.
+		 */
+		cursor?: string;
+		limit?: number;
+	};
+	url: '/api/admin/errors';
+};
+
+export type ListAdminErrorsErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type ListAdminErrorsError = ListAdminErrorsErrors[keyof ListAdminErrorsErrors];
+
+export type ListAdminErrorsResponses = {
+	/**
+	 * Bounded sanitized operational errors
+	 */
+	200: {
+		errors: Array<AdminError>;
+		next_cursor: string;
+	};
+};
+
+export type ListAdminErrorsResponse = ListAdminErrorsResponses[keyof ListAdminErrorsResponses];
+
+export type ListAdminAccountsData = {
+	body?: never;
+	path?: never;
+	query?: {
+		q?: string;
+		/**
+		 * Opaque stable cursor. Invalid cursors return 400.
+		 */
+		cursor?: string;
+		limit?: number;
+	};
+	url: '/api/admin/accounts';
+};
+
+export type ListAdminAccountsErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type ListAdminAccountsError = ListAdminAccountsErrors[keyof ListAdminAccountsErrors];
+
+export type ListAdminAccountsResponses = {
+	/**
+	 * Bounded safe account projections
+	 */
+	200: {
+		accounts: Array<AdminAccount>;
+		next_cursor: string;
+	};
+};
+
+export type ListAdminAccountsResponse =
+	ListAdminAccountsResponses[keyof ListAdminAccountsResponses];
+
+export type GetAdminAccountData = {
+	body?: never;
+	path: {
+		id: string;
+	};
+	query?: never;
+	url: '/api/admin/accounts/{id}';
+};
+
+export type GetAdminAccountErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type GetAdminAccountError = GetAdminAccountErrors[keyof GetAdminAccountErrors];
+
+export type GetAdminAccountResponses = {
+	/**
+	 * Safe account projection
+	 */
+	200: AdminAccount;
+};
+
+export type GetAdminAccountResponse = GetAdminAccountResponses[keyof GetAdminAccountResponses];
+
+export type ListAdminSessionsData = {
+	body?: never;
+	path: {
+		id: string;
+	};
+	query?: {
+		/**
+		 * Opaque stable cursor. Invalid cursors return 400.
+		 */
+		cursor?: string;
+		limit?: number;
+	};
+	url: '/api/admin/accounts/{id}/sessions';
+};
+
+export type ListAdminSessionsErrors = {
+	/**
+	 * Invalid intent
+	 */
+	400: ApiError;
+	/**
+	 * Missing, invalid, expired, or revoked session
+	 */
+	401: ApiError;
+	/**
+	 * Intent is not authorized for this resource
+	 */
+	403: ApiError;
+	/**
+	 * Projection not found
+	 */
+	404: ApiError;
+	/**
+	 * Authentication, authorization, or diagnostic storage unavailable
+	 */
+	503: ApiError;
+};
+
+export type ListAdminSessionsError = ListAdminSessionsErrors[keyof ListAdminSessionsErrors];
+
+export type ListAdminSessionsResponses = {
+	/**
+	 * Safe session metadata; token hashes and tokens are never exposed
+	 */
+	200: {
+		sessions: Array<AdminSession>;
+		next_cursor: string;
+	};
+};
+
+export type ListAdminSessionsResponse =
+	ListAdminSessionsResponses[keyof ListAdminSessionsResponses];
 
 export type GetHealthData = {
 	body?: never;

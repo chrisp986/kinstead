@@ -4,6 +4,9 @@ const householdId = '00000000-0000-0000-0000-000000000020';
 const rolloverHouseholdId = '00000000-0000-0000-0000-000000000022';
 const sellerId = '00000000-0000-0000-0000-000000000021';
 const worldId = '00000000-0000-0000-0000-000000000001';
+const secondWorldId = '00000000-0000-0000-0000-000000000002';
+const playerId = '00000000-0000-0000-0000-000000000010';
+const adminToken = 'A'.repeat(43);
 const offerId = '00000000-0000-0000-0000-000000000302';
 const calendar = {
 	game_day: 0,
@@ -258,9 +261,99 @@ function calendarEvents() {
 }
 
 function send(response, status, body) {
-	response.writeHead(status, { 'content-type': 'application/json' });
+	response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
 	response.end(JSON.stringify(body));
 }
+
+const adminHeartbeat = {
+	instance_id: '00000000-0000-0000-0000-000000000901',
+	started_at: '2026-09-13T07:00:00Z',
+	last_seen_at: '2026-09-13T07:29:55Z'
+};
+const adminWorlds = [
+	{
+		id: worldId,
+		name: 'Bjornvik world',
+		current_tick: 12,
+		current_game_day: 4,
+		simulation_model: 'monthly_seasons_v1',
+		tick_duration_seconds: 3600,
+		next_tick_at: '2026-09-13T08:00:00Z',
+		last_committed_at: '2026-09-13T07:00:00Z',
+		due_tick_count: 0,
+		status: 'waiting',
+		status_facts: ['due_tick_count=0'],
+		heartbeats: [adminHeartbeat],
+		latest_heartbeat: adminHeartbeat,
+		recent_failures: [],
+		calendar_anchor_at: '2026-01-01T00:00:00Z',
+		world_utc_offset_minutes: 60
+	},
+	{
+		id: secondWorldId,
+		name: 'Stalled world',
+		current_tick: 8,
+		current_game_day: 2,
+		simulation_model: 'legacy',
+		tick_duration_seconds: 3600,
+		next_tick_at: '2026-09-13T06:00:00Z',
+		last_committed_at: '2026-09-13T05:00:00Z',
+		due_tick_count: 3,
+		status: 'worker_unavailable',
+		status_facts: ['due_tick_count=3', 'no heartbeat within 30 seconds'],
+		heartbeats: [],
+		recent_failures: [],
+		calendar_anchor_at: null,
+		world_utc_offset_minutes: null
+	}
+];
+const adminHousehold = {
+	id: householdId,
+	name: 'Bjornvik',
+	owner_player_id: playerId,
+	world_id: worldId,
+	world_name: 'Bjornvik world',
+	snapshot_captured_at: '2026-09-13T07:30:00Z',
+	current_committed_tick: 12,
+	game_moment: { day: 4, hour: 8 },
+	simulation_model: 'monthly_seasons_v1',
+	season: 'spring',
+	workday: { sunrise_hour: 8, sunset_hour: 18, start_hour: 9, end_hour: 17 },
+	resources_milli: { provisions: 150000, wood: 20000, trade_goods: 4000, silver: 30000 },
+	pending_output_milli: { provisions: 0, wood: 0 },
+	next_settlement: { day: 4, hour: 17 },
+	characters: [],
+	occupations: [],
+	temporary_duties: [],
+	incoming_shipments: [],
+	outgoing_shipments: [],
+	history_coverage: {
+		diagnostics_recorded_from: null,
+		retained_days: 30,
+		statement:
+			'Tick diagnostics are retained for 30 days; older history is outside retained history.'
+	}
+};
+const adminDiagnostic = {
+	world_id: worldId,
+	household_id: householdId,
+	tick: 12,
+	interval_start_day: 4,
+	interval_start_hour: 7,
+	interval_end_day: 4,
+	interval_end_hour: 8,
+	simulation_model: 'monthly_seasons_v1',
+	diagnostic_schema_version: 1,
+	recorded_at: '2026-09-13T07:00:01Z',
+	details: { accounting_status: 'partial', characters: [] }
+};
+const adminAccount = {
+	player_id: playerId,
+	external_auth_subject: 'operator-subject',
+	created_at: '2026-01-01T00:00:00Z',
+	updated_at: '2026-09-13T07:00:00Z',
+	households: [{ id: householdId, name: 'Bjornvik' }]
+};
 
 async function readBody(request) {
 	const chunks = [];
@@ -269,12 +362,46 @@ async function readBody(request) {
 }
 
 createServer(async (request, response) => {
-	if (request.method === 'GET' && request.url === '/api/session') {
-		response.setHeader('Content-Type', 'application/json');
-		response.end(JSON.stringify({ households: [{ id: householdId, name: 'Bjornvik' }] }));
-		return;
-	}
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1:9080');
+	if (request.method === 'GET' && url.pathname === '/api/session') {
+		const authorization = request.headers.authorization ?? '';
+		return send(response, 200, {
+			player_id: playerId,
+			is_admin: !authorization || authorization === `Bearer ${adminToken}`,
+			households: [{ id: householdId, name: 'Bjornvik' }]
+		});
+	}
+	if (url.pathname.startsWith('/api/admin/')) {
+		const authorized =
+			!request.headers.authorization || request.headers.authorization === `Bearer ${adminToken}`;
+		if (!authorized) return send(response, 403, { error: 'administrator_required' });
+		if (request.method === 'GET' && url.pathname === '/api/admin/worlds')
+			return send(response, 200, { worlds: adminWorlds, next_cursor: '' });
+		if (request.method === 'GET' && url.pathname.startsWith('/api/admin/worlds/')) {
+			const item = adminWorlds.find((value) => value.id === url.pathname.split('/').pop());
+			return item ? send(response, 200, item) : send(response, 404, { error: 'not_found' });
+		}
+		if (request.method === 'GET' && url.pathname === '/api/admin/households')
+			return send(response, 200, { households: [adminHousehold], next_cursor: '' });
+		if (request.method === 'GET' && url.pathname.endsWith(`/households/${householdId}`))
+			return send(response, 200, adminHousehold);
+		if (request.method === 'GET' && url.pathname.endsWith(`/households/${householdId}/ticks`))
+			return send(response, 200, { diagnostics: [], retained_days: 30 });
+		if (
+			request.method === 'GET' &&
+			url.pathname.endsWith(`/households/${householdId}/ticks/${adminDiagnostic.tick}`)
+		)
+			return send(response, 200, adminDiagnostic);
+		if (request.method === 'GET' && url.pathname === '/api/admin/errors')
+			return send(response, 200, { errors: [], next_cursor: '' });
+		if (request.method === 'GET' && url.pathname === '/api/admin/accounts')
+			return send(response, 200, { accounts: [adminAccount], next_cursor: '' });
+		if (request.method === 'GET' && url.pathname === `/api/admin/accounts/${playerId}`)
+			return send(response, 200, adminAccount);
+		if (request.method === 'GET' && url.pathname === `/api/admin/accounts/${playerId}/sessions`)
+			return send(response, 200, { sessions: [], next_cursor: '' });
+		return send(response, 404, { error: 'not_found' });
+	}
 	if (
 		request.method === 'GET' &&
 		(url.pathname === `/api/households/${householdId}/report` ||

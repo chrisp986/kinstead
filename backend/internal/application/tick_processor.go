@@ -20,6 +20,10 @@ type TickProcessor struct {
 	Balance simulation.BalanceConfig
 }
 
+func tickFailure(world port.WorldClaim, tick int64, stage, householdID string, err error) error {
+	return &TickFailure{WorldID: world.ID, HouseholdID: householdID, Tick: tick, Stage: stage, Err: err}
+}
+
 func NewTickProcessor(store port.TickRepository) *TickProcessor {
 	return &TickProcessor{Store: store, Balance: balance.V03()}
 }
@@ -44,7 +48,7 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if processed {
-		return false, fmt.Errorf("world %s tick %d already processed while current_tick is %d", world.ID, tick, world.CurrentTick)
+		return false, tickFailure(world, tick, "claim_world", "", fmt.Errorf("tick already processed while current_tick is %d", world.CurrentTick))
 	}
 	startGameDay := calendar.GameDay(world.CurrentGameDay)
 	if !world.SimulationModel.Valid() {
@@ -62,29 +66,39 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("advance world game day: %w", err)
 	}
+	householdIDs, err := tx.ListHouseholdIDs(ctx, world.ID)
+	if err != nil {
+		return false, fmt.Errorf("list households: %w", err)
+	}
+	opening := make(map[string]port.HouseholdAccountingState, len(householdIDs))
+	for _, householdID := range householdIDs {
+		state, err := tx.LoadHouseholdAccounting(ctx, householdID)
+		if err != nil {
+			return false, fmt.Errorf("capture opening accounting for household %s: %w", householdID, err)
+		}
+		opening[householdID] = state
+	}
 
 	// Canonical tick step 1: shipments arrive before assignments, production,
 	// consumption, and fatigue are evaluated for this tick.
-	if err := p.processShipmentArrivals(ctx, tx, world.ID, tick, nextGameDay); err != nil {
-		return false, err
+	arrivals, err := p.processShipmentArrivals(ctx, tx, world.ID, tick, nextGameDay)
+	if err != nil {
+		return false, tickFailure(world, tick, "shipments", "", err)
 	}
 	// Canonical tick step 2: obligations observe arrivals persisted by step 1.
 	if err := p.processContractObligations(ctx, tx, world.ID, tick, nextGameDay); err != nil {
-		return false, err
+		return false, tickFailure(world, tick, "contracts", "", err)
 	}
 	if err := p.processContractRollups(ctx, tx, world.ID); err != nil {
-		return false, err
+		return false, tickFailure(world, tick, "contracts", "", err)
 	}
 
-	householdIDs, err := tx.ListHouseholdIDs(ctx, world.ID)
-	if err != nil {
-		return false, err
-	}
 	results := make(map[string]simulation.TickResult, len(householdIDs))
+	hourResults := make(map[string]simulation.HourResult, len(householdIDs))
 	for _, householdID := range householdIDs {
 		snap, assignments, err := tx.LoadHouseholdForTick(ctx, householdID, tick)
 		if err != nil {
-			return false, fmt.Errorf("load household %s: %w", householdID, err)
+			return false, tickFailure(world, tick, "household_simulation", householdID, fmt.Errorf("load household: %w", err))
 		}
 		if world.SimulationModel.UsesHourlyLabor() {
 			if snap.DailyLabor == nil {
@@ -117,11 +131,12 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 			}
 			hour, err := simulation.ProcessHourWithContext(*snap.DailyLabor, simulation.HourInterval{Start: start, End: calendar.AdvanceMoment(start, 1)}, workContext, hourlyBalance)
 			if err != nil {
-				return false, fmt.Errorf("simulate daily household %s: %w", householdID, err)
+				return false, tickFailure(world, tick, "household_simulation", householdID, fmt.Errorf("simulate daily household: %w", err))
 			}
 			if err := tx.SaveHouseholdDailyTick(ctx, householdID, hour); err != nil {
-				return false, fmt.Errorf("save daily household %s: %w", householdID, err)
+				return false, tickFailure(world, tick, "persistence", householdID, fmt.Errorf("save daily household: %w", err))
 			}
+			hourResults[householdID] = hour
 			continue
 		}
 		tickContext := simulation.NeutralTickContext(simulation.Season(productionSeason))
@@ -129,16 +144,16 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 		tickContext.GameDaysPerTickDen = world.GameDaysPerTickDen
 		result, err := simulation.ProcessTick(snap.State, tick, assignments, tickContext, p.Balance)
 		if err != nil {
-			return false, fmt.Errorf("simulate household %s: %w", householdID, err)
+			return false, tickFailure(world, tick, "household_simulation", householdID, fmt.Errorf("simulate household: %w", err))
 		}
 		if err := tx.SaveHouseholdTick(ctx, householdID, result, int64(nextGameDay)); err != nil {
-			return false, fmt.Errorf("save household %s: %w", householdID, err)
+			return false, tickFailure(world, tick, "persistence", householdID, fmt.Errorf("save household: %w", err))
 		}
 		results[householdID] = result
 	}
 	// Canonical tick step 7: resolve political events after fatigue/health.
 	if err := p.processPolitics(ctx, tx, world.ID, tick, int64(nextGameDay)); err != nil {
-		return false, err
+		return false, tickFailure(world, tick, "politics", "", err)
 	}
 	// Canonical tick step 8: conservative emergency supply protection after
 	// all events and political consequences have been applied.
@@ -147,17 +162,139 @@ func (p *TickProcessor) ProcessOneDueWorld(ctx context.Context) (bool, error) {
 			continue
 		}
 		if err := p.processEmergencyFoodWork(ctx, tx, householdID, results[householdID], tick, int64(nextGameDay), world.GameDaysPerTickNum, world.GameDaysPerTickDen); err != nil {
-			return false, err
+			return false, tickFailure(world, tick, "emergency_ai", householdID, err)
+		}
+	}
+	for _, householdID := range householdIDs {
+		closing, err := tx.LoadHouseholdAccounting(ctx, householdID)
+		if err != nil {
+			return false, tickFailure(world, tick, "persistence", householdID, fmt.Errorf("capture closing accounting: %w", err))
+		}
+		diagnostic, err := buildTickDiagnostic(world, householdID, tick, startGameDay, nextGameDay, opening[householdID], closing, results[householdID], hourResults[householdID], p.Balance, arrivals[householdID])
+		if err != nil {
+			return false, tickFailure(world, tick, "persistence", householdID, err)
+		}
+		if err := tx.PersistHouseholdTickDiagnostic(ctx, diagnostic); err != nil {
+			return false, tickFailure(world, tick, "persistence", householdID, fmt.Errorf("persist diagnostic: %w", err))
 		}
 	}
 
 	if err := tx.FinishWorldTick(ctx, world, tick, int64(nextGameDay), nextRemainder); err != nil {
-		return false, err
+		return false, tickFailure(world, tick, "commit", "", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit world tick: %w", err)
+		return false, tickFailure(world, tick, "commit", "", fmt.Errorf("commit world tick: %w", err))
 	}
 	return true, nil
+}
+
+func buildTickDiagnostic(world port.WorldClaim, householdID string, tick int64, startDay, endDay calendar.GameDay, opening, closing port.HouseholdAccountingState, legacy simulation.TickResult, hourly simulation.HourResult, cfg simulation.BalanceConfig, arrivals map[string]int64) (port.AdminTickDiagnostic, error) {
+	details := map[string]any{
+		"coverage":                "recorded gameplay movements; politics and non-stock stages are not represented as resource adjustments",
+		"accounting_status":       "partial",
+		"opening_stored_milli":    opening.StoredMilli,
+		"closing_stored_milli":    closing.StoredMilli,
+		"opening_pending_milli":   opening.PendingOutputMilli,
+		"closing_pending_milli":   closing.PendingOutputMilli,
+		"incoming_arrivals_milli": nonNilInt64Map(arrivals),
+	}
+	var characters []simulation.CharacterDiagnostic
+	if world.SimulationModel.UsesHourlyLabor() {
+		details["earned_production_milli"] = map[string]int64{"provisions": hourly.ProducedProvisionsMilli, "wood": hourly.ProducedWoodMilli}
+		details["deposited_production_milli"] = map[string]int64{"provisions": hourly.SettledProvisionsMilli, "wood": hourly.SettledWoodMilli}
+		details["actual_consumption_milli"] = map[string]int64{"provisions": hourly.ConsumedProvisionsMilli, "wood": hourly.ConsumedWoodMilli}
+		details["requested_consumption_milli"] = map[string]int64{"provisions": hourly.ConsumedProvisionsMilli + hourly.FoodShortageMilli, "wood": hourly.ConsumedWoodMilli + hourly.WoodShortageMilli}
+		characters = hourly.CharacterDiagnostics
+	} else {
+		actualFood := cfg.ConsumptionPerTickMilli - legacy.FoodShortageMilli
+		if actualFood < 0 {
+			actualFood = 0
+		}
+		details["direct_production_milli"] = map[string]int64{"provisions": legacy.ProducedProvisionsMilli, "wood": legacy.ProducedWoodMilli}
+		actualWood := cfg.DailyWoodUpkeepMilli - legacy.WoodShortageMilli
+		if actualWood < 0 {
+			actualWood = 0
+		}
+		details["actual_consumption_milli"] = map[string]int64{"provisions": actualFood, "wood": actualWood}
+		details["requested_consumption_milli"] = map[string]int64{"provisions": cfg.ConsumptionPerTickMilli, "wood": cfg.DailyWoodUpkeepMilli}
+		characters = legacy.CharacterDiagnostics
+	}
+	if characters == nil {
+		characters = []simulation.CharacterDiagnostic{}
+	}
+	details["characters"] = characters
+	arrivalsForResource := nonNilInt64Map(arrivals)
+	expectedStored := copyInt64Map(opening.StoredMilli)
+	if world.SimulationModel.UsesHourlyLabor() {
+		deposits := map[string]int64{"provisions": hourly.SettledProvisionsMilli, "wood": hourly.SettledWoodMilli}
+		actual := map[string]int64{"provisions": hourly.ConsumedProvisionsMilli, "wood": hourly.ConsumedWoodMilli}
+		for resource, amount := range arrivalsForResource {
+			expectedStored[resource] += amount
+		}
+		for resource, amount := range deposits {
+			expectedStored[resource] += amount
+		}
+		for resource, amount := range actual {
+			expectedStored[resource] -= amount
+		}
+		expectedPending := map[string]int64{"provisions": opening.PendingOutputMilli["provisions"] + hourly.ProducedProvisionsMilli - hourly.SettledProvisionsMilli, "wood": opening.PendingOutputMilli["wood"] + hourly.ProducedWoodMilli - hourly.SettledWoodMilli}
+		details["expected_closing_pending_milli"] = expectedPending
+		if !sameInt64MapValues(expectedPending, closing.PendingOutputMilli) {
+			return port.AdminTickDiagnostic{}, fmt.Errorf("pending accounting mismatch for household %s", householdID)
+		}
+	} else {
+		for resource, amount := range arrivalsForResource {
+			expectedStored[resource] += amount
+		}
+		expectedStored["provisions"] += legacy.ProducedProvisionsMilli - (cfg.ConsumptionPerTickMilli - legacy.FoodShortageMilli)
+		expectedStored["wood"] += legacy.ProducedWoodMilli - (cfg.DailyWoodUpkeepMilli - legacy.WoodShortageMilli)
+	}
+	details["expected_closing_stored_milli"] = expectedStored
+	if !sameInt64MapValues(expectedStored, closing.StoredMilli) {
+		return port.AdminTickDiagnostic{}, fmt.Errorf("stored accounting mismatch for household %s", householdID)
+	}
+	details["tracked_balance_check"] = "passed"
+	value := port.AdminTickDiagnostic{WorldID: world.ID, HouseholdID: householdID, Tick: tick, IntervalStartDay: int64(startDay), IntervalEndDay: int64(endDay), SimulationModel: world.SimulationModel, DiagnosticSchemaVersion: 1, Details: details}
+	if world.SimulationModel.UsesHourlyLabor() {
+		if moment, err := calendar.MomentAtClock(calendar.ClockState{Day: startDay, Remainder: world.CalendarRemainder, GameDaysPerTickNum: world.GameDaysPerTickNum, GameDaysPerTickDen: world.GameDaysPerTickDen}); err == nil {
+			end := calendar.AdvanceMoment(moment, 1)
+			value.IntervalStartHour = &moment.Hour
+			value.IntervalEndDay = int64(end.Day)
+			value.IntervalEndHour = &end.Hour
+		}
+	}
+	return value, nil
+}
+
+func nonNilInt64Map(value map[string]int64) map[string]int64 {
+	if value == nil {
+		return map[string]int64{}
+	}
+	return value
+}
+
+func copyInt64Map(value map[string]int64) map[string]int64 {
+	copyValue := make(map[string]int64, len(value))
+	for key, amount := range value {
+		copyValue[key] = amount
+	}
+	return copyValue
+}
+
+func sameInt64MapValues(expected, actual map[string]int64) bool {
+	keys := map[string]struct{}{}
+	for key := range expected {
+		keys[key] = struct{}{}
+	}
+	for key := range actual {
+		keys[key] = struct{}{}
+	}
+	for key := range keys {
+		if expected[key] != actual[key] {
+			return false
+		}
+	}
+	return true
 }
 
 // processEmergencyFoodWork is deliberately narrow: only an available,
@@ -363,23 +500,29 @@ func (p *TickProcessor) processContractRollups(ctx context.Context, tx port.Worl
 	return nil
 }
 
-func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64, gameDay calendar.GameDay) error {
+func (p *TickProcessor) processShipmentArrivals(ctx context.Context, tx port.WorldTickTransaction, worldID string, tick int64, gameDay calendar.GameDay) (map[string]map[string]int64, error) {
 	due, err := tx.LoadDueShipments(ctx, worldID, tick)
 	if err != nil {
-		return fmt.Errorf("load shipment arrivals: %w", err)
+		return nil, fmt.Errorf("load shipment arrivals: %w", err)
 	}
+	arrivals := make(map[string]map[string]int64)
 	for _, value := range due {
 		arrived, err := value.ArriveAt(shipmentdomain.Tick(tick), shipmentdomain.GameDay(gameDay))
 		if err != nil {
-			return fmt.Errorf("arrive shipment %s: %w", value.ID, err)
+			return nil, fmt.Errorf("arrive shipment %s: %w", value.ID, err)
 		}
 		persisted, err := tx.PersistShipmentArrival(ctx, arrived)
 		if err != nil {
-			return fmt.Errorf("persist shipment %s arrival: %w", value.ID, err)
+			return nil, fmt.Errorf("persist shipment %s arrival: %w", value.ID, err)
 		}
 		if !persisted {
-			return fmt.Errorf("shipment %s arrival was already persisted", value.ID)
+			return nil, fmt.Errorf("shipment %s arrival was already persisted", value.ID)
 		}
+		household := string(arrived.ReceiverHouseholdID)
+		if arrivals[household] == nil {
+			arrivals[household] = map[string]int64{}
+		}
+		arrivals[household][string(arrived.ResourceType)] += int64(arrived.QuantityMilli)
 	}
-	return nil
+	return arrivals, nil
 }

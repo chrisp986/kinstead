@@ -265,3 +265,31 @@ Bjornvik receives no provisions until the resulting shipment reaches its arrival
 The online worker currently persists market-created shipment arrivals plus the core loop already implemented by `simulation.ProcessTick`: assignments, seasonal production, household consumption, wood upkeep and fatigue. The offline v0.3 scenario still contains richer strategy behavior such as automated trade, construction progression and Jarl decisions.
 
 The next integration increment should add **contracts and obligations fulfilled by shipment arrival**, without duplicating rules in HTTP handlers.
+
+## Developer console
+
+The read-only developer console is available at `/admin` to authenticated
+players granted an `admin_memberships` row. Grant access only from an operator
+environment, never through HTTP:
+
+```sh
+DATABASE_URL='postgres://game:game@localhost:5432/game?sslmode=disable' \
+  go run -tags postgres ./cmd/admin -player-id '<existing-player-uuid>'
+```
+
+The command validates the player and is idempotent. It prints only the player
+ID and outcome; it does not create or print a session. Session credentials are
+still provisioned separately by `cmd/session`.
+
+Console observations are read-only. Worker heartbeats are written about every
+10 seconds and become stale after 30 seconds. Tick diagnostics and operational
+errors are retained for 30 days; stale heartbeat rows are retained for 7 days.
+Run the bounded cleanup command from an operator environment as needed:
+
+```sh
+DATABASE_URL='postgres://game:game@localhost:5432/game?sslmode=disable' \
+  go run -tags postgres ./cmd/admin-cleanup
+```
+
+Do not run either command against production without the separate production
+change and access process.

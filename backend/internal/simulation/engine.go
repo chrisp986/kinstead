@@ -12,7 +12,21 @@ type TickResult struct {
 	ProducedProvisionsMilli int64
 	ProducedWoodMilli       int64
 	FoodShortageMilli       int64
+	WoodShortageMilli       int64
 	Daily                   *DailyLaborResult
+	CharacterDiagnostics    []CharacterDiagnostic
+}
+
+type CharacterDiagnostic struct {
+	CharacterID             string
+	EffectiveActivity       string
+	ReasonCode              string
+	Reason                  string
+	ProducedProvisionsMilli int64
+	ProducedWoodMilli       int64
+	FatigueBefore           int
+	FatigueAfter            int
+	DutyID                  string
 }
 
 type HourInterval struct {
@@ -38,6 +52,7 @@ type HourResult struct {
 	ProducedProvisionsMilli        int64
 	ProducedWoodMilli              int64
 	FoodShortageMilli              int64
+	WoodShortageMilli              int64
 	Settled                        bool
 	SettledProvisionsMilli         int64
 	SettledWoodMilli               int64
@@ -46,6 +61,7 @@ type HourResult struct {
 	SettledConsumedProvisionsMilli int64
 	SettledConsumedWoodMilli       int64
 	Facts                          []DomainFact
+	CharacterDiagnostics           []CharacterDiagnostic
 }
 
 type DailyLaborResult struct {
@@ -72,8 +88,10 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 	}
 
 	var food, wood int64
+	diagnostics := make([]CharacterDiagnostic, 0, len(state.Characters))
 	for i := range state.Characters {
 		c := &state.Characters[i]
+		fatigueBefore := c.Fatigue
 		a, ok := assigned[c.ID]
 		if !ok {
 			a = Assignment{CharacterID: c.ID, Activity: Rest, Intensity: Normal}
@@ -88,6 +106,18 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 			// Building progress is handled by the strategy runner because a build target is strategic state.
 		}
 		applyFatigue(c, a.Activity, a.Intensity, cfg)
+		diagnostic := CharacterDiagnostic{CharacterID: c.ID, EffectiveActivity: string(a.Activity), ReasonCode: "scheduled_assignment", Reason: "scheduled assignment", FatigueBefore: fatigueBefore, FatigueAfter: c.Fatigue}
+		if !ok {
+			diagnostic.EffectiveActivity, diagnostic.ReasonCode, diagnostic.Reason = string(Rest), "rest", "no scheduled assignment"
+		}
+		diagnostic.ProducedProvisionsMilli, diagnostic.ProducedWoodMilli = 0, 0
+		if a.Activity == Agriculture || a.Activity == Fishing {
+			diagnostic.ProducedProvisionsMilli = produced
+		}
+		if a.Activity == Woodcutting {
+			diagnostic.ProducedWoodMilli = produced
+		}
+		diagnostics = append(diagnostics, diagnostic)
 	}
 
 	state.ProvisionsMilli += food
@@ -99,7 +129,9 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 		state.ProvisionsMilli = 0
 	}
 	state.WoodMilli -= cfg.DailyWoodUpkeepMilli
+	var woodShortage int64
 	if state.WoodMilli < 0 {
+		woodShortage = -state.WoodMilli
 		state.WoodMilli = 0
 	}
 
@@ -110,7 +142,7 @@ func ProcessTick(state HouseholdState, tick int64, assignments []Assignment, ctx
 		state.StrainedDays++
 	}
 	state.Tick = tick
-	return TickResult{State: state, ProducedProvisionsMilli: food, ProducedWoodMilli: wood, FoodShortageMilli: shortage}, nil
+	return TickResult{State: state, ProducedProvisionsMilli: food, ProducedWoodMilli: wood, FoodShortageMilli: shortage, WoodShortageMilli: woodShortage, CharacterDiagnostics: diagnostics}, nil
 }
 
 // ProcessHour advances one [start,end) interval for a daily-labor household.
@@ -149,8 +181,10 @@ func ProcessHourWithContext(state DailyLaborState, interval HourInterval, workCo
 		facts = append(facts, DomainFact{Type: "household_protection_changed", Data: map[string]any{"reason": policy.Reason}})
 	}
 	var producedFood, producedWood int64
+	diagnostics := make([]CharacterDiagnostic, 0, len(state.Characters))
 	for i := range state.Characters {
 		c := &state.Characters[i]
+		fatigueBefore := c.Fatigue
 		for _, duty := range c.TemporaryDuties {
 			if duty.Starts == interval.Start {
 				facts = append(facts, DomainFact{Type: "temporary_duty_started", Data: map[string]any{"character_id": c.ID, "duty_id": duty.ID, "activity": duty.Activity}})
@@ -174,6 +208,7 @@ func ProcessHourWithContext(state DailyLaborState, interval HourInterval, workCo
 			} else {
 				c.Fatigue = recoverFatigue(c.Fatigue, cfg.RecoveryRules)
 			}
+			diagnostics = append(diagnostics, CharacterDiagnostic{CharacterID: c.ID, EffectiveActivity: string(resolved.Activity), ReasonCode: resolved.ReasonCode, Reason: resolved.Reason, FatigueBefore: fatigueBefore, FatigueAfter: c.Fatigue, DutyID: resolved.DutyID})
 			continue
 		}
 		if resolved.Working {
@@ -188,9 +223,19 @@ func ProcessHourWithContext(state DailyLaborState, interval HourInterval, workCo
 				state.PendingWoodMilli += amount
 				producedWood += amount
 			}
+			diagnostic := CharacterDiagnostic{CharacterID: c.ID, EffectiveActivity: string(resolved.Activity), ReasonCode: resolved.ReasonCode, Reason: resolved.Reason, FatigueBefore: fatigueBefore, DutyID: resolved.DutyID}
+			if resolved.Activity == workdomain.Agriculture || resolved.Activity == workdomain.Fishing {
+				diagnostic.ProducedProvisionsMilli = amount
+			}
+			if resolved.Activity == workdomain.Woodcutting {
+				diagnostic.ProducedWoodMilli = amount
+			}
 			c.Fatigue = clampFatigue(c.Fatigue + cfg.WorkFatigueRules.WorkDeltaPerHour)
+			diagnostic.FatigueAfter = c.Fatigue
+			diagnostics = append(diagnostics, diagnostic)
 		} else {
 			c.Fatigue = recoverFatigue(c.Fatigue, cfg.RecoveryRules)
+			diagnostics = append(diagnostics, CharacterDiagnostic{CharacterID: c.ID, EffectiveActivity: string(resolved.Activity), ReasonCode: resolved.ReasonCode, Reason: resolved.Reason, FatigueBefore: fatigueBefore, FatigueAfter: c.Fatigue, DutyID: resolved.DutyID})
 		}
 	}
 
@@ -226,7 +271,9 @@ func ProcessHourWithContext(state DailyLaborState, interval HourInterval, workCo
 	}
 	upkeep, nextWoodRemainder := splitRate(cfg.WoodUpkeepPerDayMilli, state.WoodUpkeepRemainder, 24)
 	state.WoodUpkeepRemainder = nextWoodRemainder
+	woodShortage := int64(0)
 	if state.WoodMilli < upkeep {
+		woodShortage = upkeep - state.WoodMilli
 		state.WoodMilli = 0
 	} else {
 		state.WoodMilli -= upkeep
@@ -241,10 +288,10 @@ func ProcessHourWithContext(state DailyLaborState, interval HourInterval, workCo
 	if settlesToday {
 		settledConsumedFood, settledConsumedWood = consumption, cfg.WoodUpkeepPerDayMilli
 	}
-	return HourResult{State: state, ProducedProvisionsMilli: producedFood, ProducedWoodMilli: producedWood, FoodShortageMilli: shortage,
+	return HourResult{State: state, ProducedProvisionsMilli: producedFood, ProducedWoodMilli: producedWood, FoodShortageMilli: shortage, WoodShortageMilli: woodShortage,
 		Settled: settlesToday, SettledProvisionsMilli: settledFood, SettledWoodMilli: settledWood,
 		ConsumedProvisionsMilli: consumed, ConsumedWoodMilli: upkeep,
-		SettledConsumedProvisionsMilli: settledConsumedFood, SettledConsumedWoodMilli: settledConsumedWood, Facts: facts}, nil
+		SettledConsumedProvisionsMilli: settledConsumedFood, SettledConsumedWoodMilli: settledConsumedWood, Facts: facts, CharacterDiagnostics: diagnostics}, nil
 }
 
 func applyOccupationChanges(state *DailyLaborState, start calendar.Moment) {

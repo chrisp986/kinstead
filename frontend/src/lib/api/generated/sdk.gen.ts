@@ -18,6 +18,18 @@ import type {
 	DispatchContractObligationData,
 	DispatchContractObligationErrors,
 	DispatchContractObligationResponses,
+	GetAdminAccountData,
+	GetAdminAccountErrors,
+	GetAdminAccountResponses,
+	GetAdminHouseholdData,
+	GetAdminHouseholdErrors,
+	GetAdminHouseholdResponses,
+	GetAdminHouseholdTickData,
+	GetAdminHouseholdTickErrors,
+	GetAdminHouseholdTickResponses,
+	GetAdminWorldData,
+	GetAdminWorldErrors,
+	GetAdminWorldResponses,
 	GetHealthData,
 	GetHealthResponses,
 	GetHouseholdCalendarData,
@@ -35,6 +47,24 @@ import type {
 	GetSessionData,
 	GetSessionErrors,
 	GetSessionResponses,
+	ListAdminAccountsData,
+	ListAdminAccountsErrors,
+	ListAdminAccountsResponses,
+	ListAdminErrorsData,
+	ListAdminErrorsErrors,
+	ListAdminErrorsResponses,
+	ListAdminHouseholdsData,
+	ListAdminHouseholdsErrors,
+	ListAdminHouseholdsResponses,
+	ListAdminHouseholdTicksData,
+	ListAdminHouseholdTicksErrors,
+	ListAdminHouseholdTicksResponses,
+	ListAdminSessionsData,
+	ListAdminSessionsErrors,
+	ListAdminSessionsResponses,
+	ListAdminWorldsData,
+	ListAdminWorldsErrors,
+	ListAdminWorldsResponses,
 	ListHouseholdAssignmentsData,
 	ListHouseholdAssignmentsResponses,
 	ListHouseholdChronicleData,
@@ -103,6 +133,119 @@ export const getSession = <ThrowOnError extends boolean = false>(
 		url: '/api/session',
 		...options
 	});
+
+/**
+ * Read-only world health projections. Requires administrator membership.
+ */
+export const listAdminWorlds = <ThrowOnError extends boolean = false>(
+	options?: Options<ListAdminWorldsData, ThrowOnError>
+): RequestResult<ListAdminWorldsResponses, ListAdminWorldsErrors, ThrowOnError> =>
+	(options?.client ?? client).get<ListAdminWorldsResponses, ListAdminWorldsErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/worlds',
+		...options
+	});
+
+export const getAdminWorld = <ThrowOnError extends boolean = false>(
+	options: Options<GetAdminWorldData, ThrowOnError>
+): RequestResult<GetAdminWorldResponses, GetAdminWorldErrors, ThrowOnError> =>
+	(options.client ?? client).get<GetAdminWorldResponses, GetAdminWorldErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/worlds/{id}',
+		...options
+	});
+
+export const listAdminHouseholds = <ThrowOnError extends boolean = false>(
+	options?: Options<ListAdminHouseholdsData, ThrowOnError>
+): RequestResult<ListAdminHouseholdsResponses, ListAdminHouseholdsErrors, ThrowOnError> =>
+	(options?.client ?? client).get<
+		ListAdminHouseholdsResponses,
+		ListAdminHouseholdsErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/households',
+		...options
+	});
+
+export const getAdminHousehold = <ThrowOnError extends boolean = false>(
+	options: Options<GetAdminHouseholdData, ThrowOnError>
+): RequestResult<GetAdminHouseholdResponses, GetAdminHouseholdErrors, ThrowOnError> =>
+	(options.client ?? client).get<GetAdminHouseholdResponses, GetAdminHouseholdErrors, ThrowOnError>(
+		{
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/api/admin/households/{id}',
+			...options
+		}
+	);
+
+export const listAdminHouseholdTicks = <ThrowOnError extends boolean = false>(
+	options: Options<ListAdminHouseholdTicksData, ThrowOnError>
+): RequestResult<ListAdminHouseholdTicksResponses, ListAdminHouseholdTicksErrors, ThrowOnError> =>
+	(options.client ?? client).get<
+		ListAdminHouseholdTicksResponses,
+		ListAdminHouseholdTicksErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/households/{id}/ticks',
+		...options
+	});
+
+export const getAdminHouseholdTick = <ThrowOnError extends boolean = false>(
+	options: Options<GetAdminHouseholdTickData, ThrowOnError>
+): RequestResult<GetAdminHouseholdTickResponses, GetAdminHouseholdTickErrors, ThrowOnError> =>
+	(options.client ?? client).get<
+		GetAdminHouseholdTickResponses,
+		GetAdminHouseholdTickErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/households/{id}/ticks/{tick}',
+		...options
+	});
+
+export const listAdminErrors = <ThrowOnError extends boolean = false>(
+	options?: Options<ListAdminErrorsData, ThrowOnError>
+): RequestResult<ListAdminErrorsResponses, ListAdminErrorsErrors, ThrowOnError> =>
+	(options?.client ?? client).get<ListAdminErrorsResponses, ListAdminErrorsErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/errors',
+		...options
+	});
+
+export const listAdminAccounts = <ThrowOnError extends boolean = false>(
+	options?: Options<ListAdminAccountsData, ThrowOnError>
+): RequestResult<ListAdminAccountsResponses, ListAdminAccountsErrors, ThrowOnError> =>
+	(options?.client ?? client).get<
+		ListAdminAccountsResponses,
+		ListAdminAccountsErrors,
+		ThrowOnError
+	>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/accounts',
+		...options
+	});
+
+export const getAdminAccount = <ThrowOnError extends boolean = false>(
+	options: Options<GetAdminAccountData, ThrowOnError>
+): RequestResult<GetAdminAccountResponses, GetAdminAccountErrors, ThrowOnError> =>
+	(options.client ?? client).get<GetAdminAccountResponses, GetAdminAccountErrors, ThrowOnError>({
+		security: [{ scheme: 'bearer', type: 'http' }],
+		url: '/api/admin/accounts/{id}',
+		...options
+	});
+
+export const listAdminSessions = <ThrowOnError extends boolean = false>(
+	options: Options<ListAdminSessionsData, ThrowOnError>
+): RequestResult<ListAdminSessionsResponses, ListAdminSessionsErrors, ThrowOnError> =>
+	(options.client ?? client).get<ListAdminSessionsResponses, ListAdminSessionsErrors, ThrowOnError>(
+		{
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/api/admin/accounts/{id}/sessions',
+			...options
+		}
+	);
 
 export const getHealth = <ThrowOnError extends boolean = false>(
 	options?: Options<GetHealthData, ThrowOnError>

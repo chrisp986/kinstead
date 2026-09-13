@@ -91,6 +91,9 @@ func (t *worldTickTx) PersistContractRollup(ctx context.Context, before, after c
 func (t *worldTickTx) ListHouseholdIDs(ctx context.Context, worldID string) ([]string, error) {
 	return t.store.ListHouseholdIDs(ctx, t.tx, worldID)
 }
+func (t *worldTickTx) LoadHouseholdAccounting(ctx context.Context, householdID string) (port.HouseholdAccountingState, error) {
+	return t.store.LoadHouseholdAccounting(ctx, t.tx, householdID)
+}
 func (t *worldTickTx) LoadHouseholdForTick(ctx context.Context, householdID string, tick int64) (port.HouseholdSnapshot, []simulation.Assignment, error) {
 	return t.store.LoadHouseholdForTick(ctx, t.tx, householdID, tick)
 }
@@ -99,6 +102,9 @@ func (t *worldTickTx) SaveHouseholdTick(ctx context.Context, householdID string,
 }
 func (t *worldTickTx) SaveHouseholdDailyTick(ctx context.Context, householdID string, result simulation.HourResult) error {
 	return t.store.SaveHouseholdDailyTick(ctx, t.tx, householdID, result)
+}
+func (t *worldTickTx) PersistHouseholdTickDiagnostic(ctx context.Context, value port.AdminTickDiagnostic) error {
+	return t.store.PersistHouseholdTickDiagnostic(ctx, t.tx, value)
 }
 func (t *worldTickTx) LoadEmergencyFoodContext(ctx context.Context, householdID string, nextTick int64) (port.EmergencyFoodContext, error) {
 	return t.store.LoadEmergencyFoodContext(ctx, t.tx, householdID, nextTick)

@@ -27,6 +27,59 @@ func (authStub) PlayerHasWorld(_ context.Context, player, world string) (bool, e
 	return player == "player" && world == "world", nil
 }
 
+type adminStub struct {
+	isAdmin bool
+	err     error
+}
+
+func (s *adminStub) PlayerIsAdmin(context.Context, string) (bool, error) { return s.isAdmin, s.err }
+
+func TestAdministratorAuthorizationChecksMembershipPerRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stub *adminStub
+		want int
+	}{
+		{"non-admin", &adminStub{}, http.StatusForbidden},
+		{"admin", &adminStub{isAdmin: true}, http.StatusNoContent},
+		{"membership failure", &adminStub{err: context.DeadlineExceeded}, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			handler := sessionAuthenticated(authStub{}, adminAuthorized(tc.stub, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { called = true; w.WriteHeader(http.StatusNoContent) })))
+			r := httptest.NewRequest(http.MethodGet, "/api/admin/worlds", nil)
+			r.Header.Set("Authorization", "Bearer "+strings.Repeat("a", 43))
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != tc.want || called != (tc.want == http.StatusNoContent) {
+				t.Fatalf("status=%d called=%v", w.Code, called)
+			}
+			if w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("cache-control=%q", w.Header().Get("Cache-Control"))
+			}
+		})
+	}
+}
+
+func TestAdministratorMembershipRemovalAppliesOnNextRequest(t *testing.T) {
+	stub := &adminStub{isAdmin: true}
+	handler := sessionAuthenticated(authStub{}, adminAuthorized(stub, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+	request := func() int {
+		r := httptest.NewRequest(http.MethodGet, "/api/admin/worlds", nil)
+		r.Header.Set("Authorization", "Bearer "+strings.Repeat("a", 43))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w.Code
+	}
+	if got := request(); got != http.StatusNoContent {
+		t.Fatalf("first request status=%d", got)
+	}
+	stub.isAdmin = false
+	if got := request(); got != http.StatusForbidden {
+		t.Fatalf("second request status=%d", got)
+	}
+}
+
 func TestOwnershipEnforcedForEveryHouseholdReadAndCommand(t *testing.T) {
 	cases := []struct{ method, path, body string }{
 		{"GET", "/api/households/HOUSE/report", ""},

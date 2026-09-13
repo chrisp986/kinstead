@@ -274,9 +274,11 @@ type WorldTickTransaction interface {
 	LoadActiveContractsForRollup(context.Context, string) ([]ContractRollupSnapshot, error)
 	PersistContractRollup(context.Context, contractdomain.Contract, contractdomain.Contract) (bool, error)
 	ListHouseholdIDs(context.Context, string) ([]string, error)
+	LoadHouseholdAccounting(context.Context, string) (HouseholdAccountingState, error)
 	LoadHouseholdForTick(context.Context, string, int64) (HouseholdSnapshot, []simulation.Assignment, error)
 	SaveHouseholdTick(context.Context, string, simulation.TickResult, int64) error
 	SaveHouseholdDailyTick(context.Context, string, simulation.HourResult) error
+	PersistHouseholdTickDiagnostic(context.Context, AdminTickDiagnostic) error
 	LoadEmergencyFoodContext(context.Context, string, int64) (EmergencyFoodContext, error)
 	ScheduleEmergencyFoodWork(context.Context, string, EmergencyFoodDecisionRecord) (bool, error)
 	RecordEmergencyFoodDecision(context.Context, string, EmergencyFoodDecisionRecord) error
@@ -296,6 +298,11 @@ type EmergencyFoodDecisionRecord struct {
 	SupplyGameDays          int64
 	ExpectedProductionMilli int64
 	RemainsAtRisk           bool
+}
+
+type HouseholdAccountingState struct {
+	StoredMilli        map[string]int64
+	PendingOutputMilli map[string]int64
 }
 
 type TickRepository interface {

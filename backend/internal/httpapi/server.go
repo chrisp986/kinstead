@@ -36,6 +36,7 @@ type Server struct {
 	calendar      *application.CalendarService
 	workPreview   *application.WorkPreviewService
 	occupations   *application.OccupationService
+	admin         *application.AdminService
 	log           *slog.Logger
 }
 
@@ -51,34 +52,61 @@ func New(store *postgres.Store, log *slog.Logger) http.Handler {
 		calendar:      application.NewCalendarService(store),
 		workPreview:   application.NewWorkPreviewService(store),
 		occupations:   application.NewOccupationService(store),
+		admin:         application.NewAdminService(store),
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", s.health)
-	mux.HandleFunc("GET /api/session", s.session)
-	mux.HandleFunc("GET /api/households/{id}/report", s.farmReport)
-	mux.HandleFunc("POST /api/households/{id}/report/acknowledge", s.acknowledgeFarmReport)
-	mux.HandleFunc("GET /api/households/{id}/calendar", s.householdCalendar)
-	mux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
-	mux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
-	mux.HandleFunc("POST /api/households/{id}/work-preview", s.previewWork)
-	mux.HandleFunc("GET /api/households/{id}/work-plan", s.workPlan)
-	mux.HandleFunc("PUT /api/households/{id}/characters/{characterId}/occupation", s.changeOccupation)
-	mux.HandleFunc("POST /api/households/{id}/work-plan/preview", s.previewOccupation)
-	mux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
-	mux.HandleFunc("POST /api/shipments/{id}/cancel", s.cancelShipment)
-	mux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
-	mux.HandleFunc("GET /api/households/{id}/relationships", s.householdRelationships)
-	mux.HandleFunc("GET /api/households/{id}/contracts", s.householdContracts)
-	mux.HandleFunc("GET /api/households/{id}/politics", s.householdPolitics)
-	mux.HandleFunc("POST /api/contracts", s.proposeContract)
-	mux.HandleFunc("POST /api/contracts/preview", s.previewContract)
-	mux.HandleFunc("POST /api/contracts/{id}/respond", s.respondContract)
-	mux.HandleFunc("POST /api/contract-obligations/{id}/dispatch", s.dispatchContractObligation)
-	mux.HandleFunc("POST /api/political-demands/{id}/respond", s.respondPoliticalDemand)
-	mux.HandleFunc("GET /api/market/offers", s.marketOffers)
-	mux.HandleFunc("POST /api/market/offers/{id}/quote", s.quoteMarketOffer)
-	mux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
-	return cors(authenticated(store, mux))
+	publicMux := http.NewServeMux()
+	publicMux.HandleFunc("GET /healthz", s.health)
+	gameplayMux := http.NewServeMux()
+	gameplayMux.HandleFunc("GET /api/households/{id}/report", s.farmReport)
+	gameplayMux.HandleFunc("POST /api/households/{id}/report/acknowledge", s.acknowledgeFarmReport)
+	gameplayMux.HandleFunc("GET /api/households/{id}/calendar", s.householdCalendar)
+	gameplayMux.HandleFunc("GET /api/households/{id}/assignments", s.assignments)
+	gameplayMux.HandleFunc("POST /api/households/{id}/assignments", s.createAssignment)
+	gameplayMux.HandleFunc("POST /api/households/{id}/work-preview", s.previewWork)
+	gameplayMux.HandleFunc("GET /api/households/{id}/work-plan", s.workPlan)
+	gameplayMux.HandleFunc("PUT /api/households/{id}/characters/{characterId}/occupation", s.changeOccupation)
+	gameplayMux.HandleFunc("POST /api/households/{id}/work-plan/preview", s.previewOccupation)
+	gameplayMux.HandleFunc("GET /api/households/{id}/shipments", s.householdShipments)
+	gameplayMux.HandleFunc("POST /api/shipments/{id}/cancel", s.cancelShipment)
+	gameplayMux.HandleFunc("GET /api/households/{id}/chronicle", s.householdChronicle)
+	gameplayMux.HandleFunc("GET /api/households/{id}/relationships", s.householdRelationships)
+	gameplayMux.HandleFunc("GET /api/households/{id}/contracts", s.householdContracts)
+	gameplayMux.HandleFunc("GET /api/households/{id}/politics", s.householdPolitics)
+	gameplayMux.HandleFunc("POST /api/contracts", s.proposeContract)
+	gameplayMux.HandleFunc("POST /api/contracts/preview", s.previewContract)
+	gameplayMux.HandleFunc("POST /api/contracts/{id}/respond", s.respondContract)
+	gameplayMux.HandleFunc("POST /api/contract-obligations/{id}/dispatch", s.dispatchContractObligation)
+	gameplayMux.HandleFunc("POST /api/political-demands/{id}/respond", s.respondPoliticalDemand)
+	gameplayMux.HandleFunc("GET /api/market/offers", s.marketOffers)
+	gameplayMux.HandleFunc("POST /api/market/offers/{id}/quote", s.quoteMarketOffer)
+	gameplayMux.HandleFunc("POST /api/market/offers/{id}/purchase", s.purchaseMarketOffer)
+	adminMux := http.NewServeMux()
+	adminMux.HandleFunc("GET /api/admin/worlds", s.adminWorlds)
+	adminMux.HandleFunc("GET /api/admin/worlds/{id}", s.adminWorld)
+	adminMux.HandleFunc("GET /api/admin/households", s.adminHouseholds)
+	adminMux.HandleFunc("GET /api/admin/households/{id}", s.adminHousehold)
+	adminMux.HandleFunc("GET /api/admin/households/{id}/ticks", s.adminHouseholdTicks)
+	adminMux.HandleFunc("GET /api/admin/households/{id}/ticks/{tick}", s.adminHouseholdTick)
+	adminMux.HandleFunc("GET /api/admin/errors", s.adminErrors)
+	adminMux.HandleFunc("GET /api/admin/accounts", s.adminAccounts)
+	adminMux.HandleFunc("GET /api/admin/accounts/{id}", s.adminAccount)
+	adminMux.HandleFunc("GET /api/admin/accounts/{id}/sessions", s.adminSessions)
+	// Admin routes are registered here as a separate protected subrouter as
+	// endpoints are added. The empty subrouter currently returns normal 404s.
+	root := http.NewServeMux()
+	root.Handle("/healthz", publicMux)
+	root.Handle("/api/", sessionAuthenticated(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/session" && r.Method == http.MethodGet {
+			s.session(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/admin/") {
+			adminAuthorized(store, adminMux).ServeHTTP(w, r)
+			return
+		}
+		gameplayAuthorized(store, gameplayMux).ServeHTTP(w, r)
+	})))
+	return requestContext(cors(root))
 }
 
 func (s *Server) householdPolitics(w http.ResponseWriter, r *http.Request) {
@@ -669,6 +697,10 @@ func validIntensity(v string) bool { return v == "light" || v == "normal" || v =
 func validDuration(v int64) bool   { return v == 1 || v == 3 || v == 6 || v == 12 }
 
 func (s *Server) writeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, application.ErrInvalidAdminRequest) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_admin_request"})
+		return
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		return
@@ -761,11 +793,30 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "purchase_conflict", "message": err.Error()})
 		return
 	}
-	s.log.Error("api request failed", "error", err)
+	s.log.Error("api request failed", "error", err, "request_id", requestIDFromWriter(w))
+	if s.store != nil {
+		requestID := requestIDFromWriter(w)
+		_ = s.store.RecordOperationalError(contextFromWriter(w), port.OperationalErrorRecord{Source: "api", ErrorCode: "internal_error", Message: "request failed", RequestID: requestID, Fingerprint: "api:internal_error:" + requestID})
+	}
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	if status >= 400 {
+		if requestID := requestIDFromWriter(w); requestID != "" {
+			switch value := v.(type) {
+			case map[string]string:
+				copyValue := make(map[string]string, len(value)+1)
+				for key, item := range value {
+					copyValue[key] = item
+				}
+				copyValue["request_id"] = requestID
+				v = copyValue
+			case map[string]any:
+				value["request_id"] = requestID
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)

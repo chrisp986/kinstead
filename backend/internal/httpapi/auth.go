@@ -16,21 +16,23 @@ import (
 
 type playerContextKey struct{}
 
-type ownershipReader interface {
+type sessionReader interface {
 	AuthenticateSession(context.Context, string) (string, error)
+}
+
+type ownershipReader interface {
 	PlayerOwnsHousehold(context.Context, string, string) (bool, error)
 	PlayerHasWorld(context.Context, string, string) (bool, error)
 }
 
-// Authorization runs before any gameplay handler. The authenticated identity
-// comes exclusively from an unexpired, unrevoked database session. Body IDs
-// select the requested household; they never establish the player's identity.
-func authenticated(store ownershipReader, next http.Handler) http.Handler {
+type adminReader interface {
+	PlayerIsAdmin(context.Context, string) (bool, error)
+}
+
+// sessionAuthenticated establishes identity exclusively from an unexpired,
+// unrevoked database session. It has no gameplay or administrator semantics.
+func sessionAuthenticated(store sessionReader, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
 		w.Header().Set("Cache-Control", "no-store")
 		authorization := strings.Fields(r.Header.Get("Authorization"))
 		if len(authorization) != 2 || !strings.EqualFold(authorization[0], "Bearer") || len(authorization[1]) != 43 {
@@ -47,10 +49,15 @@ func authenticated(store ownershipReader, next http.Handler) http.Handler {
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), playerContextKey{}, playerID))
-		if r.URL.Path == "/api/session" && r.Method == http.MethodGet {
-			next.ServeHTTP(w, r)
-			return
-		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// gameplayAuthorized preserves the existing ownership rules. An administrator
+// identity never bypasses these checks.
+func gameplayAuthorized(store ownershipReader, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		playerID, _ := r.Context().Value(playerContextKey{}).(string)
 		var householdID string
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		if len(parts) >= 4 && parts[0] == "api" && parts[1] == "households" {
@@ -90,13 +97,21 @@ func authenticated(store ownershipReader, next http.Handler) http.Handler {
 			}
 		}
 		allowed := false
+		applicable := false
+		var err error
 		if r.URL.Path == "/api/market/offers" && r.Method == http.MethodGet {
+			applicable = true
 			allowed, err = store.PlayerHasWorld(r.Context(), playerID, r.URL.Query().Get("world_id"))
 		} else if householdID != "" {
+			applicable = true
 			allowed, err = store.PlayerOwnsHousehold(r.Context(), playerID, householdID)
 		}
 		if err != nil {
 			writeJSON(w, 503, map[string]string{"error": "authorization_unavailable"})
+			return
+		}
+		if !applicable {
+			next.ServeHTTP(w, r)
 			return
 		}
 		if !allowed {
@@ -107,6 +122,33 @@ func authenticated(store ownershipReader, next http.Handler) http.Handler {
 	})
 }
 
+func adminAuthorized(store adminReader, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		playerID, _ := r.Context().Value(playerContextKey{}).(string)
+		isAdmin, err := store.PlayerIsAdmin(r.Context(), playerID)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "authorization_unavailable"})
+			return
+		}
+		if !isAdmin {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "administrator_required"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// authenticated is retained as the combined gameplay middleware used by
+// existing focused tests and callers. Production route registration composes
+// the concerns explicitly.
+func authenticated(store interface {
+	sessionReader
+	ownershipReader
+}, next http.Handler) http.Handler {
+	return sessionAuthenticated(store, gameplayAuthorized(store, next))
+}
+
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	playerID, _ := r.Context().Value(playerContextKey{}).(string)
 	households, err := s.store.ListOwnedHouseholds(r.Context(), playerID)
@@ -114,5 +156,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"households": households})
+	isAdmin, err := s.store.PlayerIsAdmin(r.Context(), playerID)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "authorization_unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"player_id": playerID, "is_admin": isAdmin, "households": households})
 }
